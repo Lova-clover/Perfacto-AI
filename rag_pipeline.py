@@ -15,6 +15,7 @@ from file_handler import get_documents_from_files
 import faiss
 from langchain.embeddings import HuggingFaceEmbeddings
 import os
+import traceback  
 
 def get_retriever_from_source(source_type, source_input):
     documents = [] 
@@ -28,25 +29,23 @@ def get_retriever_from_source(source_type, source_input):
             documents = get_documents_from_files(source_input)
         elif source_type == "FAISS":
             embeddings = HuggingFaceEmbeddings(model_name="jhgan/ko-sbert-sts")
-    
             if os.path.isdir(source_input):
                 index_dir = source_input
-                # 🔍 FAISS 필수 파일 존재 여부 확인
-                faiss_file = os.path.join(index_dir, "index.faiss")
-                pkl_file = os.path.join(index_dir, "index.pkl")
-        
-                if not os.path.exists(faiss_file):
-                    st.error("index.faiss 파일이 존재하지 않습니다.")
-                    print("[ERROR] index.faiss 파일 없음:", faiss_file)
-                if not os.path.exists(pkl_file):
-                    st.error("index.pkl 파일이 존재하지 않습니다.")
-                    print("[ERROR] index.pkl 파일 없음:", pkl_file)
-
             else:
                 st.error(f"유효하지 않은 경로입니다: {source_input}")
                 return None
-
+            try:
+                retriever = FAISS.load_local(index_dir, embeddings).as_retriever()
+                return retriever
+            except Exception as e:
+                # Streamlit 에러 출력 대신 로그 찍기
+                error_msg = traceback.format_exc()
+                print("[DEBUG] FAISS 로드 에러:\n", error_msg)
+                st.error(f"FAISS 인덱스 로드 중 오류 발생:\n{e}")
+                return None
+            
             return FAISS.load_local(index_dir, embeddings).as_retriever()
+        
         if not documents:
             status.update(label="문서 로딩 실패.", state="error")
             return None
