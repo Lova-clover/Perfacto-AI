@@ -4,7 +4,7 @@ import streamlit as st
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, AIMessage
 from rag_pipeline import get_retriever_from_source, get_document_chain, get_default_chain
-from utils.web_ingest import full_web_ingest
+from web_ingest import full_web_ingest
 
 # API 키 로드
 load_dotenv()
