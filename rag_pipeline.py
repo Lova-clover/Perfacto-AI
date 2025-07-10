@@ -17,11 +17,16 @@ import requests
 from langchain.llms.base import LLM
 from typing import Optional, List
 from groq import Groq
+from dataclasses import dataclass, field
 
+@dataclass
 class GROQLLM(LLM):
-    def __init__(self, api_key: str, model: str = "deepseek-r1-distill-llama-70b"):
-        self.client = Groq(api_key=api_key)
-        self.model = model
+    api_key: str = field(repr=False)
+    model: str = "deepseek-r1-distill-llama-70b"
+    client: Groq = field(init=False, repr=False)
+
+    def __post_init__(self):
+        self.client = Groq(api_key=self.api_key)
 
     def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
         messages = [{"role": "user", "content": prompt}]
@@ -34,7 +39,6 @@ class GROQLLM(LLM):
             stream=False,
             stop=stop,
         )
-        # completion은 dict 형태 응답, content 추출
         return completion.choices[0].message.content
 
     @property
