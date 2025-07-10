@@ -28,14 +28,25 @@ def get_retriever_from_source(source_type, source_input):
             documents = get_documents_from_files(source_input)
         elif source_type == "FAISS":
             embeddings = HuggingFaceEmbeddings(model_name="jhgan/ko-sbert-sts")
+    
             if os.path.isdir(source_input):
                 index_dir = source_input
+                # 🔍 FAISS 필수 파일 존재 여부 확인
+                faiss_file = os.path.join(index_dir, "index.faiss")
+                pkl_file = os.path.join(index_dir, "index.pkl")
+        
+                if not os.path.exists(faiss_file):
+                    st.error("index.faiss 파일이 존재하지 않습니다.")
+                    print("[ERROR] index.faiss 파일 없음:", faiss_file)
+                if not os.path.exists(pkl_file):
+                    st.error("index.pkl 파일이 존재하지 않습니다.")
+                    print("[ERROR] index.pkl 파일 없음:", pkl_file)
+
             else:
                 st.error(f"유효하지 않은 경로입니다: {source_input}")
                 return None
 
             return FAISS.load_local(index_dir, embeddings).as_retriever()
-
         if not documents:
             status.update(label="문서 로딩 실패.", state="error")
             return None
