@@ -29,7 +29,7 @@ if "messages" not in st.session_state:
 if "retriever" not in st.session_state:
     st.session_state.retriever = None
 if "system_prompt" not in st.session_state:
-    st.session_state.system_prompt = "당신은 문서 분석 전문가 AI 어시스턴트입니다. 주어진 문서의 텍스트와 테이블을 정확히 이해하고 상세하게 답변해주세요. 또한 영상 제작을 돕는 AI 어시스턴트입니다. 영상 제작을 위해 해당 문서를 분석하여 스크립트를 제작해주세요. 스크립트 외에는 어떤 답변도 해서는 안됩니다. 또한 마크다운과 같은 기호는 전부 제거해주세요."
+    st.session_state.system_prompt = "당신은 문서 분석 전문가 AI 어시스턴트이자, 숏폼(Short-form) 영상 제작을 위한 스크립트 전문가입니다. 주어진 문서의 텍스트와 테이블을 정확히 이해하고, 짧고 간결하며 핵심 내용을 담은 쇼츠 영상 스크립트를 제작해주세요. 스크립트 외에는 어떤 답변도 해서는 안됩니다. 또한 마크다운과 같은 기호는 전부 제거해주세요."
 if "last_user_query" not in st.session_state:
     st.session_state.last_user_query = ""
 if "video_topic" not in st.session_state:
