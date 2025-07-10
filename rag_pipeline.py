@@ -16,33 +16,35 @@ import os
 import requests
 from langchain.llms.base import LLM
 from typing import Optional, List
+from groq import Groq
 
 class GROQLLM(LLM):
-    def __init__(self, api_key: str):
-        self.api_key = api_key
-        self.endpoint = "https://api.groq.ai/v1/generate"
+    def __init__(self, api_key: str, model: str = "deepseek-r1-distill-llama-70b"):
+        self.client = Groq(api_key=api_key)
+        self.model = model
 
     def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        data = {
-            "prompt": prompt,
-            "max_tokens": 512,
-        }
-        response = requests.post(self.endpoint, headers=headers, json=data)
-        response.raise_for_status()
-        return response.json()["text"]
+        messages = [{"role": "user", "content": prompt}]
+        completion = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=0.6,
+            max_completion_tokens=512,
+            top_p=0.95,
+            stream=False,
+            stop=stop,
+        )
+        # completion은 dict 형태 응답, content 추출
+        return completion.choices[0].message.content
 
     @property
     def _identifying_params(self):
-        return {"api_key": self.api_key}
+        return {"model": self.model}
 
     @property
     def _llm_type(self) -> str:
-        return "groq"  # 자유롭게 이름 지정 가능
-
+        return "groq"
+    
 def get_retriever_from_source(source_type, source_input):
     documents = [] 
     with st.status("문서 처리 중...", expanded=True) as status:
