@@ -266,7 +266,7 @@ if user_input:
                     ai_answer += token
                     container.markdown(ai_answer)
                 st.session_state.messages.append({"role": "assistant", "content": ai_answer, "sources": []})
-
+                st.rerun()
     except Exception as e:
         st.chat_message("assistant").error(f"죄송합니다, 답변을 생성하는 중 오류가 발생했습니다.\n\n오류: {e}")
         st.session_state.messages.pop()
