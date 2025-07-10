@@ -1,16 +1,14 @@
-# main.py (최종 클린 버전)
-
 import streamlit as st
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, AIMessage
 from rag_pipeline import get_retriever_from_source, get_document_chain, get_default_chain
 from web_ingest import full_web_ingest
-from script_generator import generate_script # This import seems unused in the original main.py, keep for consistency if it's part of a larger plan.
+from script_generator import generate_script
 from image_generator import generate_images_for_topic
 from elevenlabs_tts import generate_tts, TTS_TEMPLATES
 from whisper_asr import transcribe_audio_with_timestamps, generate_ass_subtitle, SUBTITLE_TEMPLATES
 from video_maker import create_video_with_segments, add_subtitles_to_video
-from deep_translator import GoogleTranslator # This import seems unused in the original main.py, keep for consistency if it's part of a larger plan.
+from deep_translator import GoogleTranslator
 import os
 
 # API 키 로드
@@ -101,17 +99,49 @@ for i, message in enumerate(st.session_state["messages"]):
                     try:
                         ai_answer_script = message["content"]
                         
+                        # --- 0. 스크립트에서 토픽 추출 (LLM 사용) ---
+                        st.write("🔍 이미지 검색을 위한 토픽 추출 중...")
+                        topic_extraction_prompt = f"""다음 스크립트에서 이미지를 생성하기 위한 2-3개의 간결한 키워드 또는 아주 짧은 구문(최대 10단어)으로 메인 주제를 추출해주세요. 키워드/구문만 응답하세요.
+
+                        스크립트:
+                        {ai_answer_script}
+
+                        키워드/주제:"""
+                        
+                        topic_llm_chain = get_default_chain(system_prompt="당신은 주어진 텍스트에서 키워드를 추출하는 유용한 조수입니다.")
+                        extracted_topic_korean = topic_llm_chain.invoke({"question": topic_extraction_prompt, "chat_history": []})
+                        
+                        extracted_topic_korean = extracted_topic_korean.strip()
+                        
+                        if not extracted_topic_korean:
+                            extracted_topic_korean = st.session_state.last_user_query if st.session_state.last_user_query else "abstract background"
+                            st.warning("토픽 추출에 실패했습니다. 마지막 사용자 질문을 이미지 검색어로 사용합니다.")
+                        else:
+                             st.success(f"이미지 검색 토픽 추출 완료 (한국어): '{extracted_topic_korean}'")
+
+                        # --- 0-1. 추출된 토픽을 영어로 번역 (GoogleTranslator 사용) ---
+                        st.write("🌐 이미지 검색어를 영어로 번역 중...")
+                        image_query_english = ""
+                        try:
+                            translator = GoogleTranslator(source='ko', target='en')
+                            image_query_english = translator.translate(extracted_topic_korean)
+                            st.success(f"이미지 검색어 번역 완료 (영어): '{image_query_english}'")
+                        except Exception as e:
+                            st.warning(f"이미지 검색어 번역에 실패했습니다. 한국어 검색어를 그대로 사용합니다. 오류: {e}")
+                            image_query_english = extracted_topic_korean
+                            
+                        image_query_final = image_query_english 
+
                         # --- 1. Text-to-Speech (TTS) 생성 ---
                         audio_output_dir = "assets"
                         os.makedirs(audio_output_dir, exist_ok=True)
                         audio_path = os.path.join(audio_output_dir, "generated_audio.mp3")
                         
-                        # Using a Korean male voice template
                         st.write("🗣️ 음성 파일 생성 중...")
                         generate_tts(
                             text=ai_answer_script,
                             save_path=audio_path,
-                            template_name="korean_male" # You can choose other templates from elevenlabs_tts.TTS_TEMPLATES
+                            template_name="korean_male"
                         )
                         st.success(f"음성 파일 생성 완료: {audio_path}")
 
@@ -125,25 +155,24 @@ for i, message in enumerate(st.session_state["messages"]):
                         generate_ass_subtitle(
                             segments=segments,
                             ass_path=ass_path,
-                            template_name="default" # You can choose other templates from whisper_asr.SUBTITLE_TEMPLATES
+                            template_name="default"
                         )
                         st.success(f"자막 파일 생성 완료: {ass_path}")
 
                         # --- 3. 이미지 생성 ---
-                        # Use the last user query as the topic for image generation
-                        image_query = st.session_state.last_user_query if st.session_state.last_user_query else "abstract background"
-                        num_images = max(1, len(segments)) # One image per segment, minimum 1
+                        num_images = max(1, len(segments))
                         image_output_dir = "assets"
                         os.makedirs(image_output_dir, exist_ok=True)
                         
-                        st.write(f"🖼️ '{image_query}' 관련 이미지 {num_images}장 생성 중...")
-                        image_paths = generate_images_for_topic(image_query, num_images)
+                        st.write(f"🖼️ '{image_query_final}' 관련 이미지 {num_images}장 생성 중...")
+                        image_paths = generate_images_for_topic(image_query_final, num_images)
                         
                         if not image_paths:
                             st.warning("이미지 생성에 실패했습니다. 기본 이미지를 사용합니다.")
-                            # Fallback if no images are generated
-                            image_paths = ["assets/default_image.jpg"] # Ensure you have a default_image.jpg in assets
-
+                            image_paths = ["assets/default_image.jpg"] 
+                            if not os.path.exists(image_paths[0]):
+                                st.error(f"기본 이미지 파일 '{image_paths[0]}'이(가) 존재하지 않습니다. 파일을 추가해주세요.")
+                                st.stop() # 'return' 대신 'st.stop()' 사용
                         st.success(f"이미지 {len(image_paths)}장 생성 완료.")
 
                         # --- 4. 비디오 생성 (자막 제외) ---
@@ -157,9 +186,9 @@ for i, message in enumerate(st.session_state["messages"]):
                             image_paths=image_paths,
                             segments=segments,
                             audio_path=audio_path,
-                            topic_title=image_query, # Use image_query or a refined topic
+                            topic_title=extracted_topic_korean,
                             include_topic_title=True,
-                            bgm_path="", # Add a BGM path here if desired, e.g., "assets/bgm.mp3"
+                            bgm_path="",
                             save_path=temp_video_path
                         )
                         st.success(f"기본 비디오 생성 완료: {created_video_path}")
@@ -186,25 +215,16 @@ for i, message in enumerate(st.session_state["messages"]):
                         # Clean up temporary video file (optional)
                         if os.path.exists(temp_video_path):
                             os.remove(temp_video_path)
-                        # Optionally remove audio and ass files if not needed after final video is made
-                        # if os.path.exists(audio_path):
-                        #     os.remove(audio_path)
-                        # if os.path.exists(ass_path):
-                        #     os.remove(ass_path)
-                        # Optionally remove generated images if no longer needed
-                        # for img_path in image_paths:
-                        #     if os.path.exists(img_path):
-                        #         os.remove(img_path)
 
                     except Exception as e:
                         st.error(f"❌ 영상 생성 중 오류가 발생했습니다: {e}")
-                        st.exception(e) # Display full traceback for debugging
+                        st.exception(e)
 
 user_input = st.chat_input("궁금한 내용을 물어보세요!")
 
 if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
-    st.session_state.last_user_query = user_input # Store the last user query for image generation
+    st.session_state.last_user_query = user_input
     st.chat_message("user").write(user_input)
 
     try:
