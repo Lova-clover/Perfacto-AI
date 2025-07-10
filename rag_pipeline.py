@@ -17,15 +17,27 @@ import requests
 from langchain.llms.base import LLM
 from typing import Optional, List
 from groq import Groq
-from dataclasses import dataclass, field
 
-@dataclass
 class GROQLLM(LLM):
-    api_key: str = field(repr=False)
-    model: str = "deepseek-r1-distill-llama-70b"
-    client: Groq = field(init=False, repr=False)
+    # 이 부분은 @dataclass에서 정의했던 변수들을 명시적으로 선언합니다.
+    # 초기화는 __init__에서 이루어집니다.
+    model: str
+    client: Groq
 
-    def __post_init__(self):
+    def __init__(self, api_key: str, model: str = "deepseek-r1-distill-llama-70b", **kwargs):
+        """
+        Groq LLM 모델을 초기화합니다.
+        model과 client 인자는 LLM의 __init__에서 요구하는 것일 수 있으므로 명시적으로 받습니다.
+        """
+        # ★★★ 가장 중요한 부분: 부모 클래스(LLM)의 __init__ 메서드를 호출합니다. ★★★
+        # LangChain의 LLM 클래스가 내부적으로 요구하는 다른 인자들이 있을 수 있으므로,
+        # **kwargs를 통해 모든 추가 인자를 전달합니다.
+        super().__init__(**kwargs)
+
+        # 이제 당신의 클래스 변수들을 초기화합니다.
+        self.api_key = api_key
+        self.model = model
+        # Groq 클라이언트는 여기서 초기화합니다.
         self.client = Groq(api_key=self.api_key)
 
     def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
