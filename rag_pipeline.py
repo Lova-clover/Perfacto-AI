@@ -17,32 +17,36 @@ import requests
 from langchain.llms.base import LLM
 from typing import Optional, List
 from groq import Groq
+from pydantic import PrivateAttr # 이 줄을 추가합니다.
 
 class GROQLLM(LLM):
-    # 이 부분은 @dataclass에서 정의했던 변수들을 명시적으로 선언합니다.
-    # 초기화는 __init__에서 이루어집니다.
-    model: str
-    client: Groq
+    # Pydantic이 이 필드들을 요구하지 않도록 설정
+    # model은 기본값을 가집니다.
+    model: str = "deepseek-r1-distill-llama-70b"
+
+    # client는 내부적으로 관리되는 속성이므로 PrivateAttr로 설정하여 Pydantic 유효성 검사에서 제외합니다.
+    _client: Groq = PrivateAttr() # 이 부분을 수정합니다. _client로 이름을 바꾸고 PrivateAttr로 선언
+
+    # api_key는 Pydantic 필드가 아니므로 별도로 선언하지 않고 __init__에서만 사용합니다.
+    # api_key: str # 이 줄은 필요 없습니다.
 
     def __init__(self, api_key: str, model: str = "deepseek-r1-distill-llama-70b", **kwargs):
-        """
-        Groq LLM 모델을 초기화합니다.
-        model과 client 인자는 LLM의 __init__에서 요구하는 것일 수 있으므로 명시적으로 받습니다.
-        """
-        # ★★★ 가장 중요한 부분: 부모 클래스(LLM)의 __init__ 메서드를 호출합니다. ★★★
-        # LangChain의 LLM 클래스가 내부적으로 요구하는 다른 인자들이 있을 수 있으므로,
-        # **kwargs를 통해 모든 추가 인자를 전달합니다.
-        super().__init__(**kwargs)
+        # LangChain의 LLM 클래스가 Pydantic Model을 상속받으므로,
+        # Pydantic 모델의 초기화 로직을 따릅니다.
+        # model은 이제 생성자 인자뿐 아니라 클래스 필드로도 기본값을 가집니다.
+        # LangChain LLM이 요구하는 인자들을 super().__init__에 전달합니다.
+        # Pydantic Model의 __init__은 키워드 인자를 선호합니다.
+        super().__init__(model=model, **kwargs) # model을 명시적으로 전달합니다.
 
-        # 이제 당신의 클래스 변수들을 초기화합니다.
+        # 당신의 Groq API 키를 저장합니다.
         self.api_key = api_key
-        self.model = model
-        # Groq 클라이언트는 여기서 초기화합니다.
-        self.client = Groq(api_key=self.api_key)
+
+        # PrivateAttr로 선언한 _client를 초기화합니다.
+        self._client = Groq(api_key=self.api_key)
 
     def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
         messages = [{"role": "user", "content": prompt}]
-        completion = self.client.chat.completions.create(
+        completion = self._client.chat.completions.create( # _client를 사용합니다.
             model=self.model,
             messages=messages,
             temperature=0.6,
