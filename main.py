@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, AIMessage
 from rag_pipeline import get_retriever_from_source, get_document_chain, get_default_chain
 from web_ingest import full_web_ingest
+from script_generator import generate_script # Keep if you plan to use it, otherwise remove
 from image_generator import generate_images_for_topic
 from elevenlabs_tts import generate_tts, TTS_TEMPLATES
 from whisper_asr import transcribe_audio_with_timestamps, generate_ass_subtitle, SUBTITLE_TEMPLATES
@@ -69,12 +70,18 @@ with st.sidebar:
                 if not error:
                     source_type = "FAISS"
                     source_input = index_dir  # 폴더 경로
+                else:
+                    st.error(f"웹페이지 수집 및 벡터화 중 오류 발생: {error}")
         else:
             st.warning("검색 키워드 또는 파일을 입력해주세요.")
-        if source_input:
+
+        if source_input and source_type: # Ensure source_input and source_type are set
             st.session_state.retriever = get_retriever_from_source(source_type, source_input)
             if st.session_state.retriever:
                 st.success("분석이 완료되었습니다! 이제 질문해보세요.")
+            else:
+                st.error("문서 처리 중 오류가 발생했습니다. 다시 시도해주세요.")
+
 
     st.divider()
     if st.button("대화 초기화"):
@@ -140,7 +147,7 @@ for i, message in enumerate(st.session_state["messages"]):
                         generate_tts(
                             text=ai_answer_script,
                             save_path=audio_path,
-                            template_name="korean_male"
+                            template_name="korean_male" # Consider making this selectable via st.selectbox
                         )
                         st.success(f"음성 파일 생성 완료: {audio_path}")
 
@@ -154,7 +161,7 @@ for i, message in enumerate(st.session_state["messages"]):
                         generate_ass_subtitle(
                             segments=segments,
                             ass_path=ass_path,
-                            template_name="default"
+                            template_name="default" # Consider making this selectable via st.selectbox
                         )
                         st.success(f"자막 파일 생성 완료: {ass_path}")
 
@@ -168,10 +175,22 @@ for i, message in enumerate(st.session_state["messages"]):
                         
                         if not image_paths:
                             st.warning("이미지 생성에 실패했습니다. 기본 이미지를 사용합니다.")
-                            image_paths = ["assets/default_image.jpg"] 
-                            if not os.path.exists(image_paths[0]):
-                                st.error(f"기본 이미지 파일 '{image_paths[0]}'이(가) 존재하지 않습니다. 파일을 추가해주세요.")
-                                st.stop() # 'return' 대신 'st.stop()' 사용
+                            # Ensure default_image.jpg exists in 'assets/' or handle its creation/download
+                            default_image_path = "assets/default_image.jpg"
+                            if not os.path.exists(default_image_path):
+                                # As a fallback, try to download a generic image if default_image.jpg is missing
+                                try:
+                                    print("Downloading a placeholder image as default_image.jpg is not found.")
+                                    generic_image_url = "https://images.pexels.com/photos/936043/pexels-photo-936043.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2" # Example URL
+                                    image_data = requests.get(generic_image_url).content
+                                    with open(default_image_path, "wb") as f:
+                                        f.write(image_data)
+                                    print(f"✅ Placeholder image saved to: {default_image_path}")
+                                except Exception as img_dl_e:
+                                    st.error(f"기본 이미지 다운로드에도 실패했습니다. 오류: {img_dl_e}")
+                                    st.stop()
+                            image_paths = [default_image_path] 
+                            
                         st.success(f"이미지 {len(image_paths)}장 생성 완료.")
 
                         # --- 4. 비디오 생성 (자막 제외) ---
@@ -187,7 +206,7 @@ for i, message in enumerate(st.session_state["messages"]):
                             audio_path=audio_path,
                             topic_title=extracted_topic_korean,
                             include_topic_title=True,
-                            bgm_path="",
+                            bgm_path="", # Consider adding a BGM option in sidebar
                             save_path=temp_video_path
                         )
                         st.success(f"기본 비디오 생성 완료: {created_video_path}")
