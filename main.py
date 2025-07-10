@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, AIMessage
 from rag_pipeline import get_retriever_from_source, get_document_chain, get_default_chain
 from web_ingest import full_web_ingest
+import traceback
+
 
 # API 키 로드
 load_dotenv()
@@ -133,4 +135,6 @@ if user_input:
 
     except Exception as e:
         st.chat_message("assistant").error(f"죄송합니다, 답변을 생성하는 중 오류가 발생했습니다.\n\n오류: {e}")
+        st.error("--- 전체 오류 상세 정보 ---") # 이 줄을 추가합니다.
+        st.code(traceback.format_exc()) # 이 줄을 추가합니다. 전체 트레이스백을 출력합니다.
         st.session_state.messages.pop()
