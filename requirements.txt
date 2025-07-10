@@ -6,8 +6,9 @@ langchain-openai
 langchain-experimental
 python-dotenv
 faiss-cpu
-llama-parse
 tiktoken
 sentence-transformers
 unstructured
 selenium
+PyMuPDF
+python-docx

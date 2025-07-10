@@ -32,15 +32,15 @@ def get_retriever_from_source(source_type, source_input):
         # [수정 2] 표와 같은 구조적 데이터가 깨지지 않도록, Markdown 구조에 최적화된
         # RecursiveCharacterTextSplitter를 사용합니다.
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=300,
-            chunk_overlap=50,
+            chunk_size=1000,
+            chunk_overlap=200,
             separators=["\n\n", "\n", " ", ""], # Markdown 구조를 우선적으로 고려
             is_separator_regex=False,
         )
         splits = text_splitter.split_documents(documents)
         
         status.update(label=f"임베딩 모델을 로컬에 로드 중입니다...")
-        embeddings = SentenceTransformerEmbeddings(model_name='all-MiniLM-L6-v2')
+        embeddings = SentenceTransformerEmbeddings(model_name='jhgan/ko-sbert-sts')
         
         status.update(label=f"{len(splits)}개의 청크를 임베딩하고 있습니다...")
         vectorstore = FAISS.from_documents(splits, embeddings)
@@ -48,7 +48,7 @@ def get_retriever_from_source(source_type, source_input):
         # [수정 3] Contextual Compression Retriever 대신, 중복을 줄여주는 MMR 검색을 사용합니다.
         # 이 방식이 더 안정적이고 출처 누락 문제가 없습니다.
         retriever = vectorstore.as_retriever(
-            search_type="mmr",
+            search_type="similarity",
             search_kwargs={'k': 3, 'fetch_k': 20}
         )
         status.update(label="문서 처리 완료!", state="complete")
