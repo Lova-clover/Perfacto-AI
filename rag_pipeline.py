@@ -20,12 +20,12 @@ from groq import Groq
 from pydantic import PrivateAttr 
 
 class GROQLLM(LLM):
-    model: str = "deepseek-r1-distill-llama-70b"
+    model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
     
     _api_key: str = PrivateAttr() 
     _client: Groq = PrivateAttr() 
 
-    def __init__(self, api_key: str, model: str = "deepseek-r1-distill-llama-70b", **kwargs):
+    def __init__(self, api_key: str, model: str = "meta-llama/llama-4-scout-17b-16e-instruct", **kwargs):
         super().__init__(model=model, **kwargs)
         
         self._api_key = api_key 
