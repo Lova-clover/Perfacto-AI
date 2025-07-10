@@ -1,32 +1,23 @@
 groq
-
-# UI
 streamlit
-
-# LangChain 및 관련 모델
 langchain
 langchain-core
 langchain-community
 langchain-openai
 langchain-google-genai
 langchain-experimental
-
-# 임베딩 및 벡터
 sentence-transformers
 faiss-cpu
 tiktoken
-
-# 문서 처리
 unstructured
-PyMuPDF        # PDF
-python-docx    # DOCX
-
-# 크롤링
+PyMuPDF
+python-docx
 selenium
 requests
 beautifulsoup4
 googlesearch-python
-
-# 환경 변수
 python-dotenv
-
+faster-whisper
+moviepy
+numpy
+deep-translator
