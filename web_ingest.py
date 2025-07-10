@@ -46,9 +46,6 @@ def embed_and_save(texts, output_dir):
     vectorstore.save_local(output_dir)
     print(f"[+] FAISS 인덱스 저장 완료: {output_dir}")
 
-    # 디버깅용
-    print("[+] 저장된 파일 목록:", os.listdir(output_dir))
-
 def full_web_ingest(query, output_dir="output"):
     urls = get_links(query)
     texts = []
