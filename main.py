@@ -29,7 +29,7 @@ if "messages" not in st.session_state:
 if "retriever" not in st.session_state:
     st.session_state.retriever = None
 if "system_prompt" not in st.session_state:
-    st.session_state.system_prompt = "당신은 문서 분석 전문가 AI 어시스턴트입니다. 주어진 문서의 텍스트와 테이블을 정확히 이해하고 상세하게 답변해주세요."
+    st.session_state.system_prompt = "당신은 문서 분석 전문가 AI 어시스턴트입니다. 주어진 문서의 텍스트와 테이블을 정확히 이해하고 상세하게 답변해주세요. 또한 영상 제작을 돕는 AI 어시스턴트입니다. 영상 제작을 위해 해당 문서를 분석하여 스크립트를 제작해주세요. 스크립트 외에는 어떤 답변도 해서는 안됩니다. 또한 마크다운과 같은 기호는 전부 제거해주세요."
 if "last_user_query" not in st.session_state:
     st.session_state.last_user_query = ""
 if "video_topic" not in st.session_state:
@@ -270,9 +270,6 @@ with st.sidebar:
     if st.button("대화 초기화"):
         st.session_state.clear()
         st.rerun()
-
-# --- 메인 채팅 인터페이스 ---
-st.subheader("💬 챗봇과 대화하기")
 
 # 이전 대화 내용 표시
 for i, message in enumerate(st.session_state["messages"]):
