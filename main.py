@@ -4,6 +4,7 @@ import streamlit as st
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, AIMessage
 from rag_pipeline import get_retriever_from_source, get_document_chain, get_default_chain
+from utils.web_ingest import full_web_ingest
 
 # API 키 로드
 load_dotenv()
@@ -38,7 +39,7 @@ with st.sidebar:
         st.toast("AI 페르소나가 적용되었습니다.")
     st.divider()
     st.subheader("🔎 분석 대상 설정")
-    url_input = st.text_input("웹사이트 URL", placeholder="https://example.com")
+    url_input = st.text_input("검색 키워드 입력", placeholder="ex) 인공지능 윤리")
     uploaded_files = st.file_uploader(
         "파일 업로드 (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"], accept_multiple_files=True
     )
@@ -47,18 +48,27 @@ with st.sidebar:
     if st.button("분석 시작"):
         st.session_state.messages = []
         st.session_state.retriever = None
-        
+
         source_type = None
         source_input = None
+
         if uploaded_files:
             source_type = "Files"
             source_input = uploaded_files
-        elif url_input:
-            source_type = "URL"
-            source_input = url_input
-        else:
-            st.warning("분석할 URL을 입력하거나 파일을 업로드해주세요.")
 
+        elif url_input:
+            # ✅ 키워드 기반 웹 크롤링 + 벡터화 + 저장
+            with st.spinner("웹페이지를 수집하고 벡터화하는 중입니다..."):
+                text_path, index_path, error = full_web_ingest(url_input)
+                if error:
+                    st.warning(error)
+                else:
+                    st.success(f"문서 저장 완료: {text_path}")
+                    st.info(f"FAISS 인덱스 저장 완료: {index_path}")
+                    source_type = "FAISS"
+                    source_input = index_path
+        else:
+            st.warning("검색 키워드 또는 파일을 입력해주세요.")
         if source_input:
             st.session_state.retriever = get_retriever_from_source(source_type, source_input)
             if st.session_state.retriever:

@@ -12,6 +12,10 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from file_handler import get_documents_from_files
+import faiss
+from langchain.vectorstores.faiss import FAISS
+from langchain.embeddings import HuggingFaceEmbeddings
+import os
 
 def get_retriever_from_source(source_type, source_input):
     documents = [] 
@@ -23,6 +27,20 @@ def get_retriever_from_source(source_type, source_input):
         elif source_type == "Files":
             status.update(label="파일을 파싱하고 있습니다...")
             documents = get_documents_from_files(source_input)
+        elif source_type == "FAISS":
+            embeddings = HuggingFaceEmbeddings(model_name="jhgan/ko-sbert-sts")
+            if os.path.isfile(source_input):
+                # source_input이 파일이면 파일 경로 그대로 사용
+                index_path = source_input
+            elif os.path.isdir(source_input):
+                # source_input이 폴더면 폴더 경로 그대로 사용
+                index_path = source_input
+            else:
+                # 파일도 폴더도 아니면 에러 처리
+                st.error(f"유효하지 않은 경로입니다: {source_input}")
+                return None
+
+            return FAISS.load_local(index_path, embeddings).as_retriever()
 
         if not documents:
             status.update(label="문서 로딩 실패.", state="error")
