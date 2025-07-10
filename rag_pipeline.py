@@ -3,7 +3,7 @@
 import streamlit as st
 import asyncio
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_community.embeddings import SentenceTransformerEmbeddings
+#from langchain_community.embeddings import SentenceTransformerEmbeddings
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
 from langchain_community.document_loaders import SeleniumURLLoader
@@ -13,7 +13,6 @@ from langchain_community.vectorstores import FAISS
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from file_handler import get_documents_from_files
 import faiss
-from langchain.vectorstores.faiss import FAISS
 from langchain.embeddings import HuggingFaceEmbeddings
 import os
 
@@ -53,7 +52,7 @@ def get_retriever_from_source(source_type, source_input):
         splits = text_splitter.split_documents(documents)
         
         status.update(label=f"임베딩 모델을 로컬에 로드 중입니다...")
-        embeddings = SentenceTransformerEmbeddings(model_name='jhgan/ko-sbert-sts')
+        embeddings = HuggingFaceEmbeddings(model_name='jhgan/ko-sbert-sts')
         
         status.update(label=f"{len(splits)}개의 청크를 임베딩하고 있습니다...")
         vectorstore = FAISS.from_documents(splits, embeddings)
