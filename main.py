@@ -5,6 +5,13 @@ from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, AIMessage
 from rag_pipeline import get_retriever_from_source, get_document_chain, get_default_chain
 from web_ingest import full_web_ingest
+from script_generator import generate_script # This import seems unused in the original main.py, keep for consistency if it's part of a larger plan.
+from image_generator import generate_images_for_topic
+from elevenlabs_tts import generate_tts, TTS_TEMPLATES
+from whisper_asr import transcribe_audio_with_timestamps, generate_ass_subtitle, SUBTITLE_TEMPLATES
+from video_maker import create_video_with_segments, add_subtitles_to_video
+from deep_translator import GoogleTranslator # This import seems unused in the original main.py, keep for consistency if it's part of a larger plan.
+import os
 
 # API 키 로드
 load_dotenv()
@@ -25,6 +32,8 @@ if "retriever" not in st.session_state:
     st.session_state.retriever = None
 if "system_prompt" not in st.session_state:
     st.session_state.system_prompt = "당신은 문서 분석 전문가 AI 어시스턴트입니다. 주어진 문서의 텍스트와 테이블을 정확히 이해하고 상세하게 답변해주세요."
+if "last_user_query" not in st.session_state:
+    st.session_state.last_user_query = ""
 
 # --- 사이드바 UI ---
 with st.sidebar:
@@ -75,19 +84,127 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
 
-for message in st.session_state["messages"]:
+# Display chat messages
+for i, message in enumerate(st.session_state["messages"]):
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
-        if "sources" in message and message["sources"]:
+        if message["role"] == "assistant" and "sources" in message and message["sources"]:
             with st.expander("참고한 출처 보기"):
-                for i, source in enumerate(message["sources"]):
-                    st.info(f"**출처 {i+1}**\n\n{source.page_content}")
+                for j, source in enumerate(message["sources"]):
+                    st.info(f"**출처 {j+1}**\n\n{source.page_content}")
                     st.divider()
+        # Add video generation button next to assistant's message
+        if message["role"] == "assistant" and message["content"]:
+            # Ensure a unique key for each button if multiple assistant messages are displayed
+            if st.button("🎥 영상 만들기", key=f"generate_video_button_{i}"):
+                with st.spinner("✨ 영상 제작을 시작합니다..."):
+                    try:
+                        ai_answer_script = message["content"]
+                        
+                        # --- 1. Text-to-Speech (TTS) 생성 ---
+                        audio_output_dir = "assets"
+                        os.makedirs(audio_output_dir, exist_ok=True)
+                        audio_path = os.path.join(audio_output_dir, "generated_audio.mp3")
+                        
+                        # Using a Korean male voice template
+                        st.write("🗣️ 음성 파일 생성 중...")
+                        generate_tts(
+                            text=ai_answer_script,
+                            save_path=audio_path,
+                            template_name="korean_male" # You can choose other templates from elevenlabs_tts.TTS_TEMPLATES
+                        )
+                        st.success(f"음성 파일 생성 완료: {audio_path}")
+
+                        # --- 2. Audio Transcription (ASR) 및 Subtitle (ASS) 파일 생성 ---
+                        subtitle_output_dir = "assets"
+                        os.makedirs(subtitle_output_dir, exist_ok=True)
+                        ass_path = os.path.join(subtitle_output_dir, "generated_subtitle.ass")
+
+                        st.write("📝 자막 생성을 위한 음성 분석 중...")
+                        segments = transcribe_audio_with_timestamps(audio_path)
+                        generate_ass_subtitle(
+                            segments=segments,
+                            ass_path=ass_path,
+                            template_name="default" # You can choose other templates from whisper_asr.SUBTITLE_TEMPLATES
+                        )
+                        st.success(f"자막 파일 생성 완료: {ass_path}")
+
+                        # --- 3. 이미지 생성 ---
+                        # Use the last user query as the topic for image generation
+                        image_query = st.session_state.last_user_query if st.session_state.last_user_query else "abstract background"
+                        num_images = max(1, len(segments)) # One image per segment, minimum 1
+                        image_output_dir = "assets"
+                        os.makedirs(image_output_dir, exist_ok=True)
+                        
+                        st.write(f"🖼️ '{image_query}' 관련 이미지 {num_images}장 생성 중...")
+                        image_paths = generate_images_for_topic(image_query, num_images)
+                        
+                        if not image_paths:
+                            st.warning("이미지 생성에 실패했습니다. 기본 이미지를 사용합니다.")
+                            # Fallback if no images are generated
+                            image_paths = ["assets/default_image.jpg"] # Ensure you have a default_image.jpg in assets
+
+                        st.success(f"이미지 {len(image_paths)}장 생성 완료.")
+
+                        # --- 4. 비디오 생성 (자막 제외) ---
+                        video_output_dir = "assets"
+                        os.makedirs(video_output_dir, exist_ok=True)
+                        temp_video_path = os.path.join(video_output_dir, "temp_video.mp4")
+                        final_video_path = os.path.join(video_output_dir, "final_video_with_subs.mp4")
+
+                        st.write("🎬 비디오 클립 조합 및 오디오 통합 중...")
+                        created_video_path = create_video_with_segments(
+                            image_paths=image_paths,
+                            segments=segments,
+                            audio_path=audio_path,
+                            topic_title=image_query, # Use image_query or a refined topic
+                            include_topic_title=True,
+                            bgm_path="", # Add a BGM path here if desired, e.g., "assets/bgm.mp3"
+                            save_path=temp_video_path
+                        )
+                        st.success(f"기본 비디오 생성 완료: {created_video_path}")
+
+                        # --- 5. 비디오에 자막 추가 ---
+                        st.write("📝 비디오에 자막 추가 중...")
+                        final_video_with_subs_path = add_subtitles_to_video(
+                            input_video_path=created_video_path,
+                            ass_path=ass_path,
+                            output_path=final_video_path
+                        )
+                        st.success(f"✅ 최종 영상 생성 완료: {final_video_with_subs_path}")
+
+                        # --- 6. 결과 표시 및 다운로드 링크 제공 ---
+                        st.video(final_video_with_subs_path)
+                        with open(final_video_with_subs_path, "rb") as file:
+                            st.download_button(
+                                label="영상 다운로드",
+                                data=file,
+                                file_name="generated_multimodal_video.mp4",
+                                mime="video/mp4"
+                            )
+                        
+                        # Clean up temporary video file (optional)
+                        if os.path.exists(temp_video_path):
+                            os.remove(temp_video_path)
+                        # Optionally remove audio and ass files if not needed after final video is made
+                        # if os.path.exists(audio_path):
+                        #     os.remove(audio_path)
+                        # if os.path.exists(ass_path):
+                        #     os.remove(ass_path)
+                        # Optionally remove generated images if no longer needed
+                        # for img_path in image_paths:
+                        #     if os.path.exists(img_path):
+                        #         os.remove(img_path)
+
+                    except Exception as e:
+                        st.error(f"❌ 영상 생성 중 오류가 발생했습니다: {e}")
+                        st.exception(e) # Display full traceback for debugging
 
 user_input = st.chat_input("궁금한 내용을 물어보세요!")
 
 if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
+    st.session_state.last_user_query = user_input # Store the last user query for image generation
     st.chat_message("user").write(user_input)
 
     try:
