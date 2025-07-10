@@ -104,7 +104,7 @@ def get_document_chain(system_prompt):
             ("user", "{input}"),
         ]
     )
-    groq_api_key = os.getenv("GROQ_API_KEY")
+    groq_api_key = st.secrets["GROQ_API_KEY"]  # 여기 변경
     llm = GROQLLM(api_key=groq_api_key)
     document_chain = create_stuff_documents_chain(llm, rag_prompt)
     return document_chain
@@ -117,6 +117,6 @@ def get_default_chain(system_prompt):
             ("user", "{question}"),
         ]
     )
-    groq_api_key = os.getenv("GROQ_API_KEY")
-    llm = GROQLLM(api_key=groq_api_key)  # 여기서 GROQ LLM 사용
+    groq_api_key = st.secrets["GROQ_API_KEY"]  # 여기 변경
+    llm = GROQLLM(api_key=groq_api_key)
     return prompt | llm | StrOutputParser()
