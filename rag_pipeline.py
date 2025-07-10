@@ -110,10 +110,10 @@ def get_document_chain(system_prompt):
         [
             ("system", system_prompt),
             MessagesPlaceholder(variable_name="chat_history"),
-            ("user", "{input}"),
+            ("user", "{context}"),
         ]
     )
-    groq_api_key = st.secrets["GROQ_API_KEY"]  # 여기 변경
+    groq_api_key = st.secrets["GROQ_API_KEY"]
     llm = GROQLLM(api_key=groq_api_key)
     document_chain = create_stuff_documents_chain(llm, rag_prompt)
     return document_chain
@@ -126,6 +126,6 @@ def get_default_chain(system_prompt):
             ("user", "{question}"),
         ]
     )
-    groq_api_key = st.secrets["GROQ_API_KEY"]  # 여기 변경
+    groq_api_key = st.secrets["GROQ_API_KEY"]
     llm = GROQLLM(api_key=groq_api_key)
     return prompt | llm | StrOutputParser()
