@@ -257,6 +257,7 @@ if user_input:
                             for i, source in enumerate(source_documents):
                                 st.info(f"**출처 {i+1}**\n\n{source.page_content}")
                                 st.divider()
+            st.rerun()
         else:
             chain = get_default_chain(st.session_state.system_prompt)
             with st.chat_message("assistant"):
