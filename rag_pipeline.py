@@ -18,40 +18,30 @@ from langchain.llms.base import LLM
 from typing import Optional, List
 
 class GROQLLM(LLM):
-    def __init__(self, api_key: str, model: str = "deepseek-r1-distill-llama-70b"):
+    def __init__(self, api_key: str):
         self.api_key = api_key
-        self.model = model
-        self.endpoint = "https://api.groq.com/v1/chat/completions"
+        self.endpoint = "https://api.groq.ai/v1/generate"
 
     def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-
-        # prompt 문자열을 messages 포맷에 맞게 변환
-        # 간단히 system + user 메시지 나누기 예시 (필요시 더 정교하게 조절 가능)
-        messages = [
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": prompt},
-        ]
-
         data = {
-            "model": self.model,
-            "messages": messages,
+            "prompt": prompt,
             "max_tokens": 512,
         }
-
         response = requests.post(self.endpoint, headers=headers, json=data)
         response.raise_for_status()
-
-        res_json = response.json()
-        # 응답 구조에 맞게 텍스트 추출
-        return res_json["choices"][0]["message"]["content"]
+        return response.json()["text"]
 
     @property
     def _identifying_params(self):
-        return {"api_key": self.api_key, "model": self.model}
+        return {"api_key": self.api_key}
+
+    @property
+    def _llm_type(self) -> str:
+        return "groq"  # 자유롭게 이름 지정 가능
 
 def get_retriever_from_source(source_type, source_input):
     documents = [] 
