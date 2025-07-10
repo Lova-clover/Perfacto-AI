@@ -58,8 +58,8 @@ def full_web_ingest(query, output_dir="output"):
         return None, None, "충분한 문서를 수집하지 못했습니다."
 
     os.makedirs(output_dir, exist_ok=True)
-    text_path = os.path.join(output_dir, "result_text.txt")
-    index_path = os.path.join(output_dir, "result_faiss.index")
+    text_path = os.path.abspath(output_dir, "result_text.txt")
+    index_path = os.path.abspath(output_dir, "result_faiss.index")
 
     save_texts(texts, text_path)
     embed_and_save(texts, index_path)
