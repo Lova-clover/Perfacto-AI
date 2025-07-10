@@ -35,10 +35,13 @@ def get_retriever_from_source(source_type, source_input):
                 st.error(f"유효하지 않은 경로입니다: {source_input}")
                 return None
             try:
-                retriever = FAISS.load_local(index_dir, embeddings).as_retriever()
+                retriever = FAISS.load_local(
+                    index_dir,
+                    embeddings,
+                    allow_dangerous_deserialization=True
+                ).as_retriever()
                 return retriever
             except Exception as e:
-                # Streamlit 에러 출력 대신 로그 찍기
                 error_msg = traceback.format_exc()
                 print("[DEBUG] FAISS 로드 에러:\n", error_msg)
                 st.error(f"FAISS 인덱스 로드 중 오류 발생:\n{e}")
