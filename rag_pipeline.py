@@ -13,6 +13,45 @@ from file_handler import get_documents_from_files
 import faiss
 from langchain.embeddings import HuggingFaceEmbeddings
 import os
+import requests
+from langchain.llms.base import LLM
+from typing import Optional, List
+
+class GROQLLM(LLM):
+    def __init__(self, api_key: str, model: str = "deepseek-r1-distill-llama-70b"):
+        self.api_key = api_key
+        self.model = model
+        self.endpoint = "https://api.groq.com/v1/chat/completions"
+
+    def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        # prompt 문자열을 messages 포맷에 맞게 변환
+        # 간단히 system + user 메시지 나누기 예시 (필요시 더 정교하게 조절 가능)
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": prompt},
+        ]
+
+        data = {
+            "model": self.model,
+            "messages": messages,
+            "max_tokens": 512,
+        }
+
+        response = requests.post(self.endpoint, headers=headers, json=data)
+        response.raise_for_status()
+
+        res_json = response.json()
+        # 응답 구조에 맞게 텍스트 추출
+        return res_json["choices"][0]["message"]["content"]
+
+    @property
+    def _identifying_params(self):
+        return {"api_key": self.api_key, "model": self.model}
 
 def get_retriever_from_source(source_type, source_input):
     documents = [] 
@@ -68,23 +107,15 @@ def get_retriever_from_source(source_type, source_input):
     return retriever
 
 def get_document_chain(system_prompt):
-    template = f"""{system_prompt}
-
-Answer the user's question based on the context provided below and the conversation history.
-The context may include text and tables in markdown format. You must be able to understand and answer based on them.
-If you don't know the answer, just say that you don't know. Don't make up an answer.
-
-Context:
-{{context}}
-"""
     rag_prompt = ChatPromptTemplate.from_messages(
         [
-            ("system", template),
+            ("system", system_prompt),
             MessagesPlaceholder(variable_name="chat_history"),
             ("user", "{input}"),
         ]
     )
-    llm = ChatGoogleGenerativeAI(model="models/gemini-1.5-flash", temperature=0)
+    groq_api_key = os.getenv("GROQ_API_KEY")
+    llm = GROQLLM(api_key=groq_api_key)
     document_chain = create_stuff_documents_chain(llm, rag_prompt)
     return document_chain
 
@@ -96,5 +127,6 @@ def get_default_chain(system_prompt):
             ("user", "{question}"),
         ]
     )
-    llm = ChatGoogleGenerativeAI(model="models/gemini-1.5-flash", temperature=0)
+    groq_api_key = os.getenv("GROQ_API_KEY")
+    llm = GROQLLM(api_key=groq_api_key)  # 여기서 GROQ LLM 사용
     return prompt | llm | StrOutputParser()
