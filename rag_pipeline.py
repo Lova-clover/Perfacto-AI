@@ -17,15 +17,11 @@ import requests
 from langchain.llms.base import LLM
 from typing import Optional, List
 from groq import Groq
-from dataclasses import dataclass, field
 
-@dataclass
 class GROQLLM(LLM):
-    api_key: str = field(repr=False)
-    model: str = "deepseek-r1-distill-llama-70b"
-    client: Groq = field(init=False, repr=False)
-
-    def __post_init__(self):
+    def __init__(self, api_key: str, model: str = "deepseek-r1-distill-llama-70b"):
+        self.api_key = api_key
+        self.model = model
         self.client = Groq(api_key=self.api_key)
 
     def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
