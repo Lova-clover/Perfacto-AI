@@ -17,32 +17,27 @@ import requests
 from langchain.llms.base import LLM
 from typing import Optional, List
 from groq import Groq
-from pydantic import PrivateAttr # 이 줄을 추가합니다.
+from pydantic import PrivateAttr 
 
 class GROQLLM(LLM):
-    # Pydantic이 이 필드들을 요구하지 않도록 설정
     # model은 기본값을 가집니다.
     model: str = "deepseek-r1-distill-llama-70b"
 
-    # client는 내부적으로 관리되는 속성이므로 PrivateAttr로 설정하여 Pydantic 유효성 검사에서 제외합니다.
-    _client: Groq = PrivateAttr() # 이 부분을 수정합니다. _client로 이름을 바꾸고 PrivateAttr로 선언
-
-    # api_key는 Pydantic 필드가 아니므로 별도로 선언하지 않고 __init__에서만 사용합니다.
-    # api_key: str # 이 줄은 필요 없습니다.
+    # client와 마찬가지로 api_key도 내부적으로 관리되는 속성이므로 PrivateAttr로 설정합니다.
+    _api_key: str = PrivateAttr() # 이 줄을 추가합니다. _api_key로 이름을 바꾸고 PrivateAttr로 선언
+    _client: Groq = PrivateAttr() # 이 줄은 이미 있을 겁니다.
 
     def __init__(self, api_key: str, model: str = "deepseek-r1-distill-llama-70b", **kwargs):
-        # LangChain의 LLM 클래스가 Pydantic Model을 상속받으므로,
-        # Pydantic 모델의 초기화 로직을 따릅니다.
-        # model은 이제 생성자 인자뿐 아니라 클래스 필드로도 기본값을 가집니다.
-        # LangChain LLM이 요구하는 인자들을 super().__init__에 전달합니다.
-        # Pydantic Model의 __init__은 키워드 인자를 선호합니다.
-        super().__init__(model=model, **kwargs) # model을 명시적으로 전달합니다.
+        # 부모 클래스(LLM, Pydantic Model)의 __init__을 호출합니다.
+        # model 인자는 Pydantic 유효성 검사를 위해 명시적으로 전달합니다.
+        super().__init__(model=model, **kwargs)
 
-        # 당신의 Groq API 키를 저장합니다.
-        self.api_key = api_key
+        # PrivateAttr로 선언한 _api_key를 초기화합니다.
+        self._api_key = api_key # self.api_key 대신 self._api_key를 사용합니다.
 
         # PrivateAttr로 선언한 _client를 초기화합니다.
-        self._client = Groq(api_key=self.api_key)
+        # Groq 클라이언트 생성 시 _api_key를 사용합니다.
+        self._client = Groq(api_key=self._api_key) # self.api_key 대신 self._api_key를 사용합니다.
 
     def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
         messages = [{"role": "user", "content": prompt}]
