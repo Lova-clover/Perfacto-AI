@@ -1,3 +1,5 @@
+groq
+
 # UI
 streamlit
 
@@ -27,3 +29,4 @@ googlesearch-python
 
 # 환경 변수
 python-dotenv
+
