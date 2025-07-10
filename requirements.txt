@@ -1,15 +1,29 @@
+# UI
 streamlit
+
+# LangChain 및 관련 모델
 langchain
 langchain-core
-langchain-google-genai
+langchain-community
 langchain-openai
+langchain-google-genai
 langchain-experimental
-python-dotenv
+
+# 임베딩 및 벡터
+sentence-transformers
 faiss-cpu
 tiktoken
-sentence-transformers
+
+# 문서 처리
 unstructured
+PyMuPDF        # PDF
+python-docx    # DOCX
+
+# 크롤링
 selenium
-PyMuPDF
-python-docx
+requests
+beautifulsoup4
 googlesearch-python
+
+# 환경 변수
+python-dotenv

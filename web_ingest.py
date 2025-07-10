@@ -5,6 +5,8 @@ from sentence_transformers import SentenceTransformer
 import faiss
 import numpy as np
 import os
+from langchain_community.vectorstores import FAISS
+from langchain.embeddings import HuggingFaceEmbeddings
 
 def get_links(query, num=30):
     return [
@@ -35,15 +37,14 @@ def save_texts(text_list, filename):
         for i, t in enumerate(text_list):
             f.write(f"[문서 {i+1}]\n{t}\n\n")
 
-def embed_and_save(texts, index_path):
+def embed_and_save(texts, output_dir):
     print("[+] 문서 벡터화 및 인덱싱 중...")
-    model = SentenceTransformer("jhgan/ko-sbert-sts")
-    embeddings = model.encode(texts)
-    dim = embeddings.shape[1]
-    index = faiss.IndexFlatL2(dim)
-    index.add(np.array(embeddings).astype("float32"))
-    faiss.write_index(index, index_path)
-    print(f"[+] 벡터 인덱스 저장 완료: {index_path}")
+
+    embedding = HuggingFaceEmbeddings(model_name="jhgan/ko-sbert-sts")
+    vectorstore = FAISS.from_texts(texts, embedding)
+
+    vectorstore.save_local(output_dir)
+    print(f"[+] FAISS 인덱스 저장 완료: {output_dir}")
 
 def full_web_ingest(query, output_dir="output"):
     urls = get_links(query)
@@ -58,10 +59,7 @@ def full_web_ingest(query, output_dir="output"):
         return None, None, "충분한 문서를 수집하지 못했습니다."
 
     os.makedirs(output_dir, exist_ok=True)
-    text_path = os.path.abspath(os.path.join(output_dir, "result_text.txt"))
-    index_path = os.path.abspath(os.path.join(output_dir, "result_faiss.index"))
+    text_path = os.path.join(output_dir, "result_text.txt")
+    embed_and_save(texts, output_dir)
 
-    save_texts(texts, text_path)
-    embed_and_save(texts, index_path)
-
-    return text_path, index_path, None
+    return text_path, output_dir, None

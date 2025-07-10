@@ -60,13 +60,9 @@ with st.sidebar:
             # ✅ 키워드 기반 웹 크롤링 + 벡터화 + 저장
             with st.spinner("웹페이지를 수집하고 벡터화하는 중입니다..."):
                 text_path, index_dir, error = full_web_ingest(url_input)
-                if error:
-                    st.warning(error)
-                else:
-                    st.success(f"문서 저장 완료: {text_path}")
-                    st.info(f"FAISS 인덱스 저장 완료: {index_dir}")
+                if not error:
                     source_type = "FAISS"
-                    source_input = index_dir
+                    source_input = index_dir  # 폴더 경로
         else:
             st.warning("검색 키워드 또는 파일을 입력해주세요.")
         if source_input:
