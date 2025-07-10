@@ -12,3 +12,4 @@ unstructured
 selenium
 PyMuPDF
 python-docx
+googlesearch-python
