@@ -20,28 +20,20 @@ from groq import Groq
 from pydantic import PrivateAttr 
 
 class GROQLLM(LLM):
-    # model은 기본값을 가집니다.
     model: str = "deepseek-r1-distill-llama-70b"
-
-    # client와 마찬가지로 api_key도 내부적으로 관리되는 속성이므로 PrivateAttr로 설정합니다.
-    _api_key: str = PrivateAttr() # 이 줄을 추가합니다. _api_key로 이름을 바꾸고 PrivateAttr로 선언
-    _client: Groq = PrivateAttr() # 이 줄은 이미 있을 겁니다.
+    
+    _api_key: str = PrivateAttr() 
+    _client: Groq = PrivateAttr() 
 
     def __init__(self, api_key: str, model: str = "deepseek-r1-distill-llama-70b", **kwargs):
-        # 부모 클래스(LLM, Pydantic Model)의 __init__을 호출합니다.
-        # model 인자는 Pydantic 유효성 검사를 위해 명시적으로 전달합니다.
         super().__init__(model=model, **kwargs)
-
-        # PrivateAttr로 선언한 _api_key를 초기화합니다.
-        self._api_key = api_key # self.api_key 대신 self._api_key를 사용합니다.
-
-        # PrivateAttr로 선언한 _client를 초기화합니다.
-        # Groq 클라이언트 생성 시 _api_key를 사용합니다.
-        self._client = Groq(api_key=self._api_key) # self.api_key 대신 self._api_key를 사용합니다.
+        
+        self._api_key = api_key 
+        self._client = Groq(api_key=self._api_key) 
 
     def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
         messages = [{"role": "user", "content": prompt}]
-        completion = self._client.chat.completions.create( # _client를 사용합니다.
+        completion = self._client.chat.completions.create( 
             model=self.model,
             messages=messages,
             temperature=0.6,
