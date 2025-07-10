@@ -1,9 +1,10 @@
 import requests
 import os
-from dotenv import load_dotenv
+#from dotenv import load_dotenv
+import streamlit as st
 
-load_dotenv()
-ELEVEN_API_KEY = os.getenv("ELEVEN_API_KEY")
+#load_dotenv()
+ELEVEN_API_KEY = st.secrets["ELEVEN_API_KEY"]
 
 #voice_id를 지정해서 사용하면 될 것으로 보인다.
 TTS_TEMPLATES = {
