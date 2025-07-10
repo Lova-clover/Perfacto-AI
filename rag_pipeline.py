@@ -84,8 +84,8 @@ def get_retriever_from_source(source_type, source_input):
 
         status.update(label="문서를 청크(chunk)로 분할 중입니다...")
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200,
+            chunk_size=700,
+            chunk_overlap=150,
             separators=["\n\n", "\n", " ", ""],
             is_separator_regex=False,
         )
@@ -99,7 +99,7 @@ def get_retriever_from_source(source_type, source_input):
 
         retriever = vectorstore.as_retriever(
             search_type="similarity",
-            search_kwargs={'k': 3, 'fetch_k': 20}
+            search_kwargs={'k': 2, 'fetch_k': 10}
         )
         status.update(label="문서 처리 완료!", state="complete")
 
