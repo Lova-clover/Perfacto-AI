@@ -35,13 +35,12 @@ def save_texts(text_list, filename):
         for i, t in enumerate(text_list):
             f.write(f"[문서 {i+1}]\n{t}\n\n")
 
-def embed_and_save(texts, index_path):
-    model = SentenceTransformer("all-MiniLM-L6-v2")
-    embeddings = model.encode(texts)
-    dim = embeddings[0].shape[0]
-    index = faiss.IndexFlatL2(dim)
-    index.add(np.array(embeddings))
-    faiss.write_index(index, index_path)
+def embed_and_save(texts, output_dir="output"):
+    print("[+] 문서 벡터화 및 인덱싱 중...")
+    embeddings = HuggingFaceEmbeddings(model_name="jhgan/ko-sbert-sts")
+    vectorstore = FAISS.from_texts(texts, embeddings)
+    vectorstore.save_local(output_dir)
+    print(f"[+] 벡터 스토어가 '{output_dir}'에 저장되었습니다.")
 
 def full_web_ingest(query, output_dir="output"):
     urls = get_links(query)
@@ -57,9 +56,8 @@ def full_web_ingest(query, output_dir="output"):
 
     os.makedirs(output_dir, exist_ok=True)
     text_path = os.path.join(output_dir, "result_text.txt")
-    index_path = os.path.join(output_dir, "result_faiss.index")
 
     save_texts(texts, text_path)
-    embed_and_save(texts, index_path)
+    embed_and_save(texts, output_dir)
 
-    return text_path, index_path, None
+    return text_path, output_dir, None
