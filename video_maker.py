@@ -135,8 +135,8 @@ def create_motion_clip(img_path, duration, width, height):
 # ✅ 영상 생성 메인 함수
 def create_video_with_segments(image_paths, segments, audio_path, topic_title,
                                include_topic_title=True, bgm_path="", save_path="assets/video.mp4"):
-    video_width = 1280
-    video_height = 720
+    video_width = 720
+    video_height = 1080
     clips = []
 
     # 비디오의 전체 예상 지속 시간 계산
