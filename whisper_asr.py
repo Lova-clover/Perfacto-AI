@@ -10,7 +10,7 @@ def transcribe_audio_with_timestamps(audio_path):
 
 SUBTITLE_TEMPLATES = {
     "educational": {
-        "Fontname": "Noto Sans CJK KR",
+        "Fontname": os.path.abspath(os.path.join("assets", "fonts", "NanumGothic.ttf")),
         "Fontsize": 12,
         "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
         "OutlineColour": "&H00000000",       # 검정 외곽선
@@ -19,7 +19,7 @@ SUBTITLE_TEMPLATES = {
         "MarginV": 40
     },
     "entertainer": {
-        "Fontname": "Noto Sans CJK KR",
+        "Fontname": os.path.abspath(os.path.join("assets", "fonts", "NanumGothic.ttf")),
         "Fontsize": 12,
         "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
         "OutlineColour": "&H00000000",       # 검정 외곽선
@@ -28,7 +28,7 @@ SUBTITLE_TEMPLATES = {
         "MarginV": 40
     },
     "slow": {
-        "Fontname": "Noto Sans CJK KR",
+        "Fontname": os.path.abspath(os.path.join("assets", "fonts", "NanumGothic.ttf")),
         "Fontsize": 12,
         "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
         "OutlineColour": "&H00000000",       # 검정 외곽선
@@ -37,7 +37,7 @@ SUBTITLE_TEMPLATES = {
         "MarginV": 40
     },
     "default": {
-        "Fontname": "Noto Sans CJK KR",
+        "Fontname": os.path.abspath(os.path.join("assets", "fonts", "NanumGothic.ttf")),
         "Fontsize": 12,
         "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
         "OutlineColour": "&H00000000",       # 검정 외곽선
@@ -46,7 +46,7 @@ SUBTITLE_TEMPLATES = {
         "MarginV": 40
     },
     "korean_male": {
-        "Fontname": "Noto Sans CJK KR",
+        "Fontname": os.path.abspath(os.path.join("assets", "fonts", "NanumGothic.ttf")),
         "Fontsize": 12,
         "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
         "OutlineColour": "&H00000000",       # 검정 외곽선
@@ -55,7 +55,7 @@ SUBTITLE_TEMPLATES = {
         "MarginV": 40
     },
     "korean_male2": {
-        "Fontname": "Noto Sans CJK KR",
+        "Fontname": os.path.abspath(os.path.join("assets", "fonts", "NanumGothic.ttf")),
         "Fontsize": 12,
         "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
         "OutlineColour": "&H00000000",       # 검정 외곽선
@@ -64,7 +64,7 @@ SUBTITLE_TEMPLATES = {
         "MarginV": 40
     },
     "korean_female": {
-        "Fontname": "Noto Sans CJK KR",
+        "Fontname": os.path.abspath(os.path.join("assets", "fonts", "NanumGothic.ttf")),
         "Fontsize": 12,
         "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
         "OutlineColour": "&H00000000",       # 검정 외곽선
@@ -73,7 +73,7 @@ SUBTITLE_TEMPLATES = {
         "MarginV": 40
     },
     "korean_female2": {
-        "Fontname": "Noto Sans CJK KR",
+        "Fontname": os.path.abspath(os.path.join("assets", "fonts", "NanumGothic.ttf")),
         "Fontsize": 12,
         "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
         "OutlineColour": "&H00000000",       # 검정 외곽선
