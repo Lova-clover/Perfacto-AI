@@ -42,7 +42,8 @@ if "selected_subtitle_template" not in st.session_state:
     st.session_state.selected_subtitle_template = "educational"
 if "bgm_path" not in st.session_state:
     st.session_state.bgm_path = None
-
+if "include_voice" not in st.session_state:
+    st.session_state.include_voice = True # 음성 포함 여부 초기화
 
 # --- 사이드바 UI ---
 with st.sidebar:
@@ -111,14 +112,19 @@ with st.sidebar:
         value=st.session_state.edited_script_content, # 세션 상태에서 가져옴
         height=300
     )
+    
+    # 음성 포함 여부 선택
+    include_voice = st.checkbox("영상에 음성 포함", value=st.session_state.include_voice)
+    st.session_state.include_voice = include_voice
 
-    # TTS 템플릿 선택
-    selected_tts_template = st.selectbox(
-        "음성 템플릿 선택",
-        options=list(TTS_TEMPLATES.keys()),
-        index=list(TTS_TEMPLATES.keys()).index(st.session_state.selected_tts_template)
-    )
-    st.session_state.selected_tts_template = selected_tts_template
+    if include_voice:
+        # TTS 템플릿 선택
+        selected_tts_template = st.selectbox(
+            "음성 템플릿 선택",
+            options=list(TTS_TEMPLATES.keys()),
+            index=list(TTS_TEMPLATES.keys()).index(st.session_state.selected_tts_template)
+        )
+        st.session_state.selected_tts_template = selected_tts_template
 
     # 자막 템플릿 선택
     selected_subtitle_template = st.selectbox(
@@ -156,7 +162,6 @@ with st.sidebar:
         with st.spinner("✨ 영상 제작 중입니다..."):
             try:
                 # --- 0-1. 추출된 토픽을 영어로 번역 (GoogleTranslator 사용) ---
-                # 이제 LLM으로 주제를 추출하는 대신, 사용자가 입력한 주제를 바로 사용합니다.
                 st.write("🌐 이미지 검색어를 영어로 번역 중...")
                 image_query_english = ""
                 try:
@@ -168,35 +173,70 @@ with st.sidebar:
                     image_query_english = final_topic_for_video
                 image_query_final = image_query_english 
 
-                # --- 1. Text-to-Speech (TTS) 생성 ---
-                audio_output_dir = "assets"
-                os.makedirs(audio_output_dir, exist_ok=True)
-                audio_path = os.path.join(audio_output_dir, "generated_audio.mp3")
-                
-                st.write("🗣️ 음성 파일 생성 중...")
-                generate_tts(
-                    text=final_script_for_video, # <--- 사용자가 수정/입력한 스크립트 사용
-                    save_path=audio_path,
-                    template_name=st.session_state.selected_tts_template # 선택된 템플릿 사용
-                )
-                st.success(f"음성 파일 생성 완료: {audio_path}")
+                audio_path = None
+                segments = []
 
-                # --- 2. Audio Transcription (ASR) 및 Subtitle (ASS) 파일 생성 ---
-                subtitle_output_dir = "assets"
-                os.makedirs(subtitle_output_dir, exist_ok=True)
-                ass_path = os.path.join(subtitle_output_dir, "generated_subtitle.ass")
+                if st.session_state.include_voice:
+                    # --- 1. Text-to-Speech (TTS) 생성 ---
+                    audio_output_dir = "assets"
+                    os.makedirs(audio_output_dir, exist_ok=True)
+                    audio_path = os.path.join(audio_output_dir, "generated_audio.mp3")
+                    
+                    st.write("🗣️ 음성 파일 생성 중...")
+                    generate_tts(
+                        text=final_script_for_video,
+                        save_path=audio_path,
+                        template_name=st.session_state.selected_tts_template
+                    )
+                    st.success(f"음성 파일 생성 완료: {audio_path}")
 
-                st.write("📝 자막 생성을 위한 음성 분석 중...")
-                segments = transcribe_audio_with_timestamps(audio_path)
-                generate_ass_subtitle(
-                    segments=segments,
-                    ass_path=ass_path,
-                    template_name=st.session_state.selected_subtitle_template # 선택된 템플릿 사용
-                )
-                st.success(f"자막 파일 생성 완료: {ass_path}")
+                    # --- 2. Audio Transcription (ASR) 및 Subtitle (ASS) 파일 생성 ---
+                    subtitle_output_dir = "assets"
+                    os.makedirs(subtitle_output_dir, exist_ok=True)
+                    ass_path = os.path.join(subtitle_output_dir, "generated_subtitle.ass")
+
+                    st.write("📝 자막 생성을 위한 음성 분석 중...")
+                    segments = transcribe_audio_with_timestamps(audio_path)
+                    generate_ass_subtitle(
+                        segments=segments,
+                        ass_path=ass_path,
+                        template_name=st.session_state.selected_subtitle_template
+                    )
+                    st.success(f"자막 파일 생성 완료: {ass_path}")
+                else: # 음성이 없는 경우
+                    st.write("음성 없이 자막과 이미지만으로 영상을 생성합니다.")
+                    # 텍스트를 기준으로 가상의 세그먼트 생성 (자막 길이를 위한)
+                    # 간단하게 전체 스크립트를 하나의 세그먼트로 간주하거나, 문장 단위로 나눌 수 있습니다.
+                    # 여기서는 간단하게 전체 스크립트를 하나의 세그먼트로 가정하고,
+                    # 이미지 지속 시간을 나중에 조절할 수 있도록 합니다.
+                    # 실제 자막 파일 생성을 위해 더 정교한 로직이 필요할 수 있습니다 (예: 텍스트 길이 기반 시간 할당)
+                    # For now, let's create a dummy segment for subtitle generation
+                    # The `create_video_with_segments` function will need adjustment to handle `segments` correctly when no voice.
+                    # For a simple case, we can assume a fixed duration per character/word for estimation.
+                    
+                    # For simplicity, let's estimate duration based on script length.
+                    # A typical reading speed is about 150-160 words per minute.
+                    words_per_minute = 150
+                    estimated_duration_seconds = len(final_script_for_video.split()) / words_per_minute * 60
+                    
+                    # Create a single segment for the whole script with estimated duration
+                    segments = [{"start": 0, "end": estimated_duration_seconds, "text": final_script_for_video}]
+
+                    subtitle_output_dir = "assets"
+                    os.makedirs(subtitle_output_dir, exist_ok=True)
+                    ass_path = os.path.join(subtitle_output_dir, "generated_subtitle.ass")
+                    
+                    st.write("📝 자막 파일 생성 중...")
+                    generate_ass_subtitle(
+                        segments=segments,
+                        ass_path=ass_path,
+                        template_name=st.session_state.selected_subtitle_template
+                    )
+                    st.success(f"자막 파일 생성 완료: {ass_path}")
 
                 # --- 3. 이미지 생성 ---
-                num_images = max(1, len(segments))
+                # 음성이 없어도 이미지는 필요하므로 항상 생성
+                num_images = max(1, len(segments)) if segments else 3 # 최소 3장 또는 세그먼트 수만큼
                 image_output_dir = "assets"
                 os.makedirs(image_output_dir, exist_ok=True)
                 
@@ -230,12 +270,13 @@ with st.sidebar:
                 st.write("🎬 비디오 클립 조합 및 오디오 통합 중...")
                 created_video_path = create_video_with_segments(
                     image_paths=image_paths,
-                    segments=segments,
-                    audio_path=audio_path,
-                    topic_title=final_topic_for_video, # <--- 사용자가 수정/입력한 주제 사용
+                    segments=segments, # segments를 사용하여 이미지 지속 시간 결정
+                    audio_path=audio_path if st.session_state.include_voice else None, # 음성 미포함 시 None 전달
+                    topic_title=final_topic_for_video,
                     include_topic_title=True,
-                    bgm_path=st.session_state.bgm_path, # 업로드된 BGM 경로 사용
-                    save_path=temp_video_path
+                    bgm_path=st.session_state.bgm_path,
+                    save_path=temp_video_path,
+                    no_audio_duration_multiplier=0.8 # 음성 없을 때 각 이미지 지속 시간 조절용 (옵션)
                 )
                 st.success(f"기본 비디오 생성 완료: {created_video_path}")
 
@@ -280,12 +321,6 @@ for i, message in enumerate(st.session_state["messages"]):
                 for j, source in enumerate(message["sources"]):
                     st.info(f"**출처 {j+1}**\n\n{source.page_content}")
                     st.divider()
-        # "영상 만들기" 버튼은 이제 사이드바에 통합된 "영상 만들기" 버튼으로 대체됩니다.
-        # 따라서 이 부분은 제거됩니다.
-        # if message["role"] == "assistant" and message["content"]:
-        #     if st.button("🎥 영상 만들기", key=f"generate_video_button_{i}"):
-        #         # ... (영상 만들기 로직) ...
-        #         pass # 이 로직은 이제 사이드바의 "영상 만들기" 버튼으로 이동합니다.
 
 user_input = st.chat_input("궁금한 내용을 물어보세요!")
 
