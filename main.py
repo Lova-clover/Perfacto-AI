@@ -280,18 +280,35 @@ for i, message in enumerate(st.session_state["messages"]):
                 for j, source in enumerate(message["sources"]):
                     st.info(f"**출처 {j+1}**\n\n{source.page_content}")
                     st.divider()
-        # "영상 만들기" 버튼은 이제 사이드바에 통합된 "영상 만들기" 버튼으로 대체됩니다.
-        # 따라서 이 부분은 제거됩니다.
-        # if message["role"] == "assistant" and message["content"]:
-        #     if st.button("🎥 영상 만들기", key=f"generate_video_button_{i}"):
-        #         # ... (영상 만들기 로직) ...
-        #         pass # 이 로직은 이제 사이드바의 "영상 만들기" 버튼으로 이동합니다.
+        # '영상 제작 설정에 반영' 버튼 추가
+        if message["role"] == "assistant" and message["content"]:
+            # 버튼 클릭 시 스크립트와 주제를 세션 상태에 반영
+            if st.button("🎥 영상 제작 설정에 반영", key=f"reflect_video_settings_{i}"):
+                st.session_state.edited_script_content = message["content"]
+                
+                # 해당 답변에서 영상 주제 추출 로직
+                with st.spinner("답변에서 영상 주제를 추출 중..."):
+                    topic_extraction_prompt = f"""다음 스크립트에서 이미지를 생성하기 위한 2-3개의 간결한 키워드 또는 아주 짧은 구문(최대 10단어)으로 메인 주제를 추출해주세요. 키워드/구문만 응답하세요.
+
+                    스크립트:
+                    {message["content"]}
+
+                    키워드/주제:"""
+                    topic_llm_chain = get_default_chain(system_prompt="당신은 주어진 텍스트에서 키워드를 추출하는 유용한 조수입니다.")
+                    extracted_topic_for_ui = topic_llm_chain.invoke({"question": topic_extraction_prompt, "chat_history": []}).strip()
+                    if extracted_topic_for_ui:
+                        st.session_state.video_topic = extracted_topic_for_ui
+                    else:
+                        # 추출 실패 시 마지막 사용자 질문을 기본값으로 사용
+                        st.session_state.video_topic = st.session_state.last_user_query 
+                st.rerun() # UI 업데이트를 위해 새로고침
+
 
 user_input = st.chat_input("궁금한 내용을 물어보세요!")
 
 if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
-    st.session_state.last_user_query = user_input
+    st.session_state.last_user_query = user_input # 마지막 사용자 질문 저장
     st.chat_message("user").write(user_input)
 
     try:
@@ -325,24 +342,7 @@ if user_input:
                             for i, source in enumerate(source_documents):
                                 st.info(f"**출처 {i+1}**\n\n{source.page_content}")
                                 st.divider()
-            # 챗봇이 답변을 생성한 후, 사이드바의 스크립트와 주제 필드를 자동으로 채웁니다.
-            st.session_state.edited_script_content = ai_answer
-            # 챗봇 답변에서 자동으로 주제를 추출하여 필드에 채웁니다.
-            with st.spinner("답변에서 영상 주제를 자동으로 추출 중..."):
-                topic_extraction_prompt = f"""다음 스크립트에서 이미지를 생성하기 위한 2-3개의 간결한 키워드 또는 아주 짧은 구문(최대 10단어)으로 메인 주제를 추출해주세요. 키워드/구문만 응답하세요.
-
-                스크립트:
-                {ai_answer}
-
-                키워드/주제:"""
-                topic_llm_chain = get_default_chain(system_prompt="당신은 주어진 텍스트에서 키워드를 추출하는 유용한 조수입니다.")
-                extracted_topic_for_ui = topic_llm_chain.invoke({"question": topic_extraction_prompt, "chat_history": []}).strip()
-                if extracted_topic_for_ui:
-                    st.session_state.video_topic = extracted_topic_for_ui
-                else:
-                    st.session_state.video_topic = user_input # 추출 실패 시 사용자 질문을 기본값으로
-            st.rerun() # UI 업데이트를 위해 rerun
-        else:
+        else: # 리트리버가 없는 경우 (일반 대화)
             chain = get_default_chain(st.session_state.system_prompt)
             with st.chat_message("assistant"):
                 container = st.empty()
@@ -351,22 +351,7 @@ if user_input:
                     ai_answer += token
                     container.markdown(ai_answer)
                 st.session_state.messages.append({"role": "assistant", "content": ai_answer, "sources": []})
-            # 챗봇이 답변을 생성한 후, 사이드바의 스크립트와 주제 필드를 자동으로 채웁니다.
-            st.session_state.edited_script_content = ai_answer
-            with st.spinner("답변에서 영상 주제를 자동으로 추출 중..."):
-                topic_extraction_prompt = f"""다음 스크립트에서 이미지를 생성하기 위한 2-3개의 간결한 키워드 또는 아주 짧은 구문(최대 10단어)으로 메인 주제를 추출해주세요. 키워드/구문만 응답하세요.
-
-                스크립트:
-                {ai_answer}
-
-                키워드/주제:"""
-                topic_llm_chain = get_default_chain(system_prompt="당신은 주어진 텍스트에서 키워드를 추출하는 유용한 조수입니다.")
-                extracted_topic_for_ui = topic_llm_chain.invoke({"question": topic_extraction_prompt, "chat_history": []}).strip()
-                if extracted_topic_for_ui:
-                    st.session_state.video_topic = extracted_topic_for_ui
-                else:
-                    st.session_state.video_topic = user_input # 추출 실패 시 사용자 질문을 기본값으로
-            st.rerun() # UI 업데이트를 위해 rerun
+                
     except Exception as e:
         st.chat_message("assistant").error(f"죄송합니다, 답변을 생성하는 중 오류가 발생했습니다.\n\n오류: {e}")
         st.session_state.messages.pop()
