@@ -344,16 +344,6 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
 
-# 이전 대화 내용 표시
-for i, message in enumerate(st.session_state["messages"]):
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-        if message["role"] == "assistant" and "sources" in message and message["sources"]:
-            with st.expander("참고한 출처 보기"):
-                for j, source in enumerate(message["sources"]):
-                    st.info(f"**출처 {j+1}**\n\n{source.page_content}")
-                    st.divider()
-
 # --- 챗봇 인터페이스 ---
 for message in st.session_state.messages:
     if message["role"] == "user":
@@ -437,8 +427,6 @@ if user_input:
                 for token in chain.stream({"question": final_llm_question, "chat_history": chat_history}): # 변경된 부분: user_input 대신 final_llm_question 사용
                     ai_answer += token
 
-                container.markdown(ai_answer)
-                
                 st.session_state.messages.append({"role": "assistant", "content": ai_answer, "sources": []})
             # 챗봇이 답변을 생성한 후, 사이드바의 스크립트와 주제 필드를 자동으로 채웁니다.
             st.session_state.edited_script_content = ai_answer
