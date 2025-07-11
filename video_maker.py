@@ -134,11 +134,26 @@ def create_motion_clip(img_path, duration, width, height):
 # ✅ 영상 생성 메인 함수
 def create_video_with_segments(image_paths, segments, audio_path, topic_title,
                                include_topic_title=True, bgm_path="", save_path="assets/video.mp4"):
-    audio = AudioFileClip(audio_path)
+    video_width = 1280
+    video_height = 720
     clips = []
 
-    video_width = 720
-    video_height = 1280
+    # 비디오의 전체 예상 지속 시간 계산
+    # segments가 비어있지 않다면 마지막 세그먼트의 끝 시간을 총 지속 시간으로 사용
+    if segments:
+        total_video_duration = segments[-1]['end']
+    else:
+        # segments가 비어있는 극단적인 경우를 위한 폴백 (최소 10초)
+        total_video_duration = 10 
+
+    # 오디오 클립 초기화 (audio_path가 없으면 무음 클립 생성)
+    if audio_path and os.path.exists(audio_path):
+        audio = AudioFileClip(audio_path)
+    else:
+        # 무음 오디오 클립 생성 (moviepy가 None을 처리하지 못하므로)
+        # np.array([[0.0, 0.0]])는 무음 오디오 데이터를 나타냅니다.
+        audio = AudioArrayClip(np.array([[0.0, 0.0]]), fps=44100).with_duration(total_video_duration)
+        print("🔊 음성 파일이 없어 무음 오디오 트랙을 생성했습니다.")
 
     # segments 개수에 맞춰 이미지도 1:1로 매칭
     num_images_needed = len(segments)
@@ -147,8 +162,8 @@ def create_video_with_segments(image_paths, segments, audio_path, topic_title,
         image_paths += [image_paths[-1]] * (num_images_needed - len(image_paths))
 
     for i, seg in enumerate(segments):
-        start = seg.start
-        end = seg.end
+        start = seg['start']
+        end = seg['end'] 
         if i < len(segments) - 1:
             next_start = segments[i + 1].start
             duration = next_start - start
