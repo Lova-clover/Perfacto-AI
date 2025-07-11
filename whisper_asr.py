@@ -113,6 +113,13 @@ def generate_ass_subtitle(segments, ass_path, template_name="default"):
 
             text = seg['text'].strip().replace("\\n", " ")
 
+            # 시간 형식 변환
+            start_ts = format_ass_timestamp(start)
+            end_ts = format_ass_timestamp(end)
+
+            # Dialogue: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+            f.write(f"Dialogue: 0,{start_ts},{end_ts},Bottom,,0,0,0,,{text}\n")
+
 
 
 
