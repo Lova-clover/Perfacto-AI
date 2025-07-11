@@ -184,7 +184,7 @@ def create_video_with_segments(image_paths, segments, audio_path, topic_title,
             black_bar = black_bar.with_position(("center", "top"))
 
             title_text_clip = TextClip(
-                text=topic_title,
+                text=topic_title + "\n",
                 font_size=48,
                 color="white",
                 font=os.path.join("assets", "fonts", "NanumGothic.ttf"),
