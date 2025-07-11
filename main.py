@@ -10,6 +10,7 @@ from video_maker import create_video_with_segments, add_subtitles_to_video
 from deep_translator import GoogleTranslator
 import os
 import requests # 기본 이미지 다운로드를 위해 추가
+import re
 
 # API 키 로드
 load_dotenv()
