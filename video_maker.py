@@ -7,6 +7,7 @@ import random
 import subprocess
 import numpy as np
 from moviepy.audio.AudioClip import AudioArrayClip
+import imageio_ffmpeg
 
 def create_motion_clip(img_path, duration, width, height):
     base_clip_original_size = ImageClip(img_path)
@@ -221,11 +222,12 @@ def create_video_with_segments(image_paths, segments, audio_path, topic_title,
     print(f"✅ 타이밍 동기화 영상 저장 완료: {save_path}")
     return save_path
 
+ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 
 # ✅ 자막 추가 함수
 def add_subtitles_to_video(input_video_path, ass_path, output_path="assets/video_with_subs.mp4"):
     command = [
-        "ffmpeg", "-y", "-i", input_video_path,
+        ffmpeg_path , "-y", "-i", input_video_path,
         "-vf", f"ass={ass_path}",
         "-c:a", "copy", output_path
     ]

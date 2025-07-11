@@ -21,3 +21,5 @@ faster-whisper
 moviepy
 numpy
 deep-translator
+imageio-ffmpeg
+ffmpeg-python
