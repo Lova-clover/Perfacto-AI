@@ -373,9 +373,9 @@ if user_input:
                 topic_llm_chain = get_default_chain(system_prompt="당신은 주어진 텍스트에서 키워드를 추출하는 유용한 조수입니다.")
                 extracted_topic_for_ui = topic_llm_chain.invoke({"question": topic_extraction_prompt, "chat_history": []}).strip()
                 if extracted_topic_for_ui:
-                    st.session_state.video_topic = extracted_topic_for_ui
+                    st.session_state.video_topic = extracted_topic_for_ui + "\n"
                 else:
-                    st.session_state.video_topic = user_input # 추출 실패 시 사용자 질문을 기본값으로
+                    st.session_state.video_topic = user_input + "\n" # 추출 실패 시 사용자 질문을 기본값으로
             st.rerun() # UI 업데이트를 위해 rerun
         else:
             chain = get_default_chain(st.session_state.system_prompt)
@@ -398,9 +398,9 @@ if user_input:
                 topic_llm_chain = get_default_chain(system_prompt="당신은 주어진 텍스트에서 키워드를 추출하는 유용한 조수입니다.")
                 extracted_topic_for_ui = topic_llm_chain.invoke({"question": topic_extraction_prompt, "chat_history": []}).strip()
                 if extracted_topic_for_ui:
-                    st.session_state.video_topic = extracted_topic_for_ui
+                    st.session_state.video_topic = extracted_topic_for_ui + "\n"
                 else:
-                    st.session_state.video_topic = user_input # 추출 실패 시 사용자 질문을 기본값으로
+                    st.session_state.video_topic = user_input + "\n" # 추출 실패 시 사용자 질문을 기본값으로
             st.rerun() # UI 업데이트를 위해 rerun
     except Exception as e:
         st.chat_message("assistant").error(f"죄송합니다, 답변을 생성하는 중 오류가 발생했습니다.\n\n오류: {e}")
