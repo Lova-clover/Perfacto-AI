@@ -205,27 +205,59 @@ with st.sidebar:
                     st.success(f"자막 파일 생성 완료: {ass_path}")
                 else: # 음성이 없는 경우
                     st.write("음성 없이 자막과 이미지만으로 영상을 생성합니다.")
-                    # 텍스트를 기준으로 가상의 세그먼트 생성 (자막 길이를 위한)
-                    # 간단하게 전체 스크립트를 하나의 세그먼트로 간주하거나, 문장 단위로 나눌 수 있습니다.
-                    # 여기서는 간단하게 전체 스크립트를 하나의 세그먼트로 가정하고,
-                    # 이미지 지속 시간을 나중에 조절할 수 있도록 합니다.
-                    # 실제 자막 파일 생성을 위해 더 정교한 로직이 필요할 수 있습니다 (예: 텍스트 길이 기반 시간 할당)
-                    # For now, let's create a dummy segment for subtitle generation
-                    # The `create_video_with_segments` function will need adjustment to handle `segments` correctly when no voice.
-                    # For a simple case, we can assume a fixed duration per character/word for estimation.
-                    
-                    # For simplicity, let's estimate duration based on script length.
-                    # A typical reading speed is about 150-160 words per minute.
-                    words_per_minute = 150
-                    estimated_duration_seconds = len(final_script_for_video.split()) / words_per_minute * 60
-                    
-                    # Create a single segment for the whole script with estimated duration
-                    segments = [{"start": 0, "end": estimated_duration_seconds, "text": final_script_for_video}]
+
+                    # 스크립트를 문장 단위로 분할
+                    # . ? ! 로 끝나는 경우를 문장 끝으로 간주하고, 그 뒤의 공백을 기준으로 분할
+                    sentences = re.split(r'(?<=[.?!])\s*', final_script_for_video.strip())
+                    # 분할 후 빈 문자열이나 공백만 있는 문자열 제거
+                    sentences = [s.strip() for s in sentences if s.strip()]
+
+                    # 스크립트가 비어있거나 문장으로 제대로 분할되지 않으면 전체 스크립트를 하나의 문장으로 간주
+                    if not sentences:
+                        sentences = [final_script_for_video.strip()] # 전체 스크립트를 하나의 문장으로
+
+                    # 전체 스크립트 길이에 기반한 총 예상 지속 시간 (기존 방식 유지)
+                    words_per_minute = 150 # 분당 단어 수 (평균적인 읽기 속도)
+                    total_script_words = len(final_script_for_video.split())
+                    total_estimated_duration_seconds = (total_script_words / words_per_minute) * 60
+
+                    if total_estimated_duration_seconds < 5: # 너무 짧은 영상 방지 (최소 5초)
+                        total_estimated_duration_seconds = 5
+
+                    # 각 문장의 길이에 비례하여 시간 할당
+                    total_chars = sum(len(s) for s in sentences) # 전체 스크립트의 총 글자 수
+                    current_time = 0.0 # 현재 시간 (누적)
+                    segments = [] # 최종 segments 리스트
+
+                    for sentence_text in sentences:
+                        # 너무 짧은 문장(예: "네.")에 대한 최소 지속 시간 설정
+                        min_segment_duration = 1.5 # 초
+
+                        # 문장 길이에 비례한 지속 시간 계산
+                        if total_chars > 0: # 0으로 나누는 오류 방지
+                            proportion = len(sentence_text) / total_chars
+                            segment_duration = total_estimated_duration_seconds * proportion
+                        else: # 스크립트가 비어있거나 특수한 경우 (이 경우는 거의 없겠지만 안전장치)
+                            segment_duration = total_estimated_duration_seconds / len(sentences)
+
+                        # 최소 지속 시간 보장
+                        segment_duration = max(min_segment_duration, segment_duration)
+
+                        segments.append({
+                            "start": current_time,
+                            "end": current_time + segment_duration,
+                            "text": sentence_text
+                        })
+                        current_time += segment_duration
+
+                    # 마지막 세그먼트의 'end' 시간을 실제 누적된 최종 시간으로 맞춤 (정확성)
+                    if segments:
+                        segments[-1]["end"] = current_time 
 
                     subtitle_output_dir = "assets"
                     os.makedirs(subtitle_output_dir, exist_ok=True)
                     ass_path = os.path.join(subtitle_output_dir, "generated_subtitle.ass")
-                    
+
                     st.write("📝 자막 파일 생성 중...")
                     generate_ass_subtitle(
                         segments=segments,
@@ -236,7 +268,7 @@ with st.sidebar:
 
                 # --- 3. 이미지 생성 ---
                 # 음성이 없어도 이미지는 필요하므로 항상 생성
-                num_images = max(1, len(segments)) if segments else 3 # 최소 3장 또는 세그먼트 수만큼
+                num_images = max(3, len(segments)) if segments else 3 # 최소 3장 또는 세그먼트 수만큼
                 image_output_dir = "assets"
                 os.makedirs(image_output_dir, exist_ok=True)
                 
@@ -276,7 +308,6 @@ with st.sidebar:
                     include_topic_title=True,
                     bgm_path=st.session_state.bgm_path,
                     save_path=temp_video_path,
-                    no_audio_duration_multiplier=0.8 # 음성 없을 때 각 이미지 지속 시간 조절용 (옵션)
                 )
                 st.success(f"기본 비디오 생성 완료: {created_video_path}")
 
