@@ -1,6 +1,5 @@
 from faster_whisper import WhisperModel
 import copy
-import os
 
 def transcribe_audio_with_timestamps(audio_path):
     model = WhisperModel("medium", device="cpu")
@@ -11,7 +10,7 @@ def transcribe_audio_with_timestamps(audio_path):
 
 SUBTITLE_TEMPLATES = {
     "educational": {
-        "Fontname": os.path.join("assets", "fonts", "NanumGothic.ttf"),
+        "Fontname": "NanumGothic",
         "Fontsize": 12,
         "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
         "OutlineColour": "&H00000000",       # 검정 외곽선
@@ -20,7 +19,7 @@ SUBTITLE_TEMPLATES = {
         "MarginV": 40
     },
     "entertainer": {
-        "Fontname": os.path.join("assets", "fonts", "NanumGothic.ttf"),
+        "Fontname": "NanumGothic",
         "Fontsize": 12,
         "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
         "OutlineColour": "&H00000000",       # 검정 외곽선
@@ -29,7 +28,7 @@ SUBTITLE_TEMPLATES = {
         "MarginV": 40
     },
     "slow": {
-        "Fontname": os.path.join("assets", "fonts", "NanumGothic.ttf"),
+        "Fontname": "NanumGothic",
         "Fontsize": 12,
         "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
         "OutlineColour": "&H00000000",       # 검정 외곽선
@@ -38,7 +37,7 @@ SUBTITLE_TEMPLATES = {
         "MarginV": 40
     },
     "default": {
-        "Fontname": os.path.join("assets", "fonts", "NanumGothic.ttf"),
+        "Fontname": "NanumGothic",
         "Fontsize": 12,
         "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
         "OutlineColour": "&H00000000",       # 검정 외곽선
@@ -47,7 +46,7 @@ SUBTITLE_TEMPLATES = {
         "MarginV": 40
     },
     "korean_male": {
-        "Fontname": os.path.join("assets", "fonts", "NanumGothic.ttf"),
+        "Fontname": "NanumGothic",
         "Fontsize": 12,
         "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
         "OutlineColour": "&H00000000",       # 검정 외곽선
@@ -56,7 +55,7 @@ SUBTITLE_TEMPLATES = {
         "MarginV": 40
     },
     "korean_male2": {
-        "Fontname": os.path.join("assets", "fonts", "NanumGothic.ttf"),
+        "Fontname": "NanumGothic",
         "Fontsize": 12,
         "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
         "OutlineColour": "&H00000000",       # 검정 외곽선
@@ -65,7 +64,7 @@ SUBTITLE_TEMPLATES = {
         "MarginV": 40
     },
     "korean_female": {
-        "Fontname": os.path.join("assets", "fonts", "NanumGothic.ttf"),
+        "Fontname": "NanumGothic",
         "Fontsize": 12,
         "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
         "OutlineColour": "&H00000000",       # 검정 외곽선
@@ -74,7 +73,7 @@ SUBTITLE_TEMPLATES = {
         "MarginV": 40
     },
     "korean_female2": {
-        "Fontname": os.path.join("assets", "fonts", "NanumGothic.ttf"),
+        "Fontname": "NanumGothic",
         "Fontsize": 12,
         "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
         "OutlineColour": "&H00000000",       # 검정 외곽선

@@ -226,9 +226,11 @@ ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 
 # ✅ 자막 추가 함수
 def add_subtitles_to_video(input_video_path, ass_path, output_path="assets/video_with_subs.mp4"):
+    fonts_dir = os.path.abspath(os.path.join("assets", "fonts"))
+
     command = [
         ffmpeg_path , "-y", "-i", input_video_path,
-        "-vf", f"ass={ass_path}",
+        "-vf", f"ass={ass_path}:fontsdir={fonts_dir}",
         "-c:a", "copy", output_path
     ]
     try:
