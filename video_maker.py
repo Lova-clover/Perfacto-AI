@@ -165,7 +165,7 @@ def create_video_with_segments(image_paths, segments, audio_path, topic_title,
         start = seg['start']
         end = seg['end'] 
         if i < len(segments) - 1:
-            next_start = segments[i + 1].start
+            next_start = segments[i + 1]['start']
             duration = next_start - start
         else:
             duration = end - start
