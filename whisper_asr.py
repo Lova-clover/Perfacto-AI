@@ -1,5 +1,6 @@
 from faster_whisper import WhisperModel
 import copy
+import os
 
 def transcribe_audio_with_timestamps(audio_path):
     model = WhisperModel("medium", device="cpu")
