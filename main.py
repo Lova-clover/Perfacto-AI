@@ -1,7 +1,7 @@
 import streamlit as st
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, AIMessage
-from rag_pipeline import get_retriever_from_source, get_document_chain, get_default_chain
+from rag_pipeline import get_retriever_from_source, get_document_chain, get_default_chain, get_shorts_script_generation_prompt
 from web_ingest import full_web_ingest
 from image_generator import generate_images_for_topic
 from elevenlabs_tts import generate_tts, TTS_TEMPLATES
@@ -354,6 +354,14 @@ for i, message in enumerate(st.session_state["messages"]):
                     st.info(f"**출처 {j+1}**\n\n{source.page_content}")
                     st.divider()
 
+# --- 챗봇 인터페이스 ---
+for message in st.session_state.messages:
+    if message["role"] == "user":
+        st.chat_message("user").write(message["content"]) # markdown 대신 write 사용
+    elif message["role"] == "assistant":
+        st.chat_message("assistant").write(message["content"]) # markdown 대신 write 사용
+
+
 user_input = st.chat_input("궁금한 내용을 물어보세요!")
 
 if user_input:
@@ -368,15 +376,28 @@ if user_input:
             for msg in st.session_state.messages[:-1]
         ]
         
+        # --- 쇼츠 스크립트 요청 감지 및 프롬프트 변경 로직 추가 시작 ---
+        # "쇼츠", "shorts", "스크립트 형태", "영상 스크립트", "짧은 스크립트" 등의 키워드를 감지
+        is_shorts_request = any(keyword in user_input.lower() for keyword in ["쇼츠", "shorts", "스크립트 형태", "영상 스크립트", "짧은 스크립트"])
+
+        # LLM에 전달할 최종 질문을 결정
+        final_llm_question = user_input # 기본값은 사용자 입력 그대로
+
+        if is_shorts_request:
+            # 쇼츠 스크립트 요청이라면, 특별 프롬프트로 사용자 질문을 래핑
+            final_llm_question = get_shorts_script_generation_prompt(user_input)
+        # --- 쇼츠 스크립트 요청 감지 및 프롬프트 변경 로직 추가 끝 ---
+
         if st.session_state.retriever:
             with st.chat_message("assistant"):
                 with st.spinner("관련 문서를 검색하고 답변을 생성 중입니다..."):
                     retriever = st.session_state.retriever
-                    source_documents = retriever.get_relevant_documents(user_input)
+                    # RAG 체인에 final_llm_question 전달
+                    source_documents = retriever.get_relevant_documents(final_llm_question) # 여기도 final_llm_question 사용
                     document_chain = get_document_chain(st.session_state.system_prompt)
                     
                     ai_answer = document_chain.invoke({
-                        "input": user_input,
+                        "input": final_llm_question, # 변경된 부분: user_input 대신 final_llm_question 사용
                         "chat_history": chat_history,
                         "context": source_documents
                     })
@@ -414,7 +435,8 @@ if user_input:
             with st.chat_message("assistant"):
                 container = st.empty()
                 ai_answer = ""
-                for token in chain.stream({"question": user_input, "chat_history": chat_history}):
+                # 기본 챗봇 체인에 final_llm_question 전달
+                for token in chain.stream({"question": final_llm_question, "chat_history": chat_history}): # 변경된 부분: user_input 대신 final_llm_question 사용
                     ai_answer += token
                     container.markdown(ai_answer)
                 st.session_state.messages.append({"role": "assistant", "content": ai_answer, "sources": []})
@@ -430,9 +452,9 @@ if user_input:
                 topic_llm_chain = get_default_chain(system_prompt="당신은 주어진 텍스트에서 키워드를 추출하는 유용한 조수입니다.")
                 extracted_topic_for_ui = topic_llm_chain.invoke({"question": topic_extraction_prompt, "chat_history": []}).strip()
                 if extracted_topic_for_ui:
-                    st.session_state.video_topic = extracted_topic_for_ui + "\n"
+                    st.session_state.video_topic = extracted_topic_for_ui
                 else:
-                    st.session_state.video_topic = user_input + "\n" # 추출 실패 시 사용자 질문을 기본값으로
+                    st.session_state.video_topic = user_input # 추출 실패 시 사용자 질문을 기본값으로
             st.rerun() # UI 업데이트를 위해 rerun
     except Exception as e:
         st.chat_message("assistant").error(f"죄송합니다, 답변을 생성하는 중 오류가 발생했습니다.\n\n오류: {e}")

@@ -129,3 +129,25 @@ def get_default_chain(system_prompt):
     groq_api_key = st.secrets["GROQ_API_KEY"]
     llm = GROQLLM(api_key=groq_api_key)
     return prompt | llm | StrOutputParser()
+
+def get_shorts_script_generation_prompt(user_question_content):
+    """
+    숏폼 비디오 스크립트 생성을 위한 프롬프트 템플릿을 반환합니다.
+    사용자의 질문 내용을 포함하여 LLM이 특정 형식으로 응답하도록 지시합니다.
+    """
+    return f"""
+    당신은 TikTok, YouTube Shorts, Instagram Reels과 같은 숏폼 비디오 스크립트를 작성하는 전문 어시스턴트입니다.
+    아래의 '사용자 요청 내용'을 바탕으로, **한국어**로 숏폼 비디오 스크립트를 작성해주세요.
+
+    **작성 원칙:**
+    - 매우 간결하고 임팩트 있는 문장을 사용하세요. 각 문장은 하나의 핵심 아이디어에 집중합니다.
+    - 시청자의 주의를 즉시 사로잡는 **후크 문장**으로 시작합니다.
+    - 문장과 문장 사이에 자연스러운 간결한 휴지(pause)가 필요할 경우 **'…' (말줄임표)**를 사용합니다.
+    - 불필요한 설명은 최소화하고, 핵심 메시지를 명확하게 전달합니다.
+    - 마지막에는 시청자의 **행동을 유도하는 명확한 Call to Action (CTA)**을 포함합니다 (예: '좋아요 누르고, 다음 게임은 다르게 둬보세요!', '지금 바로 시도해보세요!', '친구에게 공유하세요!').
+    - 전체적으로 **에너지 넘치고 몰입감 있는 톤**을 유지합니다.
+    - 응답은 스크립트 내용 자체만 포함해야 하며, 어떠한 추가 설명이나 머리말, 꼬리말도 포함하지 마세요.
+
+    **사용자 요청 내용:**
+    {user_question_content}
+    """
