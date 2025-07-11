@@ -402,8 +402,6 @@ if user_input:
                         "context": source_documents
                     })
                     
-                    st.markdown(ai_answer)
-                    
                     st.session_state.messages.append({
                         "role": "assistant", "content": ai_answer, "sources": source_documents
                     })
@@ -438,7 +436,9 @@ if user_input:
                 # 기본 챗봇 체인에 final_llm_question 전달
                 for token in chain.stream({"question": final_llm_question, "chat_history": chat_history}): # 변경된 부분: user_input 대신 final_llm_question 사용
                     ai_answer += token
-                    container.markdown(ai_answer)
+
+                container.markdown(ai_answer)
+                
                 st.session_state.messages.append({"role": "assistant", "content": ai_answer, "sources": []})
             # 챗봇이 답변을 생성한 후, 사이드바의 스크립트와 주제 필드를 자동으로 채웁니다.
             st.session_state.edited_script_content = ai_answer
