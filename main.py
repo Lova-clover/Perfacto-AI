@@ -191,7 +191,7 @@ with st.sidebar:
                         topic_extraction_prompt = f"""다음 스크립트에서 이미지를 생성하기 위한 2-3개의 간결한 키워드 또는 아주 짧은 구문(최대 10단어)으로 메인 주제를 추출해주세요. 키워드/구문만 응답하세요.
 
                         스크립트:
-                        {generated_script.strip()} # <--- ai_answer 대신 generated_script를 사용합니다.
+                        {generated_script.strip()} 
 
                         키워드/주제:"""
                         topic_llm_chain = get_default_chain(system_prompt="당신은 주어진 텍스트에서 키워드를 추출하는 유용한 조수입니다.")
@@ -457,7 +457,7 @@ for msg in st.session_state.messages:
                     st.text(source.page_content)
 # 사용자 입력 처리
 if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI 기술 트렌드 알려줘, 이 파일 요약해 줘, 이 URL 분석해 줘)"):
-    st.session_state.messages.append(HumanMessage(content=user_input, role="user"))
+    st.session_state.messages.append({"role": "user", "content": user_input})
     st.chat_message("user").markdown(user_input)
     st.session_state.last_user_query = user_input # 마지막 사용자 쿼리 저장
 
