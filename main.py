@@ -140,15 +140,6 @@ with st.sidebar:
                 else:
                     st.error("문서 처리 중 오류가 발생했습니다. 다시 시도해 주세요.")
 
-
-        system_prompt_input = st.text_area(
-            "AI 어시스턴트 시스템 프롬프트",
-            value=st.session_state.system_prompt,
-            height=100,
-        )
-        if system_prompt_input != st.session_state.system_prompt:
-            st.session_state.system_prompt = system_prompt_input
-
     st.markdown("---")
 
     with st.expander("영상 제작 설정", expanded=True):
