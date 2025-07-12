@@ -178,7 +178,7 @@ with st.sidebar:
                 with st.spinner(f"'{st.session_state.selected_generated_topic}' 주제로 스크립트를 만드는 중입니다..."):
                     # 콘텐츠 제작자 페르소나로 스크립트 생성
                     script_prompt = get_shorts_script_generation_prompt(st.session_state.selected_generated_topic)
-                    script_chain = get_default_chain(system_prompt="당신은 TikTok, YouTube Shorts, Instagram Reels과 같은 매력적이고 바이럴성 있는 숏폼 비디오 스크립트를 작성하는 전문 크리에이터입니다.")
+                    script_chain = get_default_chain(system_prompt="당신은 TikTok, YouTube Shorts, Instagram Reels과 같은 매력적이고 바이럴성 있는 숏폼 비디오 스크립트를 작성하는 전문 크리에이터입니다. 이모지는 사용하지 않습니다. 문장을 구분하는 방법은 .과 !과 ?입니다. 이를 참고하여 스크립트를 제작해주세요.")
                     
                     st.session_state.messages.append({"role": "user", "content": f"선택된 주제 '{st.session_state.selected_generated_topic}'에 대한 스크립트를 만들어 줘."})
                     
