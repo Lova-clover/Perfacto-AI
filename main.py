@@ -112,8 +112,6 @@ with st.sidebar:
         if st.button("분석 시작"):
             st.session_state.messages = []
             st.session_state.retriever = None
-            st.session_state.video_topic = "" # 분석 시작 시 영상 주제 초기화
-            st.session_state.edited_script_content = "" # 분석 시작 시 스크립트 내용 초기화
 
             source_type = None
             source_input = None
