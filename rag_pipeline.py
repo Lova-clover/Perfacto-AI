@@ -130,7 +130,7 @@ def get_default_chain(system_prompt):
     llm = GROQLLM(api_key=groq_api_key)
     return prompt | llm | StrOutputParser()
 
-def generate_topic_insights(
+def get_topic_insights_prompt(
     persona: str,
     domain: str,
     audience: str,
@@ -147,6 +147,39 @@ def generate_topic_insights(
     톤은 {tone}이며, 출력 형식은 {format}이야.
     추가 조건은 다음과 같아: {constraints}
     """
+
+def generate_topic_insights(
+    persona: str,
+    domain: str,
+    audience: str,
+    tone: str,
+    format: str,
+    constraints: str
+) -> list:
+    """
+    주어진 페르소나 설정에 따라 LLM으로부터 주제 인사이트를 생성합니다.
+    """
+    prompt_text = get_topic_insights_prompt(persona, domain, audience, tone, format, constraints)
+    
+    groq_api_key = st.secrets["GROQ_API_KEY"]
+    llm = GROQLLM(api_key=groq_api_key)
+
+    try:
+        response_content = llm._call(prompt_text)
+        
+        # Parse the response based on expected format
+        if "목록" in format:
+            # Assuming topics are listed line by line, possibly with numbers or bullet points
+            topics = [line.strip() for line in response_content.split('\n') if line.strip()]
+            # Remove any leading numbers or bullet points
+            topics = [re.sub(r'^\d+\.\s*|^-\s*|^\*\s*', '', topic).strip() for topic in topics]
+            return [topic for topic in topics if topic] # Filter out empty strings
+        else:
+            # For other formats, return the raw content as a single item in a list
+            return [response_content.strip()] if response_content.strip() else []
+    except Exception as e:
+        st.error(f"주제 인사이트 생성 중 LLM 호출 오류: {e}")
+        return []
 
 def get_shorts_script_generation_prompt(user_question_content):
     """
