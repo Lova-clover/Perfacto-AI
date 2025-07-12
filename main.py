@@ -187,7 +187,19 @@ with st.sidebar:
                         generated_script += token
                     
                     st.session_state.edited_script_content = generated_script.strip()
-                    st.session_state.video_topic = st.session_state.selected_generated_topic # 스크립트 생성 시 주제도 업데이트
+                    with st.spinner("생성된 스크립트에서 영상 주제를 자동으로 추출하고 있습니다..."):
+                        topic_extraction_prompt = f"""다음 스크립트에서 이미지를 생성하기 위한 2-3개의 간결한 키워드 또는 아주 짧은 구문(최대 10단어)으로 메인 주제를 추출해주세요. 키워드/구문만 응답하세요.
+
+                        스크립트:
+                        {generated_script.strip()} # <--- ai_answer 대신 generated_script를 사용합니다.
+
+                        키워드/주제:"""
+                        topic_llm_chain = get_default_chain(system_prompt="당신은 주어진 텍스트에서 키워드를 추출하는 유용한 조수입니다.")
+                        extracted_topic_for_ui = topic_llm_chain.invoke({"question": topic_extraction_prompt, "chat_history": []}).strip()
+                        if extracted_topic_for_ui:
+                            st.session_state.video_topic = extracted_topic_for_ui
+                        else: # 추출에 실패한 경우 기존 선택 주제 유지 또는 기본값 설정
+                            st.session_state.video_topic = st.session_state.selected_generated_topic
                     st.session_state.messages.append({"role": "assistant", "content": f"**다음 스크립트가 생성되었습니다:**\n\n{st.session_state.edited_script_content}"})
                 st.success("스크립트 생성이 완료되었습니다!")
                 st.rerun() # 스크립트가 업데이트되도록 다시 로드
