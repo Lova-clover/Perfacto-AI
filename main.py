@@ -16,11 +16,11 @@ import re
 load_dotenv()
 
 # --- 앱 기본 설정 ---
-st.set_page_config(page_title="멀티모달 RAG 챗봇", page_icon="🤖")
-st.title("🤖 멀티모달 파일/URL 분석 RAG 챗봇")
+st.set_page_config(page_title="영상제작 및 RAG 챗봇", page_icon="🤖")
+st.title("영상 제작 챗봇")
 st.markdown(
     """
-안녕하세요! 이 챗봇은 웹사이트 URL이나 업로드된 파일(PDF, DOCX, TXT)의 내용을 분석하여 답변해 드립니다.
+안녕하세요! 이 챗봇은 검색 키워드나 업로드된 파일의 내용을 분석하여 답변해 드립니다.
 또한, 영상 스크립트 생성 및 영상 제작 기능도 제공하고 있어요.
 """
 )
@@ -132,7 +132,7 @@ with st.sidebar:
     
     st.markdown("---")
 
-    with st.expander("RAG (검색 증강 생성) 설정", expanded=False):
+    with st.expander("RAG (검색 증강 생성) 설정", expanded=True):
         st.subheader("🔎 분석 대상 설정")
         url_input = st.text_input("검색 키워드 입력", placeholder="ex) 인공지능 윤리")
         uploaded_files = st.file_uploader(
@@ -141,7 +141,6 @@ with st.sidebar:
         st.info("LlamaParse는 테이블, 텍스트가 포함된 문서 분석에 최적화되어 있습니다.", icon="ℹ️")
         
         if st.button("분석 시작"):
-            st.session_state.messages = []
             st.session_state.retriever = None
 
             source_type = None
