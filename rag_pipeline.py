@@ -18,6 +18,7 @@ from langchain.llms.base import LLM
 from typing import Optional, List
 from groq import Groq
 from pydantic import PrivateAttr 
+import re
 
 class GROQLLM(LLM):
     model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
