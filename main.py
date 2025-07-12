@@ -50,8 +50,21 @@ if "generated_topics" not in st.session_state:
     st.session_state.generated_topics = []
 if "selected_generated_topic" not in st.session_state:
     st.session_state.selected_generated_topic = ""
-if "audio_path" not in st.session_state: # Added for consistency, though it will be generated within the video creation
+if "audio_path" not in st.session_state: 
     st.session_state.audio_path = None
+if "expert_persona" not in st.session_state:
+    st.session_state.expert_persona = "" 
+if "expert_domain" not in st.session_state:
+    st.session_state.expert_domain = ""
+if "expert_audience" not in st.session_state:
+    st.session_state.expert_audience = ""
+if "expert_tone" not in st.session_state:
+    st.session_state.expert_tone = ""
+if "expert_format" not in st.session_state:
+    st.session_state.expert_format = ""
+if "expert_constraints" not in st.session_state:
+    st.session_state.expert_constraints = ""
+
 
 # --- 사이드바: AI 페르소나 설정 및 RAG 설정 ---
 with st.sidebar:
@@ -59,12 +72,30 @@ with st.sidebar:
 
     with st.expander("전문가 페르소나 설정", expanded=True):
         st.write("주제 생성을 위한 전문가 AI의 설정을 정의해 보세요.")
-        expert_persona = st.text_input("페르소나 (예: 역사학자, 과학자)", value=st.session_state.get("expert_persona", "정보 제공자"))
-        expert_domain = st.text_input("주제 전문 분야 (예: 조선 시대, 블랙홀, 인공지능)", value=st.session_state.get("expert_domain", "일반 지식"))
-        expert_audience = st.text_input("대상 시청자 (예: 고등학생, 일반인, 전문가)", value=st.session_state.get("expert_audience", "모든 사람"))
-        expert_tone = st.text_input("톤 (예: 유익함, 재미있음, 진지함)", value=st.session_state.get("expert_tone", "유익함"))
-        expert_format = st.text_input("출력 형식 (예: 목록 (10개), 상세 설명)", value=st.session_state.get("expert_format", "목록 (10개)"))
-        expert_constraints = st.text_area("추가 조건 (JSON 형식 권장)", value=st.session_state.get("expert_constraints", "{}"))
+        expert_persona = st.text_input("페르소나", 
+                                        value=st.session_state.expert_persona, 
+                                        placeholder="예: 역사학자, 과학자", 
+                                        key="expert_persona_input")
+        expert_domain = st.text_input("주제 전문 분야", 
+                                       value=st.session_state.expert_domain, 
+                                       placeholder="예: 조선 시대, 블랙홀, 인공지능", 
+                                       key="expert_domain_input")
+        expert_audience = st.text_input("대상 시청자", 
+                                        value=st.session_state.expert_audience, 
+                                        placeholder="예: 고등학생, 일반인, 전문가", 
+                                        key="expert_audience_input")
+        expert_tone = st.text_input("톤", 
+                                    value=st.session_state.expert_tone, 
+                                    placeholder="예: 유익함, 재미있음, 진지함", 
+                                    key="expert_tone_input")
+        expert_format = st.text_input("출력 형식", 
+                                     value=st.session_state.expert_format, 
+                                     placeholder="예: 목록, 상세 설명", 
+                                     key="expert_format_input")
+        expert_constraints = st.text_area("추가 조건 (JSON 형식 권장)", 
+                                          value=st.session_state.expert_constraints, 
+                                          placeholder="예: {\"length\": \"short\", \"keywords\": [\"파이썬\", \"데이터\"]}", 
+                                          key="expert_constraints_input")
 
         if st.button("주제 생성"):
             try:
