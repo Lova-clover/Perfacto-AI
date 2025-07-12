@@ -50,6 +50,8 @@ if "generated_topics" not in st.session_state:
     st.session_state.generated_topics = []
 if "selected_generated_topic" not in st.session_state:
     st.session_state.selected_generated_topic = ""
+if "audio_path" not in st.session_state: # Added for consistency, though it will be generated within the video creation
+    st.session_state.audio_path = None
 
 # --- 사이드바: AI 페르소나 설정 및 RAG 설정 ---
 with st.sidebar:
@@ -125,7 +127,7 @@ with st.sidebar:
                     text_path, index_dir, error = full_web_ingest(url_input)
                     if not error:
                         source_type = "FAISS"
-                        source_input = index_dir  # 폴더 경로
+                        source_input = index_dir   # 폴더 경로
                     else:
                         st.error(f"웹페이지 수집 및 벡터화 중 오류 발생: {error}")
             else:
@@ -173,111 +175,241 @@ with st.sidebar:
                 st.warning("먼저 생성된 주제를 선택해 주세요.")
 
         st.subheader("제작된 스크립트 미리보기 및 수정")
-        st.session_state.edited_script_content = st.text_area(
-            "영상 스크립트 (원하는 대로 수정 가능)",
-            value=st.session_state.edited_script_content,
-            height=200,
-            key="script_editor"
-        )
+        # 영상 주제 입력 필드
         st.session_state.video_topic = st.text_input(
             "영상 주제 (이미지 생성에 사용될 키워드)",
-            value=st.session_state.video_topic,
-            key="video_topic_input"
+            value=st.session_state.video_topic, # 세션 상태에서 가져옴
+            key="video_topic_input_final" # Changed key to avoid conflict if any
         )
 
-        col1_tts, col2_tts = st.columns(2)
-        with col1_tts:
+        # 스크립트 내용 (수정 가능) 텍스트 영역
+        st.session_state.edited_script_content = st.text_area(
+            "영상 스크립트 (원하는 대로 수정 가능):",
+            value=st.session_state.edited_script_content, # 세션 상태에서 가져옴
+            height=200,
+            key="script_editor_final" # Changed key to avoid conflict if any
+        )
+        
+        # 음성 포함 여부 선택
+        st.session_state.include_voice = st.checkbox("영상에 AI 목소리 포함", value=st.session_state.include_voice)
+
+        if st.session_state.include_voice:
+            # TTS 템플릿 선택
             st.session_state.selected_tts_template = st.selectbox(
-                "TTS 목소리 템플릿",
+                "음성 템플릿 선택",
                 options=list(TTS_TEMPLATES.keys()),
                 index=list(TTS_TEMPLATES.keys()).index(st.session_state.selected_tts_template)
             )
-        with col2_tts:
-            st.session_state.include_voice = st.checkbox("AI 목소리 포함", value=st.session_state.include_voice)
 
+        # 자막 템플릿 선택
         st.session_state.selected_subtitle_template = st.selectbox(
-            "자막 템플릿",
+            "자막 템플릿 선택",
             options=list(SUBTITLE_TEMPLATES.keys()),
             index=list(SUBTITLE_TEMPLATES.keys()).index(st.session_state.selected_subtitle_template)
         )
-        
-        uploaded_bgm = st.file_uploader("배경 음악 (MP3, WAV)", type=["mp3", "wav"])
-        if uploaded_bgm:
-            temp_bgm_path = os.path.join("assets", uploaded_bgm.name)
+
+        # BGM 파일 업로드 (선택 사항)
+        uploaded_bgm_file = st.file_uploader("BGM 파일 업로드 (선택 사항, .mp3, .wav)", type=["mp3", "wav"])
+        if uploaded_bgm_file:
+            temp_bgm_path = os.path.join("assets", uploaded_bgm_file.name) # Use original filename
             os.makedirs("assets", exist_ok=True)
             with open(temp_bgm_path, "wb") as f:
-                f.write(uploaded_bgm.getvalue())
+                f.write(uploaded_bgm_file.read())
             st.session_state.bgm_path = temp_bgm_path
-            st.success(f"배경 음악 '{uploaded_bgm.name}' 업로드를 완료했어요!")
+            st.success(f"배경 음악 '{uploaded_bgm_file.name}' 업로드를 완료했어요!")
+        else:
+            # If no file is uploaded, and there was a previous BGM, keep it unless explicitly cleared.
+            pass # Keep existing bgm_path if no new file is uploaded
 
-        st.subheader("영상 제작 단계")
-        if st.button("스크립트 -> 오디오 변환"):
-            if st.session_state.edited_script_content and st.session_state.include_voice:
-                with st.spinner("오디오를 생성하고 있습니다..."):
-                    audio_path = generate_tts(st.session_state.edited_script_content, template_name=st.session_state.selected_tts_template)
-                    st.session_state.audio_path = audio_path
-                st.success("오디오 생성이 완료되었습니다!")
-                st.audio(audio_path, format="audio/mp3")
-            else:
-                st.warning("오디오를 생성하려면 스크립트 내용을 입력하고 'AI 목소리 포함'을 선택해야 해요.")
+        st.subheader("영상 제작")
+        if st.button("영상 만들기"):
+            # 사용자가 수정한 스크립트 내용과 주제를 사용
+            final_script_for_video = st.session_state.edited_script_content
+            final_topic_for_video = st.session_state.video_topic
 
-        if st.button("이미지 생성"):
-            if st.session_state.video_topic:
-                with st.spinner(f"'{st.session_state.video_topic}' 에 대한 이미지를 생성하고 있습니다..."):
-                    # 필요한 이미지 수 계산 (예: 10초당 1장 또는 스크립트 길이에 비례)
-                    # 여기서는 간단히 5장으로 고정하거나, 스크립트 길이에 따라 동적으로 결정 가능
-                    num_images = max(1, len(st.session_state.edited_script_content.split('.')) // 2) # 문장 수의 절반 정도
-                    generate_images_for_topic(st.session_state.video_topic, num_images=num_images)
-                st.success("이미지 생성이 완료되었습니다! (assets/image_X.jpg)")
-            else:
-                st.warning("이미지를 생성하려면 영상 주제를 입력해 주세요.")
+            if not final_script_for_video.strip():
+                st.error("스크립트 내용이 비어있습니다. 스크립트를 입력하거나 생성해주세요.")
+                st.stop()
+            if not final_topic_for_video.strip():
+                st.error("영상 주제가 비어있습니다. 주제를 입력해주세요.")
+                st.stop()
 
-        if st.button("영상 미리보기"):
-            if st.session_state.audio_path and os.path.exists("assets/image_0.jpg"): # 최소 1개 이미지 존재 확인
-                with st.spinner("영상 미리보기를 생성하고 있습니다... (오디오와 이미지 동기화)"):
-                    video_output_path = "assets/preview_video.mp4"
-                    create_video_with_segments(
-                        audio_path=st.session_state.audio_path,
-                        image_dir="assets",
-                        save_path=video_output_path,
-                        bgm_path=st.session_state.bgm_path if st.session_state.get("bgm_path") else None
-                    )
-                st.success("영상 미리보기 생성이 완료되었습니다!")
-                st.video(video_output_path)
-            else:
-                st.warning("영상을 미리 보려면 오디오와 이미지가 먼저 생성되어야 해요.")
-        
-        if st.button("영상 최종 생성 (자막 포함)"):
-            if st.session_state.audio_path and os.path.exists("assets/image_0.jpg"):
-                with st.spinner("최종 영상과 자막을 생성하고 있습니다..."):
-                    final_video_path_no_subs = "assets/final_video_no_subs.mp4"
-                    create_video_with_segments(
-                        audio_path=st.session_state.audio_path,
-                        image_dir="assets",
-                        save_path=final_video_path_no_subs,
-                        bgm_path=st.session_state.bgm_path if st.session_state.get("bgm_path") else None
-                    )
+            with st.spinner("✨ 영상 제작 중입니다..."):
+                try:
+                    # --- 0-1. 추출된 토픽을 영어로 번역 (GoogleTranslator 사용) ---
+                    st.write("🌐 이미지 검색어를 영어로 번역 중...")
+                    image_query_english = ""
+                    try:
+                        translator = GoogleTranslator(source='ko', target='en')
+                        image_query_english = translator.translate(final_topic_for_video)
+                        st.success(f"이미지 검색어 번역 완료 (영어): '{image_query_english}'")
+                    except Exception as e:
+                        st.warning(f"이미지 검색어 번역에 실패했습니다. 한국어 검색어를 그대로 사용합니다. 오류: {e}")
+                        image_query_english = final_topic_for_video
+                    image_query_final = image_query_english 
+
+                    audio_path = None
+                    segments = []
+
+                    if st.session_state.include_voice:
+                        # --- 1. Text-to-Speech (TTS) 생성 ---
+                        audio_output_dir = "assets"
+                        os.makedirs(audio_output_dir, exist_ok=True)
+                        audio_path = os.path.join(audio_output_dir, "generated_audio.mp3")
+                        
+                        st.write("🗣️ 음성 파일 생성 중...")
+                        generate_tts(
+                            text=final_script_for_video,
+                            save_path=audio_path,
+                            template_name=st.session_state.selected_tts_template
+                        )
+                        st.success(f"음성 파일 생성 완료: {audio_path}")
+                        st.session_state.audio_path = audio_path # Store audio path in session state
+
+                        # --- 2. Audio Transcription (ASR) 및 Subtitle (ASS) 파일 생성 ---
+                        subtitle_output_dir = "assets"
+                        os.makedirs(subtitle_output_dir, exist_ok=True)
+                        ass_path = os.path.join(subtitle_output_dir, "generated_subtitle.ass")
+
+                        st.write("📝 자막 생성을 위한 음성 분석 중...")
+                        segments = transcribe_audio_with_timestamps(audio_path)
+                        generate_ass_subtitle(
+                            segments=segments,
+                            ass_path=ass_path,
+                            template_name=st.session_state.selected_subtitle_template
+                        )
+                        st.success(f"자막 파일 생성 완료: {ass_path}")
+                    else: # 음성이 없는 경우
+                        st.write("음성 없이 자막과 이미지만으로 영상을 생성합니다.")
+
+                        # 스크립트를 문장 단위로 분할
+                        sentences = re.split(r'(?<=[.?!])\s*', final_script_for_video.strip())
+                        sentences = [s.strip() for s in sentences if s.strip()]
+
+                        if not sentences:
+                            sentences = [final_script_for_video.strip()] # 전체 스크립트를 하나의 문장으로
+
+                        words_per_minute = 150 # 분당 단어 수 (평균적인 읽기 속도)
+                        total_script_words = len(final_script_for_video.split())
+                        total_estimated_duration_seconds = (total_script_words / words_per_minute) * 60
+
+                        if total_estimated_duration_seconds < 5: # 너무 짧은 영상 방지 (최소 5초)
+                            total_estimated_duration_seconds = 5
+
+                        current_time = 0.0 # 현재 시간 (누적)
+                        segments = [] # 최종 segments 리스트
+
+                        # total_chars 계산 (이전 코드에서 누락되어 있던 부분)
+                        total_chars = sum(len(s) for s in sentences)
+
+                        for sentence_text in sentences:
+                            min_segment_duration = 1.5 # 초
+
+                            if total_chars > 0: # 0으로 나누는 오류 방지
+                                proportion = len(sentence_text) / total_chars
+                                segment_duration = total_estimated_duration_seconds * proportion
+                            else: # 스크립트가 비어있거나 특수한 경우 (이 경우는 거의 없겠지만 안전장치)
+                                segment_duration = total_estimated_duration_seconds / len(sentences)
+
+                            segment_duration = max(min_segment_duration, segment_duration)
+
+                            segments.append({
+                                "start": current_time,
+                                "end": current_time + segment_duration,
+                                "text": sentence_text
+                            })
+                            current_time += segment_duration
+
+                        if segments:
+                            segments[-1]["end"] = current_time 
+
+                        subtitle_output_dir = "assets"
+                        os.makedirs(subtitle_output_dir, exist_ok=True)
+                        ass_path = os.path.join(subtitle_output_dir, "generated_subtitle.ass")
+
+                        st.write("📝 자막 파일 생성 중...")
+                        generate_ass_subtitle(
+                            segments=segments,
+                            ass_path=ass_path,
+                            template_name=st.session_state.selected_subtitle_template
+                        )
+                        st.success(f"자막 파일 생성 완료: {ass_path}")
+
+                    # --- 3. 이미지 생성 ---
+                    num_images = max(3, len(segments)) if segments else 3 # 최소 3장 또는 세그먼트 수만큼
+                    image_output_dir = "assets"
+                    os.makedirs(image_output_dir, exist_ok=True)
                     
-                    # 자막 생성
-                    segments = transcribe_audio_with_timestamps(st.session_state.audio_path)
-                    ass_path = "assets/subtitles.ass"
-                    generate_ass_subtitle(segments, ass_path, template_name=st.session_state.selected_subtitle_template)
+                    st.write(f"🖼️ '{image_query_final}' 관련 이미지 {num_images}장 생성 중...")
+                    image_paths = generate_images_for_topic(image_query_final, num_images)
+                    
+                    if not image_paths:
+                        st.warning("이미지 생성에 실패했습니다. 기본 이미지를 사용합니다.")
+                        default_image_path = "assets/default_image.jpg"
+                        if not os.path.exists(default_image_path):
+                            try:
+                                print("Downloading a placeholder image as default_image.jpg is not found.")
+                                generic_image_url = "https://images.pexels.com/photos/936043/pexels-photo-936043.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2" # Example URL
+                                image_data = requests.get(generic_image_url).content
+                                with open(default_image_path, "wb") as f:
+                                    f.write(image_data)
+                                print(f"✅ Placeholder image saved to: {default_image_path}")
+                            except Exception as img_dl_e:
+                                st.error(f"기본 이미지 다운로드에도 실패했습니다. 오류: {img_dl_e}")
+                                st.stop()
+                        image_paths = [default_image_path] * num_images # Ensure enough default images
+                        
+                    st.success(f"이미지 {len(image_paths)}장 생성 완료.")
 
-                    # 영상에 자막 추가
-                    final_video_path_with_subs = "assets/final_video_with_subs.mp4"
-                    add_subtitles_to_video(final_video_path_no_subs, ass_path, final_video_path_with_subs)
+                    # --- 4. 비디오 생성 (자막 제외) ---
+                    video_output_dir = "assets"
+                    os.makedirs(video_output_dir, exist_ok=True)
+                    temp_video_path = os.path.join(video_output_dir, "temp_video.mp4")
+                    final_video_path = os.path.join(video_output_dir, "final_video_with_subs.mp4")
 
-                st.success("최종 영상과 자막 생성이 완료되었습니다!")
-                st.video(final_video_path_with_subs)
-                with open(final_video_path_with_subs, "rb") as file:
-                    st.download_button(
-                        label="최종 영상 다운로드",
-                        data=file,
-                        file_name="final_video_with_subs.mp4",
-                        mime="video/mp4"
+                    st.write("🎬 비디오 클립 조합 및 오디오 통합 중...")
+                    created_video_path = create_video_with_segments(
+                        image_paths=image_paths,
+                        segments=segments, # segments를 사용하여 이미지 지속 시간 결정
+                        audio_path=audio_path if st.session_state.include_voice else None, # 음성 미포함 시 None 전달
+                        topic_title=final_topic_for_video,
+                        include_topic_title=True,
+                        bgm_path=st.session_state.bgm_path,
+                        save_path=temp_video_path,
                     )
-            else:
-                st.warning("최종 영상을 생성하려면 오디오와 이미지가 먼저 생성되어야 해요.")
+                    st.success(f"기본 비디오 생성 완료: {created_video_path}")
+
+                    # --- 5. 비디오에 자막 추가 ---
+                    st.write("📝 비디오에 자막 추가 중...")
+                    final_video_with_subs_path = add_subtitles_to_video(
+                        input_video_path=created_video_path,
+                        ass_path=ass_path,
+                        output_path=final_video_path
+                    )
+                    st.success(f"✅ 최종 영상 생성 완료: {final_video_with_subs_path}")
+
+                    # --- 6. 결과 표시 및 다운로드 링크 제공 ---
+                    st.video(final_video_with_subs_path)
+                    with open(final_video_with_subs_path, "rb") as file:
+                        st.download_button(
+                            label="영상 다운로드",
+                            data=file,
+                            file_name="generated_multimodal_video.mp4",
+                            mime="video/mp4"
+                        )
+                    
+                    # Clean up temporary video file (optional)
+                    if os.path.exists(temp_video_path):
+                        os.remove(temp_video_path)
+
+                except Exception as e:
+                    st.error(f"❌ 영상 생성 중 오류가 발생했습니다: {e}")
+                    st.exception(e)
+
+    st.divider()
+    if st.button("대화 초기화"):
+        st.session_state.clear()
+        st.rerun()
 
 
 # --- 메인 채팅 인터페이스 ---
@@ -291,7 +423,6 @@ for msg in st.session_state.messages:
                 for source in msg["sources"]:
                     st.markdown(f"- **출처**: [{source.metadata.get('source', 'N/A')}]({source.metadata.get('source', '#')})")
                     st.text(source.page_content)
-
 # 사용자 입력 처리
 if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI 기술 트렌드 알려줘, 이 파일 요약해 줘, 이 URL 분석해 줘)"):
     st.session_state.messages.append(HumanMessage(content=user_input, role="user"))
