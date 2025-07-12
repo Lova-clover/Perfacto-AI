@@ -19,6 +19,7 @@ from typing import Optional, List
 from groq import Groq
 from pydantic import PrivateAttr 
 import re
+from langchain.chains import create_retrieval_chain
 
 class GROQLLM(LLM):
     model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
@@ -106,7 +107,7 @@ def get_retriever_from_source(source_type, source_input):
 
     return retriever
 
-def get_document_chain(system_prompt):
+def get_document_chain(system_prompt, retriever): 
     rag_prompt = ChatPromptTemplate.from_messages(
         [
             ("system", system_prompt),
@@ -116,8 +117,14 @@ def get_document_chain(system_prompt):
     )
     groq_api_key = st.secrets["GROQ_API_KEY"]
     llm = GROQLLM(api_key=groq_api_key)
-    document_chain = create_stuff_documents_chain(llm, rag_prompt)
-    return document_chain
+
+    # 문서 내용을 LLM에 전달하는 체인
+    document_content_chain = create_stuff_documents_chain(llm, rag_prompt)
+
+    # 검색기와 문서 체인을 결합하여 완전한 RAG 검색 체인을 생성
+    retrieval_chain = create_retrieval_chain(retriever, document_content_chain)
+
+    return retrieval_chain 
 
 def get_default_chain(system_prompt):
     prompt = ChatPromptTemplate.from_messages(

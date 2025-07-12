@@ -456,7 +456,7 @@ for msg in st.session_state.messages:
                     st.markdown(f"- **출처**: [{source.metadata.get('source', 'N/A')}]({source.metadata.get('source', '#')})")
                     st.text(source.page_content)
 # 사용자 입력 처리
-if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI 기술 트렌드 알려줘, 이 파일 요약해 줘, 이 URL 분석해 줘)"):
+if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI 기술 트렌드 알려줘)"):
     st.session_state.messages.append({"role": "user", "content": user_input})
     st.chat_message("user").markdown(user_input)
     st.session_state.last_user_query = user_input # 마지막 사용자 쿼리 저장
