@@ -474,7 +474,7 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
             full_response = retrieval_chain.invoke(
                 {"input": user_input, "chat_history": st.session_state.messages}
             )
-            ai_answer = full_response
+            ai_answer = full_response.get("answer", "답변을 생성하는 데 문제가 발생했습니다.") 
             # TODO: 소스 추출 로직 필요 (LangChain Chain에서 직접 소스 추출 어려움, 별도 처리 필요)
             # 여기서는 임시로 빈 리스트를 사용하거나, 추후 Chain을 수정하여 소스 메타데이터를 반환하도록 해야 함
             sources_list = [] 
