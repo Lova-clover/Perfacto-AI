@@ -130,6 +130,24 @@ def get_default_chain(system_prompt):
     llm = GROQLLM(api_key=groq_api_key)
     return prompt | llm | StrOutputParser()
 
+def generate_topic_insights(
+    persona: str,
+    domain: str,
+    audience: str,
+    tone: str,
+    format: str,
+    constraints: str
+) -> str:
+    """
+    정보 제공자 역할을 가진 페르소나 A에게 주제를 바탕으로 흥미로운 정보를 생성 요청하는 프롬프트 설계
+    """
+    return f"""
+    너는 {persona}야. 
+    주제는 "{domain}"이고, 이 주제에 대해 {audience}가 흥미를 느낄만한 사실을 알려줘. 
+    톤은 {tone}이며, 출력 형식은 {format}이야.
+    추가 조건은 다음과 같아: {constraints}
+    """
+
 def get_shorts_script_generation_prompt(user_question_content):
     """
     숏폼 비디오 스크립트 생성을 위한 프롬프트 템플릿을 반환합니다.
