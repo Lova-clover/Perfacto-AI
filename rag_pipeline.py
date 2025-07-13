@@ -143,11 +143,9 @@ def get_topic_insights_prompt(
     domain: str,
     audience: str,
     tone: str,
-    num_topics: int = 1, # 'format' 대신 'num_topics'를 받도록 변경
-    constraints: str
+    constraints: str,
+    num_topics: int = 1
 ) -> str:
-    # 'format_instruction' 관련 로직은 더 이상 필요 없습니다.
-    # LLM이 항상 num_topics 개수만큼 목록 형태로 반환하도록 지시합니다.
 
     return f"""
     너는 {persona}야. 
@@ -161,11 +159,9 @@ def generate_topic_insights(
     domain: str,
     audience: str,
     tone: str,
-    num_topics: int = 1, # num_topics 인자는 그대로 유지하고, format은 제거합니다.
-    constraints: str
+    constraints: str,
+    num_topics: int = 1
 ) -> list:
-    # get_topic_insights_prompt 함수도 format을 받지 않도록 수정되어야 합니다.
-    # num_topics를 사용하여 프롬프트에 개수를 명시합니다.
     prompt_text = get_topic_insights_prompt(persona, domain, audience, tone, num_topics, constraints)
 
     groq_api_key = st.secrets["GROQ_API_KEY"]
