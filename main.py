@@ -4,8 +4,8 @@ from langchain_core.messages import HumanMessage, AIMessage
 from rag_pipeline import get_retriever_from_source, get_document_chain, get_default_chain, get_shorts_script_generation_prompt, generate_topic_insights
 from web_ingest import full_web_ingest # web_ingest는 별도로 정의되어 있어야 합니다.
 from image_generator import generate_images_for_topic
-from elevenlabs_tts import generate_tts, TTS_TEMPLATES
-from whisper_asr import transcribe_audio_with_timestamps, generate_ass_subtitle, TTS_ELEVENLABS_TEMPLATES, TTS_POLLY_VOICES
+from elevenlabs_tts import generate_tts, TTS_ELEVENLABS_TEMPLATES, TTS_POLLY_VOICES
+from whisper_asr import transcribe_audio_with_timestamps, generate_ass_subtitle, SUBTITLE_TEMPLATES
 from video_maker import create_video_with_segments, add_subtitles_to_video
 from deep_translator import GoogleTranslator
 import os
