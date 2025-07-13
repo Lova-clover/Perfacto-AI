@@ -143,21 +143,16 @@ def get_topic_insights_prompt(
     domain: str,
     audience: str,
     tone: str,
-    format: str,
-    constraints: str # JSON 문자열 형태로 받음
+    num_topics: int = 1, # 'format' 대신 'num_topics'를 받도록 변경
+    constraints: str
 ) -> str:
-    # LLM에게 응답 형식을 더 명확히 지시
-    format_instruction = ""
-    if "목록" in format:
-        format_instruction = "각 주제를 '- ' 또는 '1. ' 형태로 새 줄에 나열해 주세요."
-    elif "상세 설명" in format:
-        format_instruction = "주제에 대한 상세한 설명을 제공해 주세요."
+    # 'format_instruction' 관련 로직은 더 이상 필요 없습니다.
+    # LLM이 항상 num_topics 개수만큼 목록 형태로 반환하도록 지시합니다.
 
     return f"""
     너는 {persona}야. 
     주제는 "{domain}"이고, 이 주제에 대해 {audience}가 흥미를 느낄만한 사실을 알려줘. 
-    톤은 {tone}이며, 출력 형식은 {format}이야.
-    {format_instruction}
+    톤은 {tone}이며, 다음 조건에 따라 **{num_topics}개의 주제를 목록 형태**로 만들어줘. 각 주제는 간결하게 새 줄에 나열해야 해.
     추가 조건은 다음과 같아: {constraints}
     """
 
@@ -166,29 +161,33 @@ def generate_topic_insights(
     domain: str,
     audience: str,
     tone: str,
-    format: str,
+    num_topics: int = 1, # num_topics 인자는 그대로 유지하고, format은 제거합니다.
     constraints: str
 ) -> list:
-    prompt_text = get_topic_insights_prompt(persona, domain, audience, tone, format, constraints)
+    # get_topic_insights_prompt 함수도 format을 받지 않도록 수정되어야 합니다.
+    # num_topics를 사용하여 프롬프트에 개수를 명시합니다.
+    prompt_text = get_topic_insights_prompt(persona, domain, audience, tone, num_topics, constraints)
 
     groq_api_key = st.secrets["GROQ_API_KEY"]
     llm = GROQLLM(api_key=groq_api_key)
 
     try:
         response_content = ""
-        # 스트리밍이 아닌 단일 호출이므로, for token in chain.stream 대신 직접 _call 사용
         response_content = llm._call(prompt_text)
 
         if not response_content.strip():
             st.warning("LLM이 유효한 주제를 생성하지 못했습니다. 프롬프트 설정을 다시 확인해 주세요.")
             return []
 
-        if "목록" in format:
-            topics = [line.strip() for line in response_content.split('\n') if line.strip()]
-            topics = [re.sub(r'^\d+\.\s*|^-\s*|^\*\s*', '', topic).strip() for topic in topics]
-            return [topic for topic in topics if topic]
-        else:
-            return [response_content.strip()] if response_content.strip() else []
+        # 'format' 조건문을 제거하고 항상 목록 형태로 처리합니다.
+        # LLM이 줄바꿈으로 구분된 목록을 반환한다고 가정합니다.
+        topics = [line.strip() for line in response_content.split('\n') if line.strip()]
+        # 번호나 대시(-) 같은 목록 기호를 제거합니다.
+        topics = [re.sub(r'^\d+\.\s*|^-\s*|^\*\s*', '', topic).strip() for topic in topics]
+        
+        # num_topics 개수만큼만 반환하도록 슬라이싱을 적용합니다.
+        return [topic for topic in topics if topic][:num_topics]
+        
     except Exception as e:
         st.error(f"주제 인사이트 생성 중 오류가 발생했습니다: {e}. API 키 또는 네트워크 연결을 확인해 주세요.")
         return []
