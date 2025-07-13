@@ -413,7 +413,7 @@ with st.sidebar:
                         text=final_script_for_video,
                         save_path=audio_save_path,
                         provider="elevenlabs" if st.session_state.selected_tts_provider == "ElevenLabs" else "polly",
-                        template=st.session_state.selected_tts_template if st.session_state.selected_tts_provider == "ElevenLabs"
+                        template_name=st.session_state.selected_tts_template if st.session_state.selected_tts_provider == "ElevenLabs"
                                 else st.session_state.selected_polly_voice_key
                     )
 
