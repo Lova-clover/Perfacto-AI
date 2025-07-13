@@ -407,6 +407,15 @@ with st.sidebar:
                         subtitle_output_dir = "assets"
                         os.makedirs(subtitle_output_dir, exist_ok=True)
                         ass_path = os.path.join(subtitle_output_dir, "generated_subtitle.ass")
+                        
+                        audio_save_path = "assets/generated_audio.mp3"
+                        full_audio_path = generate_tts(
+                        text=final_script_for_video,
+                        save_path=audio_save_path,
+                        provider="elevenlabs" if st.session_state.selected_tts_provider == "ElevenLabs" else "polly",
+                        template=st.session_state.selected_tts_template if st.session_state.selected_tts_provider == "ElevenLabs"
+                                else st.session_state.selected_polly_voice_key
+                    )
 
                         st.write("📝 자막 생성을 위한 음성 분석 중...")
                         segments, audio_clips, ass_path = generate_subtitle_from_script(
