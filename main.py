@@ -573,15 +573,18 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
     # 새롭게 추가된 부분: 챗봇 답변에서 영상 제목 자동 추출
     with st.spinner("답변에서 영상 제목을 자동으로 추출하고 있습니다..."):
         title_extraction_prompt = f"""당신은 TikTok, YouTube Shorts, Instagram Reels과 같은 **매력적이고 바이럴성 있는 숏폼 비디오 제목**을 작성하는 전문 크리에이터입니다.
-다음 스크립트에서 시청자의 스크롤을 멈추게 할 수 있는, **5~8단어 이내의 간결하고 임팩트 있는 한국어 제목**을 추출해주세요.
+다음 스크립트에서 시청자의 스크롤을 멈추게 할 수 있는, **최대 5단어 이내의 간결하고 임팩트 있는 한국어 제목**을 생성해주세요.
 이 제목은 호기심을 유발하고, 핵심 내용을 빠르게 전달하며, 클릭을 유도하는 강력한 후크 역할을 해야 합니다.
+**예시: '체스 초고수 꿀팁!', '이거 알면 체스 끝!', '체스 천재되는 법?'**
 **제목만 응답하세요.**
 
         스크립트:
         {ai_answer}
 
         영상 제목:"""
-        title_llm_chain = get_default_chain(system_prompt="당신은 주어진 텍스트에서 영상 제목을 추출하는 유용한 조수입니다.")
+        title_llm_chain = get_default_chain(
+    system_prompt="당신은 숏폼(Shorts) 비디오를 위한 매우 짧고 강렬한 한국어 제목을 생성하는 전문 AI입니다. 항상 5단어 이내로, 시청자의 호기심을 극대화하는 제목을 만드세요."
+)
         extracted_title_for_ui = title_llm_chain.invoke({"question": title_extraction_prompt, "chat_history": []}).strip()
         if extracted_title_for_ui:
             st.session_state.video_title = extracted_title_for_ui
