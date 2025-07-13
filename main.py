@@ -409,9 +409,10 @@ with st.sidebar:
                         ass_path = os.path.join(subtitle_output_dir, "generated_subtitle.ass")
 
                         st.write("📝 자막 생성을 위한 음성 분석 중...")
-                        segments, audio_paths, ass_path = generate_subtitle_from_script(
+                        segments, audio_clips, ass_path = generate_subtitle_from_script(
                         script_text=final_script_for_video,
                         ass_path=ass_path,
+                        full_audio_file_path=full_audio_path, 
                         provider="elevenlabs" if st.session_state.selected_tts_provider == "ElevenLabs" else "polly",
                         template=st.session_state.selected_tts_template if st.session_state.selected_tts_provider == "ElevenLabs"
                                 else st.session_state.selected_polly_voice_key

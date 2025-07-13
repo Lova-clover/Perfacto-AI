@@ -3,6 +3,7 @@ import os
 import re
 from elevenlabs_tts import generate_tts
 from pydub import AudioSegment
+from moviepy.editor import AudioFileClip
 
 SUBTITLE_TEMPLATES = {
     "educational": {
@@ -88,43 +89,45 @@ def generate_tts_per_line(script_lines, provider, template):
     temp_audio_dir = "temp_line_audios"
     os.makedirs(temp_audio_dir, exist_ok=True)
 
-    print(f"디버그: 총 {len(script_lines)}개의 스크립트 라인에 대해 TTS 생성 시도.") # 추가
+    print(f"디버그: 총 {len(script_lines)}개의 스크립트 라인에 대해 TTS 생성 시도.")
 
     for i, line in enumerate(script_lines):
         line_audio_path = os.path.join(temp_audio_dir, f"line_{i}.mp3")
         try:
-            # generate_tts 함수는 elevenlabs_tts.py에 정의되어 있습니다.
             generate_tts(
                 text=line,
                 save_path=line_audio_path,
                 provider=provider,
-                template_name=template # ElevenLabs의 경우, Polly는 polly_voice_name_key 사용
+                template_name=template
             )
             audio_paths.append(line_audio_path)
-            print(f"디버그: 라인 {i+1} ('{line[:30]}...') TTS 생성 성공. 파일: {line_audio_path}") # 추가
+            print(f"디버그: 라인 {i+1} ('{line[:30]}...') TTS 생성 성공. 파일: {line_audio_path}")
         except Exception as e:
-            # TTS 생성 실패 시 구체적인 오류 메시지 출력
-            print(f"오류: 라인 {i+1} ('{line[:30]}...') TTS 생성 실패: {e}") # 수정
-            # 실패한 라인에 대해 오디오 경로를 추가하지 않아 segments 길이가 줄어들 수 있습니다.
-            # 모든 라인에 대해 TTS 생성이 성공해야 합니다.
-            continue # 다음 라인으로 건너뜝니다.
+            print(f"오류: 라인 {i+1} ('{line[:30]}...') TTS 생성 실패: {e}")
+            continue
             
-    print(f"디버그: 최종 생성된 오디오 파일 경로 수: {len(audio_paths)}") # 추가
+    print(f"디버그: 최종 생성된 오디오 파일 경로 수: {len(audio_paths)}")
     return audio_paths
 
 def get_segments_from_audio(audio_paths, script_lines):
     segments = []
-    current_time = 0.0
-    for line, path in zip(script_lines, audio_paths):
-        audio = AudioSegment.from_file(path)
-        duration = audio.duration_seconds
-        segments.append({
-            "start": current_time,
-            "end": current_time + duration,
-            "text": line
-        })
-        current_time += duration
+    current_time = 0
+    for i, audio_path in enumerate(audio_paths):
+        try:
+            audio = AudioSegment.from_file(audio_path)
+            duration = audio.duration_seconds
+            line = script_lines[i]
+            segments.append({
+                "start": current_time,
+                "end": current_time + duration,
+                "text": line
+            })
+            current_time += duration
+        except Exception as e:
+            print(f"오류: 오디오 파일 {audio_path} 처리 중 오류 발생: {e}")
+            continue
     return segments
+
 
 def generate_ass_subtitle(segments, ass_path, template_name="default"):
     settings = SUBTITLE_TEMPLATES.get(template_name, SUBTITLE_TEMPLATES["default"])
@@ -171,38 +174,51 @@ def format_ass_timestamp(seconds):
 
 
 def generate_subtitle_from_script(
-    script_text,
-    ass_path,
-    provider="elevenlabs",
-    template="default", # ElevenLabs 템플릿 이름
-    polly_voice_key="korean_female" # Polly 음성 키 (generate_tts_per_line으로 전달)
+    script_text: str,
+    ass_path: str,
+    full_audio_file_path: str, # <-- 새로 추가된 인자
+    provider: str = "elevenlabs",
+    template: str = "default",
+    polly_voice_key: str = "korean_female"
 ):
-    print(f"디버그: 자막 생성을 위한 스크립트 라인 분리 중...") # 추가
+    print(f"디버그: 자막 생성을 위한 스크립트 라인 분리 중...")
     script_lines = split_script_to_lines(script_text)
-    print(f"디버그: 분리된 스크립트 라인 수: {len(script_lines)}") # 추가
+    print(f"디버그: 분리된 스크립트 라인 수: {len(script_lines)}")
 
     if not script_lines:
         print("경고: 스크립트 라인이 생성되지 않았습니다. 빈 segments 반환.")
-        return [], [], ass_path
+        return [], None, ass_path # audio_clips가 None인 경우를 명시적으로 반환
 
-    # generate_tts_per_line 호출 시 polly_voice_key를 정확히 전달해야 합니다.
-    # 현재 코드에서는 template_name에 polly_voice_key가 들어갈 수 있으므로, 해당 부분을 확인하세요.
-    # 만약 generate_tts_per_line에서 Polly 음성 키를 제대로 사용하지 않는다면 문제가 될 수 있습니다.
-    
-    # generate_tts_per_line 함수 호출 시 polly_voice_name_key 매개변수 추가 (elevenlabs_tts.py의 generate_tts 함수 시그니처 확인 필요)
-    # 현재 generate_tts_per_line은 template 매개변수를 사용하고 있습니다.
-    # generate_tts_per_line 함수가 polly_voice_name_key를 template_name으로 전달하고 있을 것입니다.
-    # elevenlabs_tts.py의 generate_tts 함수 정의에 따라 달라집니다.
-    
-    # 아래 호출 부분이 올바른지 다시 확인 필요
-    audio_paths = generate_tts_per_line(script_lines, provider=provider, template=template) # template에 Polly voice key가 들어가는 경우
-    # 또는 명시적으로 Polly 키를 넘기는 경우 (만약 generate_tts_per_line 시그니처가 변경된다면)
-    # audio_paths = generate_tts_per_line(script_lines, provider=provider, polly_voice_name_key=polly_voice_key)
-
+    audio_paths = generate_tts_per_line(script_lines, provider=provider, template=template)
 
     if not audio_paths:
         print("오류: 라인별 오디오 파일이 생성되지 않았습니다. 빈 segments 반환.")
-        return [], [], ass_path
+        return [], None, ass_path # audio_clips가 None인 경우를 명시적으로 반환
 
     segments = get_segments_from_audio(audio_paths, script_lines)
-    print(f"디버그: get_segments_from_audio 후 최종 segments의 길이: {len(segments)}") # 추가
+
+    print(f"디버그: get_segments_from_audio 후 최종 segments의 길이: {len(segments)}")
+
+    if not segments:
+        print("오류: 세그먼트 생성에 실패했습니다. 빈 segments 반환.")
+        return [], None, ass_path # audio_clips가 None인 경우를 명시적으로 반환
+
+    # === 새로 추가되거나 수정된 부분: MoviePy AudioFileClip 생성 ===
+    audio_clips = None # 일단 None으로 초기화
+    if os.path.exists(full_audio_file_path):
+        try:
+            # main.py에서 생성된 전체 오디오 파일을 MoviePy AudioFileClip으로 로드
+            audio_clips = AudioFileClip(full_audio_file_path)
+            print(f"디버그: 전체 오디오 파일 '{full_audio_file_path}' MoviePy AudioFileClip으로 로드 성공.")
+        except Exception as e:
+            print(f"오류: 전체 오디오 파일 '{full_audio_file_path}' 로드 실패: {e}")
+            # 로드 실패 시 audio_clips는 None으로 유지됨
+    else:
+        print(f"경고: 전체 오디오 파일 '{full_audio_file_path}'을 찾을 수 없습니다. audio_clips는 None입니다.")
+
+
+    # ASS 파일 생성
+    generate_ass_subtitle(segments, ass_path, subtitle_style="default")
+    
+    # 세그먼트, 오디오 클립, ASS 경로를 모두 반환
+    return segments, audio_clips, ass_path
