@@ -9,7 +9,7 @@ def split_script_to_lines(script_text):
     lines = re.split(r'(?<=[.!?])\\s+', script_text.strip())
     return [line.strip() for line in lines if line.strip()]
 
-def generate_tts_per_line(script_lines, audio_dir=\"assets/audio\", provider=\"elevenlabs\", template=\"korean_male\"):
+def generate_tts_per_line(script_lines, audio_dir="assets/audio", provider="elevenlabs", template="korean_male"):
 
     os.makedirs(audio_dir, exist_ok=True)
     audio_paths = []
