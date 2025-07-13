@@ -7,5 +7,3 @@ libatk-bridge2.0-0
 libgtk-3-0
 libgbm-dev
 libx11-xcb1
-ffmpeg
-espeak-ng
