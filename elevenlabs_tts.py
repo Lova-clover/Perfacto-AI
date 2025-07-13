@@ -143,7 +143,7 @@ def generate_polly_tts(text, save_path, polly_voice_name_key):
     Generates speech using Amazon Polly.
     """
     # Determine the VoiceId from the mapping, defaulting to Matthew if key not found
-    voice_id = TTS_POLLY_VOICES.get(polly_voice_name_key, "Matthew")
+    voice_id = TTS_POLLY_VOICES.get(polly_voice_name_key, "Seoyeon")
 
     try:
         response = polly_client.synthesize_speech(
