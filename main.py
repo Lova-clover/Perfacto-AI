@@ -384,6 +384,12 @@ with st.sidebar:
                         audio_path = os.path.join(audio_output_dir, "generated_audio.mp3")
                         
                         st.write("🗣️ 음성 파일 생성 중...")
+                        st.session_state.selected_tts_provider = st.radio(
+                            "음성 서비스 공급자 선택:",
+                            ("ElevenLabs", "Amazon Polly"),
+                            index=0 if st.session_state.selected_tts_provider == "ElevenLabs" else 1,
+                            key="tts_provider_select"
+                        )
 
                         if st.session_state.selected_tts_provider == "ElevenLabs":
                             generated_audio_path = generate_tts(
