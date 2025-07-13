@@ -14,7 +14,7 @@ def generate_tts_per_line(script_lines, audio_dir="assets/audio", provider="elev
     os.makedirs(audio_dir, exist_ok=True)
     audio_paths = []
     for i, line in enumerate(script_lines):
-        audio_path = os.path.join(audio_dir, f\"line_{i}.mp3\")
+        audio_path = os.path.join(audio_dir, f"line_{i}.mp3")
         generate_tts(
             text=line,
             save_path=audio_path,
@@ -31,15 +31,15 @@ def get_segments_from_audio(audio_paths, script_lines):
         audio = AudioSegment.from_file(path)
         duration = audio.duration_seconds
         segments.append({
-            \"start\": current_time,
-            \"end\": current_time + duration,
-            \"text\": line
+            "start": current_time,
+            "end": current_time + duration,
+            "text": line
         })
         current_time += duration
     return segments
 
-def generate_subtitle_from_script(script_text, ass_path=\"assets/generated_subtitle.ass\",
-                                   provider=\"elevenlabs\", template=\"korean_male\"):
+def generate_subtitle_from_script(script_text, ass_path="assets/generated_subtitle.ass",
+                                 provider="elevenlabs", template="korean_male"):
 
     script_lines = split_script_to_lines(script_text)
     audio_paths = generate_tts_per_line(script_lines, provider=provider, template=template)
