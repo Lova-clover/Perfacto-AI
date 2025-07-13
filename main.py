@@ -11,6 +11,7 @@ from deep_translator import GoogleTranslator
 import os
 import requests # 기본 이미지 다운로드를 위해 추가
 import re
+import json # JSON 파싱을 위해 추가
 
 # API 키 불러오기
 load_dotenv()
@@ -60,8 +61,8 @@ if "expert_audience" not in st.session_state:
     st.session_state.expert_audience = ""
 if "expert_tone" not in st.session_state:
     st.session_state.expert_tone = ""
-if "expert_format" not in st.session_state:
-    st.session_state.expert_format = ""
+if "expert_output_count" not in st.session_state: # 'format' 대신 'output_count'
+    st.session_state.expert_output_count = 3 # 기본값 설정
 if "expert_constraints" not in st.session_state:
     st.session_state.expert_constraints = ""
 
@@ -73,46 +74,48 @@ with st.sidebar:
     with st.expander("전문가 페르소나 설정", expanded=True):
         st.write("주제 생성을 위한 전문가 AI의 설정을 정의해 보세요.")
         expert_persona = st.text_input("페르소나", 
-                                        value=st.session_state.expert_persona, 
-                                        placeholder="예: 역사학자, 과학자", 
-                                        key="expert_persona_input")
+                                         value=st.session_state.expert_persona, 
+                                         placeholder="예: 역사학자, 과학자", 
+                                         key="expert_persona_input")
         expert_domain = st.text_input("주제 전문 분야", 
                                        value=st.session_state.expert_domain, 
                                        placeholder="예: 조선 시대, 블랙홀, 인공지능", 
                                        key="expert_domain_input")
         expert_audience = st.text_input("대상 시청자", 
-                                        value=st.session_state.expert_audience, 
-                                        placeholder="예: 고등학생, 일반인, 전문가", 
-                                        key="expert_audience_input")
+                                         value=st.session_state.expert_audience, 
+                                         placeholder="예: 고등학생, 일반인, 전문가", 
+                                         key="expert_audience_input")
         expert_tone = st.text_input("톤", 
-                                    value=st.session_state.expert_tone, 
-                                    placeholder="예: 유익함, 재미있음, 진지함", 
-                                    key="expert_tone_input")
-        expert_format = st.text_input("출력 형식", 
-                                     value=st.session_state.expert_format, 
-                                     placeholder="예: 목록, 상세 설명", 
-                                     key="expert_format_input")
+                                     value=st.session_state.expert_tone, 
+                                     placeholder="예: 유익함, 재미있음, 진지함", 
+                                     key="expert_tone_input")
+        expert_output_count = st.number_input("출력 개수", # '출력 형식' 대신 '출력 개수'
+                                              min_value=1, max_value=10, 
+                                              value=st.session_state.expert_output_count, 
+                                              key="expert_output_count_input")
         expert_constraints = st.text_area("추가 조건 (JSON 형식 권장)", 
-                                          value=st.session_state.expert_constraints, 
-                                          placeholder="예: {\"length\": \"short\", \"keywords\": [\"파이썬\", \"데이터\"]}", 
-                                          key="expert_constraints_input")
+                                           value=st.session_state.expert_constraints, 
+                                           placeholder="예: {\"length\": \"short\", \"keywords\": [\"파이썬\", \"데이터\"]}", 
+                                           key="expert_constraints_input")
 
         if st.button("주제 생성"):
-            try:
-                constraints_dict = eval(expert_constraints) # 문자열을 딕셔너리로 변환
-            except:
-                st.error("추가 조건이 올바른 JSON(Python 딕셔너리) 형식이 아닙니다.")
-                constraints_dict = {}
+            constraints_dict = {}
+            if expert_constraints.strip(): # 추가 조건이 비어있지 않을 때만 파싱 시도
+                try:
+                    constraints_dict = json.loads(expert_constraints) # json.loads 사용 권장
+                except json.JSONDecodeError:
+                    st.error("추가 조건이 올바른 JSON 형식이 아닙니다.")
+                    st.stop() # 오류 시 스크립트 중단
 
             with st.spinner("전문가 페르소나가 주제를 생성하고 있습니다..."):
-                st.session_state.messages.append({"role": "user", "content": f"전문가 페르소나({expert_persona})로 '{expert_domain}'에 대한 '{expert_audience}' 대상의 '{expert_tone}' 톤 '{expert_format}' 형식의 주제를 생성해 줘. 추가 조건: {expert_constraints}"})
+                st.session_state.messages.append({"role": "user", "content": f"전문가 페르소나({expert_persona})로 '{expert_domain}'에 대한 '{expert_audience}' 대상의 '{expert_tone}' 톤으로 {expert_output_count}개의 주제를 생성해 줘. 추가 조건: {expert_constraints}"})
                 st.session_state.generated_topics = generate_topic_insights(
                     persona=expert_persona,
                     domain=expert_domain,
                     audience=expert_audience,
                     tone=expert_tone,
-                    format=expert_format,
-                    constraints=expert_constraints # 문자열로 전달
+                    num_topics=expert_output_count, # 출력 개수 전달
+                    constraints=expert_constraints # 문자열로 전달 (generate_topic_insights 내부에서 처리)
                 )
                 if st.session_state.generated_topics:
                     topic_list_str = "\n".join([f"- {topic}" for topic in st.session_state.generated_topics])
@@ -121,14 +124,6 @@ with st.sidebar:
                 else:
                     st.session_state.messages.append({"role": "assistant", "content": "주제 생성에 실패했어요. 설정을 다시 확인해 주세요."})
             st.rerun()
-
-    # 주제 선택 드롭다운
-    if st.session_state.generated_topics:
-        st.session_state.selected_generated_topic = st.selectbox(
-            "생성된 주제 중 하나를 선택하세요:",
-            options=st.session_state.generated_topics,
-            index=st.session_state.generated_topics.index(st.session_state.selected_generated_topic) if st.session_state.selected_generated_topic in st.session_state.generated_topics else 0
-        )
     
     st.markdown("---")
 
@@ -170,19 +165,45 @@ with st.sidebar:
 
     st.markdown("---")
 
-    with st.expander("영상 제작 설정", expanded=True):
-        st.subheader("스크립트 생성")
-        if st.button("스크립트 생성", help="선택된 주제로 숏폼 영상 스크립트를 만들어 드립니다."):
+    with st.expander("스크립트 생성", expanded=True): # 새로운 "스크립트 생성" expander
+        st.subheader("스크립트 생성 및 설정")
+
+        # 주제 선택 드롭다운 (새 expander로 이동)
+        if st.session_state.generated_topics:
+            st.session_state.selected_generated_topic = st.selectbox(
+                "생성된 주제 중 하나를 선택하세요:",
+                options=st.session_state.generated_topics,
+                index=st.session_state.generated_topics.index(st.session_state.selected_generated_topic) if st.session_state.selected_generated_topic in st.session_state.generated_topics else 0,
+                key="script_topic_select"
+            )
+        
+        # 페르소나, 대상 시청자, 추가 조건 복사 (원래 위치에도 유지)
+        script_expert_persona = st.text_input("페르소나", 
+                                               value=st.session_state.expert_persona, 
+                                               placeholder="예: 역사학자, 과학자", 
+                                               key="script_expert_persona_input")
+        script_expert_audience = st.text_input("대상 시청자", 
+                                                value=st.session_state.expert_audience, 
+                                                placeholder="예: 고등학생, 일반인, 전문가", 
+                                                key="script_expert_audience_input")
+        script_expert_constraints = st.text_area("추가 조건 (JSON 형식 권장)", 
+                                                 value=st.session_state.expert_constraints, 
+                                                 placeholder="예: {\"length\": \"short\", \"keywords\": [\"파이썬\", \"데이터\"]}", 
+                                                 key="script_expert_constraints_input")
+
+
+        if st.button("스크립트 생성", help="선택된 주제로 숏폼 영상 스크립트를 만들어 드립니다.", key="generate_script_button"):
             if st.session_state.selected_generated_topic:
                 with st.spinner(f"'{st.session_state.selected_generated_topic}' 주제로 스크립트를 만드는 중입니다..."):
                     # 콘텐츠 제작자 페르소나로 스크립트 생성
-                    script_prompt = get_shorts_script_generation_prompt(st.session_state.selected_generated_topic)
+                    # 스크립트 생성 프롬프트에 페르소나, 대상 시청자, 추가 조건 반영
+                    script_prompt_content = f"주어진 주제: '{st.session_state.selected_generated_topic}'. 이 주제에 대해 다음 조건을 사용하여 숏폼 비디오 스크립트를 작성해 주세요. 페르소나: {script_expert_persona}, 대상 시청자: {script_expert_audience}, 추가 조건: {script_expert_constraints}"
                     script_chain = get_default_chain(system_prompt="당신은 TikTok, YouTube Shorts, Instagram Reels과 같은 매력적이고 바이럴성 있는 숏폼 비디오 스크립트를 작성하는 전문 크리에이터입니다. 이모지는 사용하지 않습니다. 문장을 구분하는 방법은 .과 !과 ?입니다. 이를 참고하여 스크립트를 제작해주세요.")
                     
                     st.session_state.messages.append({"role": "user", "content": f"선택된 주제 '{st.session_state.selected_generated_topic}'에 대한 스크립트를 만들어 줘."})
                     
                     generated_script = ""
-                    for token in script_chain.stream({"question": script_prompt, "chat_history": []}): # chat_history는 필요에 따라 추가
+                    for token in script_chain.stream({"question": script_prompt_content, "chat_history": []}): # chat_history는 필요에 따라 추가
                         generated_script += token
                     
                     st.session_state.edited_script_content = generated_script.strip()
@@ -206,9 +227,9 @@ with st.sidebar:
                 st.warning("먼저 생성된 주제를 선택해 주세요.")
 
         st.subheader("제작된 스크립트 미리보기 및 수정")
-        # 영상 주제 입력 필드
+        # 영상 주제 입력 필드 이름 변경
         st.session_state.video_topic = st.text_input(
-            "영상 주제 (이미지 생성에 사용될 키워드)",
+            "이미지 생성에 사용될 키워드", # 필드 이름 변경
             value=st.session_state.video_topic, # 세션 상태에서 가져옴
             key="video_topic_input_final" # Changed key to avoid conflict if any
         )
@@ -220,7 +241,10 @@ with st.sidebar:
             height=200,
             key="script_editor_final" # Changed key to avoid conflict if any
         )
-        
+    
+    st.markdown("---") # 스크립트 생성 expander와 영상 제작 설정 expander 사이에 구분선 추가
+
+    with st.expander("영상 제작 설정", expanded=True): # 원래 있던 "영상 제작 설정" expander
         # 음성 포함 여부 선택
         st.session_state.include_voice = st.checkbox("영상에 AI 목소리 포함", value=st.session_state.include_voice)
 
