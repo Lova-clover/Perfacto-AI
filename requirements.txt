@@ -23,4 +23,4 @@ numpy
 deep-translator
 imageio-ffmpeg
 ffmpeg-python
-aeneas
+py3-aeneas
