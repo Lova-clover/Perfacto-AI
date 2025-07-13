@@ -3,7 +3,7 @@ import os
 import re
 from elevenlabs_tts import generate_tts
 from pydub import AudioSegment
-from moviepy.editor import AudioFileClip
+from moviepy import AudioFileClip
 
 SUBTITLE_TEMPLATES = {
     "educational": {
