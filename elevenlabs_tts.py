@@ -81,12 +81,20 @@ TTS_ELEVENLABS_TEMPLATES = {
 # Amazon Polly Voice Mappings
 # Amazon Polly uses VoiceIds. We can map descriptive names to these IDs.
 TTS_POLLY_VOICES = {
-    "default_male": "Matthew", # English US Male
-    "default_female": "Joanna", # English US Female
-    "korean_male": "Jihun", # Korean Male
-    "korean_female": "Seoyeon", # Korean Female
-    "english_male_uk": "Brian", # English UK Male
-    "english_female_uk": "Amy", # English UK Female
+    "default_male": "Matthew",       # 영어 (미국) 남성 - 유명한 이름
+    "default_female": "Joanna",      # 영어 (미국) 여성 - 유명한 이름
+    # 한국어 남성은 제외 (Polly에는 한국어 남성 음성이 현재 없음)
+    "korean_female1": "Jihye",        
+    "korean_female2": "Seoyeon",      # 한국어 여성
+    "english_male_uk": "Brian",      # 영어 (영국) 남성 - 유명한 이름
+    "english_female_uk": "Amy",      # 영어 (영국) 여성 - 유명한 이름
+    "japanese_male": "Takumi",       # 일본어 남성 (추가)
+    "japanese_female": "Mizuki",     # 일본어 여성 (추가)
+    "spanish_male": "Enrique",       # 스페인어 (카스티야) 남성 (추가)
+    "spanish_female": "Conchita",    # 스페인어 (카스티야) 여성 (추가)
+    "french_male": "Mathieu",        # 프랑스어 남성 (추가)
+    "french_female": "Celine",       # 프랑스어 여성 (추가)
+    # 필요에 따라 더 많은 언어/성별 조합 추가 가능
 }
 
 def _generate_elevenlabs_tts(text, save_path, template_name, voice_id):
