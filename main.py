@@ -216,8 +216,7 @@ with st.sidebar:
                     # 콘텐츠 제작자 페르소나로 스크립트 생성
                     # 스크립트 생성 프롬프트에 페르소나, 대상 시청자, 추가 조건 반영
                     script_prompt_content = f"주어진 주제: '{st.session_state.selected_generated_topic}'. 이 주제에 대해 다음 조건을 사용하여 숏폼 비디오 스크립트를 작성해 주세요. 페르소나: {script_expert_persona}, 대상 시청자: {script_expert_audience}, 톤 : {script_expert_tone}, 추가 조건: {script_expert_constraints}"
-                    script_chain = get_default_chain(system_prompt="당신은 TikTok, YouTube Shorts, Instagram Reels과 같은 매력적이고 바이럴성 있는 숏폼 비디오 스크립트를 작성하는 전문 크리에이터입니다. 이모지는 사용하지 않습니다. 문장을 구분하는 방법은 .과 !과 ?입니다. **각 문장이 하나의 핵심 아이디어를 담되, 불필요한 설명을 최소화하여 간결하게 작성해주세요. 너무 길지 않으면서도 자연스러운 호흡으로 다음 문장과 연결되도록 구성합니다.** 이를 참고하여 스크립트를 제작해주세요.")
-                    
+                    script_chain = get_default_chain(system_prompt="당신은 TikTok, YouTube Shorts, Instagram Reels과 같은 매력적이고 바이럴성 있는 숏폼 비디오 스크립트를 작성하는 전문 크리에이터입니다. 이모지는 사용하지 않습니다. **각 문장의 끝에는 반드시 마침표(.), 물음표(?), 또는 느낌표(!)를 사용하여 명확하게 구분해주세요.** 각 문장은 하나의 핵심 아이디어를 담고, 불필요한 설명을 최소화하여 간결하게 작성합니다. 전체적인 스크립트는 짧은 호흡으로 자연스럽게 이어지도록 구성합니다. 이를 참고하여 스크립트를 제작해주세요.")                    
                     st.session_state.messages.append({"role": "user", "content": f"선택된 주제 '{st.session_state.selected_generated_topic}'에 대한 스크립트를 만들어 줘."})
                     
                     generated_script = ""
