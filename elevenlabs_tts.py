@@ -97,7 +97,7 @@ TTS_POLLY_VOICES = {
     # 필요에 따라 더 많은 언어/성별 조합 추가 가능
 }
 
-def _generate_elevenlabs_tts(text, save_path, template_name, voice_id):
+def generate_elevenlabs_tts(text, save_path, template_name, voice_id):
     """
     Generates speech using ElevenLabs API.
     This is the original generate_tts logic, refactored into a private helper function.
@@ -138,7 +138,7 @@ def _generate_elevenlabs_tts(text, save_path, template_name, voice_id):
     else:
         raise RuntimeError(f"ElevenLabs TTS 생성 실패: {response.status_code} {response.text}")
 
-def _generate_polly_tts(text, save_path, polly_voice_name_key="default_male"):
+def generate_polly_tts(text, save_path, polly_voice_name_key):
     """
     Generates speech using Amazon Polly.
     """
@@ -165,7 +165,7 @@ def _generate_polly_tts(text, save_path, polly_voice_name_key="default_male"):
     except Exception as e:
         raise RuntimeError(f"Amazon Polly TTS 생성 실패: {e}")
 
-def generate_tts(text, save_path="assets/audio.mp3", provider="elevenlabs", template_name="default", voice_id=None, polly_voice_name_key="default_male"):
+def generate_tts(text, save_path="assets/audio.mp3", provider="Amazon Polly", template_name="default", voice_id=None, polly_voice_name_key="korean_female1"):
     """
     Generates text-to-speech using either ElevenLabs or Amazon Polly based on the provider.
 
@@ -185,8 +185,8 @@ def generate_tts(text, save_path="assets/audio.mp3", provider="elevenlabs", temp
         RuntimeError: If TTS generation fails from the chosen provider.
     """
     if provider == "elevenlabs":
-        return _generate_elevenlabs_tts(text, save_path, template_name, voice_id)
+        return generate_elevenlabs_tts(text, save_path, template_name, voice_id)
     elif provider == "polly":
-        return _generate_polly_tts(text, save_path, polly_voice_name_key)
+        return generate_polly_tts(text, save_path, polly_voice_name_key)
     else:
         raise ValueError(f"Unsupported TTS provider: {provider}. Choose 'elevenlabs' or 'polly'.")
