@@ -4,6 +4,81 @@ import re
 from elevenlabs_tts import generate_tts
 from pydub import AudioSegment
 
+SUBTITLE_TEMPLATES = {
+    "educational": {
+        "Fontname": "NanumGothic",
+        "Fontsize": 12,
+        "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
+        "OutlineColour": "&H00000000",       # 검정 외곽선
+        "Outline": 2,
+        "Alignment": 2,
+        "MarginV": 40
+    },
+    "entertainer": {
+        "Fontname": "NanumGothic",
+        "Fontsize": 12,
+        "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
+        "OutlineColour": "&H00000000",       # 검정 외곽선
+        "Outline": 2,
+        "Alignment": 2,
+        "MarginV": 40
+    },
+    "slow": {
+        "Fontname": "NanumGothic",
+        "Fontsize": 12,
+        "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
+        "OutlineColour": "&H00000000",       # 검정 외곽선
+        "Outline": 2,
+        "Alignment": 2,
+        "MarginV": 40
+    },
+    "default": {
+        "Fontname": "NanumGothic",
+        "Fontsize": 12,
+        "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
+        "OutlineColour": "&H00000000",       # 검정 외곽선
+        "Outline": 2,
+        "Alignment": 2,
+        "MarginV": 40
+    },
+    "korean_male": {
+        "Fontname": "NanumGothic",
+        "Fontsize": 12,
+        "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
+        "OutlineColour": "&H00000000",       # 검정 외곽선
+        "Outline": 2,
+        "Alignment": 2,
+        "MarginV": 40
+    },
+    "korean_male2": {
+        "Fontname": "NanumGothic",
+        "Fontsize": 12,
+        "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
+        "OutlineColour": "&H00000000",       # 검정 외곽선
+        "Outline": 2,
+        "Alignment": 2,
+        "MarginV": 40
+    },
+    "korean_female": {
+        "Fontname": "NanumGothic",
+        "Fontsize": 12,
+        "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
+        "OutlineColour": "&H00000000",       # 검정 외곽선
+        "Outline": 2,
+        "Alignment": 2,
+        "MarginV": 40
+    },
+    "korean_female2": {
+        "Fontname": "NanumGothic",
+        "Fontsize": 12,
+        "PrimaryColour": "&H00FFFFFF",       # 흰색 텍스트
+        "OutlineColour": "&H00000000",       # 검정 외곽선
+        "Outline": 2,
+        "Alignment": 2,
+        "MarginV": 40
+    }
+}
+
 def split_script_to_lines(script_text):
     lines = re.split(r'(?<=[.!?])\\s+', script_text.strip())
     return [line.strip() for line in lines if line.strip()]
@@ -72,6 +147,14 @@ def generate_ass_subtitle(segments, ass_path, template_name="default"):
 
             # Dialogue: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             f.write(f"Dialogue: 0,{start_ts},{end_ts},Bottom,,0,0,0,,{text}\n")
+
+def format_ass_timestamp(seconds):
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    cs = int((seconds - int(seconds)) * 100)
+    return f"{h:01}:{m:02}:{s:02}.{cs:02}"
+
 
 def generate_subtitle_from_script(script_text, ass_path="assets/generated_subtitle.ass",
                                  provider="elevenlabs", template="korean_male"):
