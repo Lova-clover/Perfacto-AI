@@ -37,6 +37,8 @@ if "last_user_query" not in st.session_state:
     st.session_state.last_user_query = ""
 if "video_topic" not in st.session_state:
     st.session_state.video_topic = ""
+if "video_title" not in st.session_state: # 새롭게 추가된 부분: 영상 제목 세션 상태
+    st.session_state.video_title = ""
 if "edited_script_content" not in st.session_state:
     st.session_state.edited_script_content = ""
 if "selected_tts_template" not in st.session_state:
@@ -74,9 +76,9 @@ with st.sidebar:
     with st.expander("전문가 페르소나 설정", expanded=True):
         st.write("주제 생성을 위한 전문가 AI의 설정을 정의해 보세요.")
         expert_persona = st.text_input("페르소나", 
-                                         value=st.session_state.expert_persona, 
-                                         placeholder="예: 역사학자, 과학자", 
-                                         key="expert_persona_input")
+                                       value=st.session_state.expert_persona, 
+                                       placeholder="예: 역사학자, 과학자", 
+                                       key="expert_persona_input")
         expert_domain = st.text_input("주제 전문 분야", 
                                        value=st.session_state.expert_domain, 
                                        placeholder="예: 조선 시대, 블랙홀, 인공지능", 
@@ -232,6 +234,22 @@ with st.sidebar:
                             st.session_state.video_topic = extracted_topic_for_ui
                         else: # 추출에 실패한 경우 기존 선택 주제 유지 또는 기본값 설정
                             st.session_state.video_topic = st.session_state.selected_generated_topic
+                    
+                    # 새롭게 추가된 부분: 스크립트에서 영상 제목 자동 추출
+                    with st.spinner("생성된 스크립트에서 영상 제목을 자동으로 추출하고 있습니다..."):
+                        title_extraction_prompt = f"""다음 스크립트에서 영상의 제목으로 사용할 수 있는 5~10단어 이내의 간결하고 매력적인 한국어 제목을 추출해주세요. 제목만 응답하세요.
+
+                        스크립트:
+                        {generated_script.strip()}
+
+                        영상 제목:"""
+                        title_llm_chain = get_default_chain(system_prompt="당신은 주어진 텍스트에서 영상 제목을 추출하는 유용한 조수입니다.")
+                        extracted_title_for_ui = title_llm_chain.invoke({"question": title_extraction_prompt, "chat_history": []}).strip()
+                        if extracted_title_for_ui:
+                            st.session_state.video_title = extracted_title_for_ui
+                        else:
+                            st.session_state.video_title = "제목 없음" # 추출 실패 시 기본값
+
                     st.session_state.messages.append({"role": "assistant", "content": f"**다음 스크립트가 생성되었습니다:**\n\n{st.session_state.edited_script_content}"})
                 st.success("스크립트 생성이 완료되었습니다!")
                 st.rerun() # 스크립트가 업데이트되도록 다시 로드
@@ -239,13 +257,6 @@ with st.sidebar:
                 st.warning("먼저 생성된 주제를 선택해 주세요.")
 
         st.subheader("제작된 스크립트 미리보기 및 수정")
-        # 영상 주제 입력 필드 이름 변경
-        st.session_state.video_topic = st.text_input(
-            "이미지 생성에 사용될 키워드", # 필드 이름 변경
-            value=st.session_state.video_topic, # 세션 상태에서 가져옴
-            key="video_topic_input_final" # Changed key to avoid conflict if any
-        )
-
         # 스크립트 내용 (수정 가능) 텍스트 영역
         st.session_state.edited_script_content = st.text_area(
             "영상 스크립트 (원하는 대로 수정 가능):",
@@ -257,6 +268,20 @@ with st.sidebar:
     st.markdown("---") # 스크립트 생성 expander와 영상 제작 설정 expander 사이에 구분선 추가
 
     with st.expander("영상 제작 설정", expanded=True): # 원래 있던 "영상 제작 설정" expander
+        # 영상 주제 입력 필드 이름 변경 (Moved here)
+        st.session_state.video_topic = st.text_input(
+            "이미지 생성에 사용될 키워드", # 필드 이름 변경
+            value=st.session_state.video_topic, # 세션 상태에서 가져옴
+            key="video_topic_input_final" # Changed key to avoid conflict if any
+        )
+
+        # 새롭게 추가된 부분: 영상 제목 입력 필드
+        st.session_state.video_title = st.text_input(
+            "영상 제목 (영상 위에 표시될 제목)", # 필드 이름
+            value=st.session_state.video_title, # 세션 상태에서 가져옴
+            key="video_title_input_final" # 새로운 키
+        )
+
         # 음성 포함 여부 선택
         st.session_state.include_voice = st.checkbox("영상에 AI 목소리 포함", value=st.session_state.include_voice)
 
@@ -293,12 +318,16 @@ with st.sidebar:
             # 사용자가 수정한 스크립트 내용과 주제를 사용
             final_script_for_video = st.session_state.edited_script_content
             final_topic_for_video = st.session_state.video_topic
+            final_title_for_video = st.session_state.video_title # 새롭게 추가된 부분: 최종 영상 제목
 
             if not final_script_for_video.strip():
                 st.error("스크립트 내용이 비어있습니다. 스크립트를 입력하거나 생성해주세요.")
                 st.stop()
             if not final_topic_for_video.strip():
                 st.error("영상 주제가 비어있습니다. 주제를 입력해주세요.")
+                st.stop()
+            if not final_title_for_video.strip(): # 새롭게 추가된 부분: 영상 제목 유효성 검사
+                st.error("영상 제목이 비어있습니다. 제목을 입력하거나 생성해주세요.")
                 st.stop()
 
             with st.spinner("✨ 영상 제작 중입니다..."):
@@ -439,7 +468,7 @@ with st.sidebar:
                         image_paths=image_paths,
                         segments=segments, # segments를 사용하여 이미지 지속 시간 결정
                         audio_path=audio_path if st.session_state.include_voice else None, # 음성 미포함 시 None 전달
-                        topic_title=final_topic_for_video,
+                        topic_title=final_title_for_video, # 새롭게 수정된 부분: 영상 제목을 전달
                         include_topic_title=True,
                         bgm_path=st.session_state.bgm_path,
                         save_path=temp_video_path,
@@ -540,3 +569,18 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
         extracted_topic_for_ui = topic_llm_chain.invoke({"question": topic_extraction_prompt, "chat_history": []}).strip()
         if extracted_topic_for_ui:
             st.session_state.video_topic = extracted_topic_for_ui
+
+    # 새롭게 추가된 부분: 챗봇 답변에서 영상 제목 자동 추출
+    with st.spinner("답변에서 영상 제목을 자동으로 추출하고 있습니다..."):
+        title_extraction_prompt = f"""다음 스크립트에서 영상의 제목으로 사용할 수 있는 5~10단어 이내의 간결하고 매력적인 한국어 제목을 추출해주세요. 제목만 응답하세요.
+
+        스크립트:
+        {ai_answer}
+
+        영상 제목:"""
+        title_llm_chain = get_default_chain(system_prompt="당신은 주어진 텍스트에서 영상 제목을 추출하는 유용한 조수입니다.")
+        extracted_title_for_ui = title_llm_chain.invoke({"question": title_extraction_prompt, "chat_history": []}).strip()
+        if extracted_title_for_ui:
+            st.session_state.video_title = extracted_title_for_ui
+        else:
+            st.session_state.video_title = "제목 없음" # 추출 실패 시 기본값
