@@ -1,16 +1,28 @@
 import requests
 import os
-#from dotenv import load_dotenv
 import streamlit as st
+import boto3 # Import the boto3 library for AWS services
 
-#load_dotenv()
+# Load API keys from Streamlit secrets
 ELEVEN_API_KEY = st.secrets["ELEVEN_API_KEY"]
+AWS_ACCESS_KEY_ID = st.secrets["AWS_ACCESS_KEY_ID"]
+AWS_SECRET_ACCESS_KEY = st.secrets["AWS_SECRET_ACCESS_KEY"]
+AWS_REGION = st.secrets.get("AWS_REGION", "ap-northeast-2") # Default to Seoul region
 
-#voice_id를 지정해서 사용하면 될 것으로 보인다.
-TTS_TEMPLATES = {
+# Initialize Amazon Polly client
+# This client will be reused for Polly TTS requests.
+polly_client = boto3.client(
+    'polly',
+    aws_access_key_id=AWS_ACCESS_KEY_ID,
+    aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+    region_name=AWS_REGION
+)
+
+# ElevenLabs TTS Templates (unchanged from your original code)
+TTS_ELEVENLABS_TEMPLATES = {
     "educational": {
-        "stability": 0.4, #목소리의 일관성 - 낮을수록: 감정 표현이 풍부하지만 톤이 변할 수 있음(예: 흥분했다가 차분해짐) , 높을수록: 감정 변화 없이 안정된 톤 유지(예: 뉴스 앵커 스타일)
-        "similarity_boost": 0.7, #목소리 유사도 강화, 낮을수록: 목소리에 자유도 부여 → 다양한 스타일 실험 가능, 높을수록: 해당 voice ID 고유의 특징 유지
+        "stability": 0.4, # 목소리의 일관성 - 낮을수록: 감정 표현이 풍부하지만 톤이 변할 수 있음(예: 흥분했다가 차분해짐) , 높을수록: 감정 변화 없이 안정된 톤 유지(예: 뉴스 앵커 스타일)
+        "similarity_boost": 0.7, # 목소리 유사도 강화, 낮을수록: 목소리에 자유도 부여 → 다양한 스타일 실험 가능, 높을수록: 해당 voice ID 고유의 특징 유지
         "style": 0.3,  # 숫자 값 (감정 톤 정도)
         "speed_multiplier": 0.9, # 말하는 속도를 조절, 1.0은 기본 속도, 낮을수록 느리게 높을수록 빠르게, 0.7 ~ 1.2 까지 가능하다
         "voice_id": "EXAVITQu4vr4xnSDxMaL" # Bella의 목소리
@@ -62,15 +74,29 @@ TTS_TEMPLATES = {
         "similarity_boost": 0.85,
         "style": 0.5,
         "speed_multiplier": 1.0,
-        "voice_id": "AW5wrnG1jVizOYY7R1Oo"  # JiYoung 
+        "voice_id": "AW5wrnG1jVizOYY7R1Oo"  # JiYoung
     }
 }
 
+# Amazon Polly Voice Mappings
+# Amazon Polly uses VoiceIds. We can map descriptive names to these IDs.
+TTS_POLLY_VOICES = {
+    "default_male": "Matthew", # English US Male
+    "default_female": "Joanna", # English US Female
+    "korean_male": "Jihun", # Korean Male
+    "korean_female": "Seoyeon", # Korean Female
+    "english_male_uk": "Brian", # English UK Male
+    "english_female_uk": "Amy", # English UK Female
+}
 
-def generate_tts(text, save_path="assets/audio.mp3", template_name="default", voice_id=None):
-    settings = TTS_TEMPLATES.get(template_name, TTS_TEMPLATES["default"])
-    
-    # ✅ voice_id가 주어지지 않으면 템플릿의 voice_id 사용
+def _generate_elevenlabs_tts(text, save_path, template_name, voice_id):
+    """
+    Generates speech using ElevenLabs API.
+    This is the original generate_tts logic, refactored into a private helper function.
+    """
+    settings = TTS_ELEVENLABS_TEMPLATES.get(template_name, TTS_ELEVENLABS_TEMPLATES["default"])
+
+    # voice_id가 주어지지 않으면 템플릿의 voice_id 사용
     voice_id = voice_id or settings["voice_id"]
 
     headers = {
@@ -102,4 +128,57 @@ def generate_tts(text, save_path="assets/audio.mp3", template_name="default", vo
         print(f"✅ ElevenLabs 음성 저장 완료: {save_path}")
         return save_path
     else:
-        raise RuntimeError(f"TTS 생성 실패: {response.status_code} {response.text}")
+        raise RuntimeError(f"ElevenLabs TTS 생성 실패: {response.status_code} {response.text}")
+
+def _generate_polly_tts(text, save_path, polly_voice_name_key="default_male"):
+    """
+    Generates speech using Amazon Polly.
+    """
+    # Determine the VoiceId from the mapping, defaulting to Matthew if key not found
+    voice_id = TTS_POLLY_VOICES.get(polly_voice_name_key, "Matthew")
+
+    try:
+        response = polly_client.synthesize_speech(
+            Text=text,
+            OutputFormat='mp3', # Output format as MP3
+            VoiceId=voice_id, # Selected voice ID
+            Engine='neural' # Use neural engine for better quality, if available for the voice
+        )
+
+        if "AudioStream" in response:
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            with open(save_path, 'wb') as file:
+                file.write(response['AudioStream'].read()) # Write audio stream to file
+            print(f"✅ Amazon Polly 음성 저장 완료: {save_path}")
+            return save_path
+        else:
+            raise RuntimeError("Amazon Polly TTS 생성 실패: AudioStream not found in response.")
+
+    except Exception as e:
+        raise RuntimeError(f"Amazon Polly TTS 생성 실패: {e}")
+
+def generate_tts(text, save_path="assets/audio.mp3", provider="elevenlabs", template_name="default", voice_id=None, polly_voice_name_key="default_male"):
+    """
+    Generates text-to-speech using either ElevenLabs or Amazon Polly based on the provider.
+
+    Args:
+        text (str): The text to convert to speech.
+        save_path (str): The path to save the generated audio file.
+        provider (str): The TTS provider to use ('elevenlabs' or 'polly').
+        template_name (str, optional): For ElevenLabs, the name of the voice template. Defaults to "default".
+        voice_id (str, optional): For ElevenLabs, a specific voice ID to override the template's voice. Defaults to None.
+        polly_voice_name_key (str, optional): For Amazon Polly, the key from TTS_POLLY_VOICES to select the voice. Defaults to "default_male".
+
+    Returns:
+        str: The path to the saved audio file.
+
+    Raises:
+        ValueError: If an unsupported provider is specified.
+        RuntimeError: If TTS generation fails from the chosen provider.
+    """
+    if provider == "elevenlabs":
+        return _generate_elevenlabs_tts(text, save_path, template_name, voice_id)
+    elif provider == "polly":
+        return _generate_polly_tts(text, save_path, polly_voice_name_key)
+    else:
+        raise ValueError(f"Unsupported TTS provider: {provider}. Choose 'elevenlabs' or 'polly'.")

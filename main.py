@@ -5,7 +5,7 @@ from rag_pipeline import get_retriever_from_source, get_document_chain, get_defa
 from web_ingest import full_web_ingest # web_ingest는 별도로 정의되어 있어야 합니다.
 from image_generator import generate_images_for_topic
 from elevenlabs_tts import generate_tts, TTS_TEMPLATES
-from whisper_asr import transcribe_audio_with_timestamps, generate_ass_subtitle, SUBTITLE_TEMPLATES
+from whisper_asr import transcribe_audio_with_timestamps, generate_ass_subtitle, TTS_ELEVENLABS_TEMPLATES, TTS_POLLY_VOICES
 from video_maker import create_video_with_segments, add_subtitles_to_video
 from deep_translator import GoogleTranslator
 import os
@@ -41,8 +41,12 @@ if "video_title" not in st.session_state: # 새롭게 추가된 부분: 영상 �
     st.session_state.video_title = ""
 if "edited_script_content" not in st.session_state:
     st.session_state.edited_script_content = ""
+if "selected_tts_provider" not in st.session_state: # 새로운 TTS 공급자 세션 상태
+    st.session_state.selected_tts_provider = "ElevenLabs" # 기본값 설정
 if "selected_tts_template" not in st.session_state:
-    st.session_state.selected_tts_template = "educational"
+    st.session_state.selected_tts_template = "educational" # ElevenLabs 템플릿
+if "selected_polly_voice_key" not in st.session_state: # Amazon Polly 음성 세션 상태
+    st.session_state.selected_polly_voice_key = "korean_female" # 기본값 설정
 if "selected_subtitle_template" not in st.session_state:
     st.session_state.selected_subtitle_template = "educational"
 if "bgm_path" not in st.session_state:
@@ -289,12 +293,35 @@ with st.sidebar:
         st.session_state.include_voice = st.checkbox("영상에 AI 목소리 포함", value=st.session_state.include_voice)
 
         if st.session_state.include_voice:
-            # TTS 템플릿 선택
-            st.session_state.selected_tts_template = st.selectbox(
-                "음성 템플릿 선택",
-                options=list(TTS_TEMPLATES.keys()),
-                index=list(TTS_TEMPLATES.keys()).index(st.session_state.selected_tts_template)
+            # TTS 서비스 공급자 선택 라디오 버튼 추가
+            st.session_state.selected_tts_provider = st.radio(
+                "음성 서비스 공급자 선택:",
+                ("ElevenLabs", "Amazon Polly"),
+                index=0 if st.session_state.selected_tts_provider == "ElevenLabs" else 1,
+                key="tts_provider_select"
             )
+
+            if st.session_state.selected_tts_provider == "ElevenLabs":
+                # ElevenLabs 템플릿 선택
+                elevenlabs_template_names = list(TTS_ELEVENLABS_TEMPLATES.keys())
+                st.session_state.selected_tts_template = st.selectbox(
+                    "ElevenLabs 음성 템플릿 선택:",
+                    options=elevenlabs_template_names,
+                    index=elevenlabs_template_names.index(st.session_state.selected_tts_template) if st.session_state.selected_tts_template in elevenlabs_template_names else 0,
+                    key="elevenlabs_template_select"
+                )
+                # ElevenLabs는 voice_id를 따로 받을 수도 있지만, 여기서는 템플릿으로만 통일하여 간결하게 합니다.
+                # 만약 특정 Voice ID를 직접 입력받고 싶다면 추가적인 text_input을 구성할 수 있습니다.
+
+            elif st.session_state.selected_tts_provider == "Amazon Polly":
+                # Amazon Polly 음성 선택
+                polly_voice_keys = list(TTS_POLLY_VOICES.keys())
+                st.session_state.selected_polly_voice_key = st.selectbox(
+                    "Amazon Polly 음성 선택:",
+                    options=polly_voice_keys,
+                    index=polly_voice_keys.index(st.session_state.selected_polly_voice_key) if st.session_state.selected_polly_voice_key in polly_voice_keys else 0,
+                    key="polly_voice_select"
+                )
 
         # 자막 템플릿 선택
         st.session_state.selected_subtitle_template = st.selectbox(
@@ -357,13 +384,24 @@ with st.sidebar:
                         audio_path = os.path.join(audio_output_dir, "generated_audio.mp3")
                         
                         st.write("🗣️ 음성 파일 생성 중...")
-                        generate_tts(
-                            text=final_script_for_video,
-                            save_path=audio_path,
-                            template_name=st.session_state.selected_tts_template
-                        )
-                        st.success(f"음성 파일 생성 완료: {audio_path}")
-                        st.session_state.audio_path = audio_path # Store audio path in session state
+
+                        if st.session_state.selected_tts_provider == "ElevenLabs":
+                            generated_audio_path = generate_tts(
+                                text=final_script_for_video,
+                                save_path=audio_path,
+                                provider="elevenlabs", # 공급자 명시
+                                template_name=st.session_state.selected_tts_template # ElevenLabs 템플릿
+                            )
+                        elif st.session_state.selected_tts_provider == "Amazon Polly":
+                            generated_audio_path = generate_tts(
+                                text=final_script_for_video,
+                                save_path=audio_path,
+                                provider="polly", # 공급자 명시
+                                polly_voice_name_key=st.session_state.selected_polly_voice_key # Polly 음성 키
+                            )
+
+                        st.success(f"음성 파일 생성 완료: {generated_audio_path}")
+                        st.session_state.audio_path = generated_audio_path # Store audio path in session state
 
                         # --- 2. Audio Transcription (ASR) 및 Subtitle (ASS) 파일 생성 ---
                         subtitle_output_dir = "assets"
