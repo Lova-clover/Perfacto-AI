@@ -220,7 +220,7 @@ with st.sidebar:
                     # 콘텐츠 제작자 페르소나로 스크립트 생성
                     # 스크립트 생성 프롬프트에 페르소나, 대상 시청자, 추가 조건 반영
                     script_prompt_content = f"주어진 주제: '{st.session_state.selected_generated_topic}'. 이 주제에 대해 다음 조건을 사용하여 숏폼 비디오 스크립트를 작성해 주세요. 페르소나: {script_expert_persona}, 대상 시청자: {script_expert_audience}, 톤 : {script_expert_tone}, 추가 조건: {script_expert_constraints}"
-                    script_chain = get_default_chain(system_prompt="당신은 TikTok, YouTube Shorts, Instagram Reels과 같은 **매력적이고 바이럴성 있는 숏폼 비디오 스크립트**를 작성하는 전문 크리에이터입니다. 이모지는 사용하지 않습니다. **각 문장의 끝에는 반드시 마침표(.), 물음표(?), 또는 느낌표(!)를 사용하여 명확하게 구분해주세요.** 또한, **문장이 길더라도 핵심 내용 단위로 끊어서 한 줄에 한 세그먼트(문장 또는 구)씩 배치하여, 빠르고 역동적인 숏폼 비디오 씬에 적합한 템포를 유지하도록 스크립트를 생성해주세요.** 불필요한 설명을 최소화하고, 강렬한 메시지를 전달하는 데 집중합니다. 이를 참고하여 스크립트를 제작해주세요.")                
+                    script_chain = get_default_chain(system_prompt="당신은 TikTok, YouTube Shorts, Instagram Reels과 같은 **매력적이고 바이럴성 있는 숏폼 비디오 스크립트**를 작성하는 전문 크리에이터입니다. 이모지는 사용하지 않습니다. **각 문장의 끝에는 반드시 마침표(.), 물음표(?), 또는 느낌표(!)를 사용하여 명확하게 구분해주세요.** 또한, **문장이 길더라도 핵심 내용 단위로 끊어서 한 줄에 한 세그먼트(문장 또는 구)씩 배치하고, 각 세그먼트의 끝에는 반드시 `_` (언더바)를 삽입하여 명확하게 분리해주세요.** [추가] 빠르고 역동적인 숏폼 비디오 씬에 적합한 템포를 유지하도록 스크립트를 생성해주세요. 불필요한 설명을 최소화하고, 강렬한 메시지를 전달하는 데 집중합니다. 이를 참고하여 스크립트를 제작해주세요.")
                     st.session_state.messages.append({"role": "user", "content": f"선택된 주제 '{st.session_state.selected_generated_topic}'에 대한 스크립트를 만들어 줘."})
                     
                     generated_script = ""
