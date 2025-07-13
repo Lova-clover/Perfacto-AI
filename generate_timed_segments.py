@@ -109,6 +109,26 @@ def generate_tts_per_line(script_lines, provider, template):
     print(f"디버그: 최종 생성된 오디오 파일 경로 수: {len(audio_paths)}")
     return audio_paths
 
+def merge_audio_files(audio_paths, output_path):
+    merged = AudioSegment.empty()
+    segments = []
+    current_time = 0
+
+    for i, path in enumerate(audio_paths):
+        audio = AudioSegment.from_file(path)
+        duration = audio.duration_seconds
+
+        segments.append({
+            "start": current_time,
+            "end": current_time + duration
+        })
+
+        merged += audio
+        current_time += duration
+
+    merged.export(output_path, format="mp3")
+    return segments
+
 def get_segments_from_audio(audio_paths, script_lines):
     segments = []
     current_time = 0
@@ -187,7 +207,14 @@ def generate_subtitle_from_script(
         print("오류: 라인별 오디오 파일이 생성되지 않았습니다. 빈 segments 반환.")
         return [], None, ass_path # audio_clips가 None인 경우를 명시적으로 반환
 
-    segments = get_segments_from_audio(audio_paths, script_lines)
+    segments_raw = merge_audio_files(audio_paths, full_audio_file_path)
+    segments = []
+    for i, s in enumerate(segments_raw):
+        segments.append({
+            "start": s["start"],
+            "end": s["end"],
+            "text": script_lines[i]  # 기존대로 자막 문장 포함
+        })
 
     print(f"디버그: get_segments_from_audio 후 최종 segments의 길이: {len(segments)}")
 
@@ -210,7 +237,7 @@ def generate_subtitle_from_script(
 
 
     # ASS 파일 생성
-    generate_ass_subtitle(segments, ass_path, template_name="default")
+    generate_ass_subtitle(segments, ass_path, template_name=template)
     
     # 세그먼트, 오디오 클립, ASS 경로를 모두 반환
     return segments, audio_clips, ass_path
