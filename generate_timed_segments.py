@@ -218,7 +218,7 @@ def generate_subtitle_from_script(
 
 
     # ASS 파일 생성
-    generate_ass_subtitle(segments, ass_path, subtitle_style="default")
+    generate_ass_subtitle(segments, ass_path, template="default")
     
     # 세그먼트, 오디오 클립, ASS 경로를 모두 반환
     return segments, audio_clips, ass_path
