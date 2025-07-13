@@ -144,17 +144,9 @@ def generate_ass_subtitle(segments, ass_path, template_name="default"):
         f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
 
         for i, seg in enumerate(segments):
-            # seg가 딕셔너리 또는 객체일 수 있으므로, 안전하게 접근하도록 수정
-            # 딕셔너리 형태일 경우 seg['start'], 객체 형태일 경우 seg.start
-            # faster_whisper segments는 객체이고, 수동 생성 segments는 딕셔너리이므로
-            # 여기서는 딕셔너리 키로 접근하도록 통일합니다.
             start = seg['start']
-            # 다음 세그먼트가 있으면, 그 시작 시점 바로 이전까지 자막 표시
-            if i + 1 < len(segments):
-                next_start = segments[i + 1]['start']
-                end = next_start
-            else:
-                end = seg['end'] # 마지막 세그먼트의 끝 시간
+            # 변경: 다음 세그먼트 시작 대신 현재 세그먼트의 실제 끝 시간을 사용
+            end = seg['end']
 
             text = seg['text'].strip().replace("\\n", " ")
 

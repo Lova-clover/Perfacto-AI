@@ -164,12 +164,8 @@ def create_video_with_segments(image_paths, segments, audio_path, topic_title,
 
     for i, seg in enumerate(segments):
         start = seg['start']
-        end = seg['end'] 
-        if i < len(segments) - 1:
-            next_start = segments[i + 1]['start']
-            duration = next_start - start
-        else:
-            duration = end - start
+        # 각 세그먼트의 duration은 해당 세그먼트의 시작 시간과 끝 시간의 차이로 계산합니다.
+        duration = seg['end'] - start
 
         img_path = image_paths[i]
 
