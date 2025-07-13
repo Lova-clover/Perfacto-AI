@@ -1,3 +1,4 @@
+aeneas
 groq
 streamlit
 langchain
