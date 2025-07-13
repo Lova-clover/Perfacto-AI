@@ -40,7 +40,12 @@ def save_texts(text_list, filename):
 def embed_and_save(texts, output_dir):
     print("[+] 문서 벡터화 및 인덱싱 중...")
 
-    embedding = HuggingFaceEmbeddings(model_name="jhgan/ko-sbert-sts")
+    # HuggingFaceEmbeddings를 CPU에서 실행하도록 명시적으로 설정
+    embedding = HuggingFaceEmbeddings(
+        model_name="jhgan/ko-sbert-sts",
+        model_kwargs={'device': 'cpu'} # 이 부분을 추가/수정합니다.
+    )
+    
     vectorstore = FAISS.from_texts(texts, embedding)
 
     vectorstore.save_local(output_dir)
