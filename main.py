@@ -74,9 +74,9 @@ with st.sidebar:
     with st.expander("전문가 페르소나 설정", expanded=True):
         st.write("주제 생성을 위한 전문가 AI의 설정을 정의해 보세요.")
         expert_persona = st.text_input("페르소나", 
-                                         value=st.session_state.expert_persona, 
-                                         placeholder="예: 역사학자, 과학자", 
-                                         key="expert_persona_input")
+                                        value=st.session_state.expert_persona, 
+                                        placeholder="예: 역사학자, 과학자", 
+                                        key="expert_persona_input")
         expert_domain = st.text_input("주제 전문 분야", 
                                        value=st.session_state.expert_domain, 
                                        placeholder="예: 조선 시대, 블랙홀, 인공지능", 
@@ -191,17 +191,17 @@ with st.sidebar:
         
         # 페르소나, 대상 시청자, 추가 조건 복사 (원래 위치에도 유지)
         script_expert_persona = st.text_input("페르소나", 
-                                               value=st.session_state.expert_persona, 
-                                               placeholder="예: 역사학자, 과학자", 
-                                               key="script_expert_persona_input")
+                                                value=st.session_state.expert_persona, 
+                                                placeholder="예: 역사학자, 과학자", 
+                                                key="script_expert_persona_input")
         script_expert_audience = st.text_input("대상 시청자", 
-                                                value=st.session_state.expert_audience, 
-                                                placeholder="예: 고등학생, 일반인, 전문가", 
-                                                key="script_expert_audience_input")
+                                                 value=st.session_state.expert_audience, 
+                                                 placeholder="예: 고등학생, 일반인, 전문가", 
+                                                 key="script_expert_audience_input")
         script_expert_constraints = st.text_area("추가 조건 (JSON 형식 권장)", 
-                                                 value=st.session_state.expert_constraints, 
-                                                 placeholder="예: {\"length\": \"short\", \"keywords\": [\"파이썬\", \"데이터\"]}", 
-                                                 key="script_expert_constraints_input")
+                                                   value=st.session_state.expert_constraints, 
+                                                   placeholder="예: {\"length\": \"short\", \"keywords\": [\"파이썬\", \"데이터\"]}", 
+                                                   key="script_expert_constraints_input")
 
 
         if st.button("스크립트 생성", help="선택된 주제로 숏폼 영상 스크립트를 만들어 드립니다.", key="generate_script_button"):
@@ -239,13 +239,6 @@ with st.sidebar:
                 st.warning("먼저 생성된 주제를 선택해 주세요.")
 
         st.subheader("제작된 스크립트 미리보기 및 수정")
-        # 영상 주제 입력 필드 이름 변경
-        st.session_state.video_topic = st.text_input(
-            "이미지 생성에 사용될 키워드", # 필드 이름 변경
-            value=st.session_state.video_topic, # 세션 상태에서 가져옴
-            key="video_topic_input_final" # Changed key to avoid conflict if any
-        )
-
         # 스크립트 내용 (수정 가능) 텍스트 영역
         st.session_state.edited_script_content = st.text_area(
             "영상 스크립트 (원하는 대로 수정 가능):",
@@ -257,6 +250,13 @@ with st.sidebar:
     st.markdown("---") # 스크립트 생성 expander와 영상 제작 설정 expander 사이에 구분선 추가
 
     with st.expander("영상 제작 설정", expanded=True): # 원래 있던 "영상 제작 설정" expander
+        # 영상 주제 입력 필드 이름 변경 (Moved here)
+        st.session_state.video_topic = st.text_input(
+            "이미지 생성에 사용될 키워드", # 필드 이름 변경
+            value=st.session_state.video_topic, # 세션 상태에서 가져옴
+            key="video_topic_input_final" # Changed key to avoid conflict if any
+        )
+
         # 음성 포함 여부 선택
         st.session_state.include_voice = st.checkbox("영상에 AI 목소리 포함", value=st.session_state.include_voice)
 
