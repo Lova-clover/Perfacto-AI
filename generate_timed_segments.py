@@ -83,19 +83,33 @@ def split_script_to_lines(script_text):
     lines = re.split(r'(?<=[.!?])\\s+', script_text.strip())
     return [line.strip() for line in lines if line.strip()]
 
-def generate_tts_per_line(script_lines, audio_dir="assets/audio", provider="elevenlabs", template="korean_male"):
-
-    os.makedirs(audio_dir, exist_ok=True)
+def generate_tts_per_line(script_lines, provider, template):
     audio_paths = []
+    temp_audio_dir = "temp_line_audios"
+    os.makedirs(temp_audio_dir, exist_ok=True)
+
+    print(f"디버그: 총 {len(script_lines)}개의 스크립트 라인에 대해 TTS 생성 시도.") # 추가
+
     for i, line in enumerate(script_lines):
-        audio_path = os.path.join(audio_dir, f"line_{i}.mp3")
-        generate_tts(
-            text=line,
-            save_path=audio_path,
-            provider=provider,
-            template_name=template
-        )
-        audio_paths.append(audio_path)
+        line_audio_path = os.path.join(temp_audio_dir, f"line_{i}.mp3")
+        try:
+            # generate_tts 함수는 elevenlabs_tts.py에 정의되어 있습니다.
+            generate_tts(
+                text=line,
+                save_path=line_audio_path,
+                provider=provider,
+                template_name=template # ElevenLabs의 경우, Polly는 polly_voice_name_key 사용
+            )
+            audio_paths.append(line_audio_path)
+            print(f"디버그: 라인 {i+1} ('{line[:30]}...') TTS 생성 성공. 파일: {line_audio_path}") # 추가
+        except Exception as e:
+            # TTS 생성 실패 시 구체적인 오류 메시지 출력
+            print(f"오류: 라인 {i+1} ('{line[:30]}...') TTS 생성 실패: {e}") # 수정
+            # 실패한 라인에 대해 오디오 경로를 추가하지 않아 segments 길이가 줄어들 수 있습니다.
+            # 모든 라인에 대해 TTS 생성이 성공해야 합니다.
+            continue # 다음 라인으로 건너뜝니다.
+            
+    print(f"디버그: 최종 생성된 오디오 파일 경로 수: {len(audio_paths)}") # 추가
     return audio_paths
 
 def get_segments_from_audio(audio_paths, script_lines):
@@ -156,11 +170,39 @@ def format_ass_timestamp(seconds):
     return f"{h:01}:{m:02}:{s:02}.{cs:02}"
 
 
-def generate_subtitle_from_script(script_text, ass_path="assets/generated_subtitle.ass",
-                                 provider="elevenlabs", template="korean_male"):
-
+def generate_subtitle_from_script(
+    script_text,
+    ass_path,
+    provider="elevenlabs",
+    template="default", # ElevenLabs 템플릿 이름
+    polly_voice_key="korean_female" # Polly 음성 키 (generate_tts_per_line으로 전달)
+):
+    print(f"디버그: 자막 생성을 위한 스크립트 라인 분리 중...") # 추가
     script_lines = split_script_to_lines(script_text)
-    audio_paths = generate_tts_per_line(script_lines, provider=provider, template=template)
+    print(f"디버그: 분리된 스크립트 라인 수: {len(script_lines)}") # 추가
+
+    if not script_lines:
+        print("경고: 스크립트 라인이 생성되지 않았습니다. 빈 segments 반환.")
+        return [], [], ass_path
+
+    # generate_tts_per_line 호출 시 polly_voice_key를 정확히 전달해야 합니다.
+    # 현재 코드에서는 template_name에 polly_voice_key가 들어갈 수 있으므로, 해당 부분을 확인하세요.
+    # 만약 generate_tts_per_line에서 Polly 음성 키를 제대로 사용하지 않는다면 문제가 될 수 있습니다.
+    
+    # generate_tts_per_line 함수 호출 시 polly_voice_name_key 매개변수 추가 (elevenlabs_tts.py의 generate_tts 함수 시그니처 확인 필요)
+    # 현재 generate_tts_per_line은 template 매개변수를 사용하고 있습니다.
+    # generate_tts_per_line 함수가 polly_voice_name_key를 template_name으로 전달하고 있을 것입니다.
+    # elevenlabs_tts.py의 generate_tts 함수 정의에 따라 달라집니다.
+    
+    # 아래 호출 부분이 올바른지 다시 확인 필요
+    audio_paths = generate_tts_per_line(script_lines, provider=provider, template=template) # template에 Polly voice key가 들어가는 경우
+    # 또는 명시적으로 Polly 키를 넘기는 경우 (만약 generate_tts_per_line 시그니처가 변경된다면)
+    # audio_paths = generate_tts_per_line(script_lines, provider=provider, polly_voice_name_key=polly_voice_key)
+
+
+    if not audio_paths:
+        print("오류: 라인별 오디오 파일이 생성되지 않았습니다. 빈 segments 반환.")
+        return [], [], ass_path
+
     segments = get_segments_from_audio(audio_paths, script_lines)
-    generate_ass_subtitle(segments=segments, ass_path=ass_path, template_name=template)
-    return segments, audio_paths, ass_path
+    print(f"디버그: get_segments_from_audio 후 최종 segments의 길이: {len(segments)}") # 추가

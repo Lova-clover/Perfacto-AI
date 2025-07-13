@@ -417,9 +417,6 @@ with st.sidebar:
                                 else st.session_state.selected_polly_voice_key
                     )
                         st.success(f"자막 파일 생성 완료: {ass_path}")
-                        st.write(f"디버그: generate_subtitle_from_script 호출 후 segments의 길이: {len(segments)}")
-                        if not segments:
-                            st.write("디버그: segments 리스트가 비어 있습니다!")
                     else: # 음성이 없는 경우
                         st.write("음성 없이 자막과 이미지만으로 영상을 생성합니다.")
 
