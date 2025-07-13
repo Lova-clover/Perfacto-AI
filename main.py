@@ -203,7 +203,7 @@ with st.sidebar:
         script_expert_tone = st.text_input("톤", 
                                      value=st.session_state.expert_tone, 
                                      placeholder="예: 유익함, 재미있음, 진지함", 
-                                     key="expert_tone_input")
+                                     key="script_tone_input") 
         script_expert_constraints = st.text_area("추가 조건 (JSON 형식 권장)", 
                                                  value=st.session_state.expert_constraints, 
                                                  placeholder="예: {\"length\": \"short\", \"keywords\": [\"파이썬\", \"데이터\"]}", 
