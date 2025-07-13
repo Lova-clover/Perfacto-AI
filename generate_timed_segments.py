@@ -81,7 +81,7 @@ SUBTITLE_TEMPLATES = {
 }
 
 def split_script_to_lines(script_text):
-    lines = re.split(r'(?<=[.!?])\\s+', script_text.strip())
+    lines = re.split(r'(?<=[.!?])\s+', script_text.strip())
     return [line.strip() for line in lines if line.strip()]
 
 def generate_tts_per_line(script_lines, provider, template):
