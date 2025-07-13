@@ -200,6 +200,10 @@ with st.sidebar:
                                                 value=st.session_state.expert_audience, 
                                                 placeholder="예: 고등학생, 일반인, 전문가", 
                                                 key="script_expert_audience_input")
+        script_expert_tone = st.text_input("톤", 
+                                     value=st.session_state.expert_tone, 
+                                     placeholder="예: 유익함, 재미있음, 진지함", 
+                                     key="expert_tone_input")
         script_expert_constraints = st.text_area("추가 조건 (JSON 형식 권장)", 
                                                  value=st.session_state.expert_constraints, 
                                                  placeholder="예: {\"length\": \"short\", \"keywords\": [\"파이썬\", \"데이터\"]}", 
@@ -211,7 +215,7 @@ with st.sidebar:
                 with st.spinner(f"'{st.session_state.selected_generated_topic}' 주제로 스크립트를 만드는 중입니다..."):
                     # 콘텐츠 제작자 페르소나로 스크립트 생성
                     # 스크립트 생성 프롬프트에 페르소나, 대상 시청자, 추가 조건 반영
-                    script_prompt_content = f"주어진 주제: '{st.session_state.selected_generated_topic}'. 이 주제에 대해 다음 조건을 사용하여 숏폼 비디오 스크립트를 작성해 주세요. 페르소나: {script_expert_persona}, 대상 시청자: {script_expert_audience}, 추가 조건: {script_expert_constraints}"
+                    script_prompt_content = f"주어진 주제: '{st.session_state.selected_generated_topic}'. 이 주제에 대해 다음 조건을 사용하여 숏폼 비디오 스크립트를 작성해 주세요. 페르소나: {script_expert_persona}, 대상 시청자: {script_expert_audience}, 톤 : {script_expert_tone}, 추가 조건: {script_expert_constraints}"
                     script_chain = get_default_chain(system_prompt="당신은 TikTok, YouTube Shorts, Instagram Reels과 같은 매력적이고 바이럴성 있는 숏폼 비디오 스크립트를 작성하는 전문 크리에이터입니다. 이모지는 사용하지 않습니다. 문장을 구분하는 방법은 .과 !과 ?입니다. 이를 참고하여 스크립트를 제작해주세요.")
                     
                     st.session_state.messages.append({"role": "user", "content": f"선택된 주제 '{st.session_state.selected_generated_topic}'에 대한 스크립트를 만들어 줘."})
