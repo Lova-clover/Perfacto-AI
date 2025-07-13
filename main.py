@@ -64,7 +64,7 @@ if "expert_tone" not in st.session_state:
 if "expert_output_count" not in st.session_state: # 'format' 대신 'output_count'
     st.session_state.expert_output_count = 3 # 기본값 설정
 if "expert_constraints" not in st.session_state:
-    st.session_state.expert_constraints = ""
+    st.session_state.expert_constraints = "{}"
 
 
 # --- 사이드바: AI 페르소나 설정 및 RAG 설정 ---
@@ -99,6 +99,18 @@ with st.sidebar:
                                            key="expert_constraints_input")
 
         if st.button("주제 생성"):
+            if not expert_persona.strip():
+                st.warning("페르소나를 입력해 주세요.")
+                st.stop()
+            if not expert_domain.strip():
+                st.warning("주제 전문 분야를 입력해 주세요.")
+                st.stop()
+            if not expert_audience.strip():
+                st.warning("대상 시청자를 입력해 주세요.")
+                st.stop()
+            if not expert_tone.strip():
+                st.warning("톤을 입력해 주세요.")
+                st.stop()
             constraints_dict = {}
             if expert_constraints.strip(): # 추가 조건이 비어있지 않을 때만 파싱 시도
                 try:
