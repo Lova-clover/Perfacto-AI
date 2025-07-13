@@ -6,7 +6,7 @@ import faiss
 import numpy as np
 import os
 from langchain_community.vectorstores import FAISS
-from langchain.embeddings import HuggingFaceEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 def get_links(query, num=30):
     return [
@@ -40,10 +40,10 @@ def save_texts(text_list, filename):
 def embed_and_save(texts, output_dir):
     print("[+] 문서 벡터화 및 인덱싱 중...")
 
-    # HuggingFaceEmbeddings를 CPU에서 실행하도록 명시적으로 설정
-    embedding = HuggingFaceEmbeddings(
-        model_name="jhgan/ko-sbert-sts",
-        model_kwargs={'device': 'cpu'} # 이 부분을 추가/수정합니다.
+    # HuggingFaceEmbeddings 대신 GoogleGenerativeAIEmbeddings 사용
+    embedding = GoogleGenerativeAIEmbeddings(
+        model="models/embedding-001" # Google의 기본 임베딩 모델
+        # API 키는 Streamlit secrets에 GOOGLE_API_KEY로 설정되어 있어야 합니다.
     )
     
     vectorstore = FAISS.from_texts(texts, embedding)
