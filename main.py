@@ -5,7 +5,7 @@ from rag_pipeline import get_retriever_from_source, get_document_chain, get_defa
 from web_ingest import full_web_ingest # web_ingest는 별도로 정의되어 있어야 합니다.
 from image_generator import generate_images_for_topic
 from elevenlabs_tts import generate_tts, TTS_ELEVENLABS_TEMPLATES, TTS_POLLY_VOICES
-from whisper_asr import transcribe_audio_with_timestamps, generate_ass_subtitle, SUBTITLE_TEMPLATES
+from generate_timed_segments import generate_subtitle_from_script
 from video_maker import create_video_with_segments, add_subtitles_to_video
 from deep_translator import GoogleTranslator
 import os
@@ -384,13 +384,7 @@ with st.sidebar:
                         audio_path = os.path.join(audio_output_dir, "generated_audio.mp3")
                         
                         st.write("🗣️ 음성 파일 생성 중...")
-                        st.session_state.selected_tts_provider = st.radio(
-                            "음성 서비스 공급자 선택:",
-                            ("ElevenLabs", "Amazon Polly"),
-                            index=0 if st.session_state.selected_tts_provider == "ElevenLabs" else 1,
-                            key="tts_provider_select"
-                        )
-
+                        
                         if st.session_state.selected_tts_provider == "ElevenLabs":
                             generated_audio_path = generate_tts(
                                 text=final_script_for_video,
@@ -415,12 +409,13 @@ with st.sidebar:
                         ass_path = os.path.join(subtitle_output_dir, "generated_subtitle.ass")
 
                         st.write("📝 자막 생성을 위한 음성 분석 중...")
-                        segments = transcribe_audio_with_timestamps(audio_path)
-                        generate_ass_subtitle(
-                            segments=segments,
-                            ass_path=ass_path,
-                            template_name=st.session_state.selected_subtitle_template
-                        )
+                        segments, audio_paths, ass_path = generate_subtitle_from_script(
+                        script_text=final_script_for_video,
+                        ass_path=ass_path,
+                        provider="elevenlabs" if st.session_state.selected_tts_provider == "ElevenLabs" else "polly",
+                        template=st.session_state.selected_tts_template if st.session_state.selected_tts_provider == "ElevenLabs"
+                                else st.session_state.selected_polly_voice_key
+                    )
                         st.success(f"자막 파일 생성 완료: {ass_path}")
                     else: # 음성이 없는 경우
                         st.write("음성 없이 자막과 이미지만으로 영상을 생성합니다.")
