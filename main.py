@@ -17,8 +17,8 @@ import json # JSON 파싱을 위해 추가
 load_dotenv()
 
 # --- 앱 기본 설정 ---
-st.set_page_config(page_title="영상제작 및 RAG 챗봇", page_icon="🤖")
-st.title("영상 제작 챗봇")
+st.set_page_config(page_title="Perfacto AI", page_icon="🤖")
+st.title("Make your own vids automatically")
 st.markdown(
     """
 안녕하세요! 이 챗봇은 검색 키워드나 업로드된 파일의 내용을 분석하여 답변해 드립니다.
