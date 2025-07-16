@@ -20,12 +20,11 @@ nest_asyncio.apply()
 load_dotenv()
 
 # --- 앱 기본 설정 ---
-st.set_page_config(page_title="영상제작 및 RAG 챗봇", page_icon="🤖")
-st.title("영상 제작 챗봇")
+st.set_page_config(page_title="Perfacto AI", page_icon="🤖")
+st.title("PerfactoAI")
 st.markdown(
     """
-안녕하세요! 이 챗봇은 검색 키워드나 업로드된 파일의 내용을 분석하여 답변해 드립니다.
-또한, 영상 스크립트 생성 및 영상 제작 기능도 제공하고 있어요.
+Make your own vids automatically
 """
 )            
 
