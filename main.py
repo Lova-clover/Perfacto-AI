@@ -160,7 +160,7 @@ with st.sidebar:
         )
         
         if st.button("분석 시작"):
-            st.session_state.retriever = None
+            st.session_state.retriever = None # 초기화
             all_documents = [] # 모든 소스의 문서를 담을 리스트
 
             # 1. 파일 처리
@@ -169,6 +169,7 @@ with st.sidebar:
                     file_docs = get_documents_from_files(uploaded_files)
                     all_documents.extend(file_docs)
                     st.success(f"{len(file_docs)}개의 파일 문서 로드 완료.")
+                    st.write(f"디버그: 파일에서 로드된 문서 수: {len(file_docs)}") # 디버그 라인
 
             # 2. 검색 키워드 처리 (웹 수집)
             if url_input:
@@ -177,31 +178,34 @@ with st.sidebar:
                     if not error:
                         all_documents.extend(web_docs)
                         st.success(f"{len(web_docs)}개의 웹 문서 로드 완료.")
+                        st.write(f"디버그: 웹에서 로드된 문서 수: {len(web_docs)}") # 디버그 라인
                     else:
                         st.error(f"웹페이지 수집 중 오류 발생: {error}")
+    
+            st.write(f"디버그: 총 수집된 문서 수 (all_documents): {len(all_documents)}") # 디버그 라인
 
             # 3. 결합된 문서로 하나의 리트리버 생성
             if all_documents:
                 with st.spinner("모든 문서를 결합하고 벡터화하는 중입니다..."):
-                    # 텍스트 스플리터 적용
                     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
                     split_documents = text_splitter.split_documents(all_documents)
+                    st.write(f"디버그: 분할된 문서 수: {len(split_documents)}") # 디버그 라인
 
-                    # 임베딩 모델 정의
                     embedding = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-
-                    # FAISS 벡터스토어 생성
                     combined_vectorstore = FAISS.from_documents(split_documents, embedding)
                     st.session_state.retriever = combined_vectorstore.as_retriever()
                     st.success("모든 소스의 문서로 분석 준비 완료! 이제 질문해 보세요.")
+                    st.write(f"디버그: 리트리버 설정 완료 여부: {st.session_state.retriever is not None}") # 디버그 라인
             else:
                 st.warning("분석할 문서(파일 또는 웹 콘텐츠)가 없습니다. 검색 키워드 또는 파일을 입력해 주세요.")
+                st.write("디버그: all_documents가 비어 있어 리트리버를 설정할 수 없습니다.") # 디버그 라인
 
 
         if query := st.chat_input("질문 입력..."):
             with st.chat_message("user"):
                 st.markdown(query)
             st.session_state.messages.append(HumanMessage(content=query))
+            st.write(f"디버그: 질문 시점의 리트리버 상태: {st.session_state.retriever is not None}") # 디버그 라인
 
             if not st.session_state.retriever:
                 with st.chat_message("ai"):
