@@ -8,6 +8,8 @@ import os
 from langchain_community.vectorstores import FAISS # 현재 사용되지 않음
 from langchain_google_genai import GoogleGenerativeAIEmbeddings # 현재 사용되지 않음
 from langchain_core.documents import Document
+import re
+
 
 def get_links(query, num=30):
     return [
