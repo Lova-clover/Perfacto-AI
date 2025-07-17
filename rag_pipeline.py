@@ -122,9 +122,9 @@ def get_retriever_from_source(source_type, source_input):
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ✅ RAG 체인 생성
-def get_document_chain(llm, prompt): # 인자 순서를 main.py 호출에 맞게 변경 (llm, prompt)
-    # create_stuff_documents_chain의 올바른 인자 순서는 (prompt, llm)입니다.
-    # main.py에서 이미 올바른 rag_prompt를 생성하여 전달하므로, 여기서는 prompt 인자를 그대로 사용합니다.
+def get_document_chain(llm, prompt):
+    print(f"DEBUG rag_pipeline.py: Inside get_document_chain - llm type: {type(llm)}")
+    print(f"DEBUG rag_pipeline.py: Inside get_document_chain - prompt type: {type(prompt)}")
     document_chain = create_stuff_documents_chain(prompt, llm)
     return document_chain
 

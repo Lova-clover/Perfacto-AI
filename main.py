@@ -620,6 +620,8 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
                     ("user", "다음 문서를 참고하여 질문에 답변하세요:\n\n{context}\n\n질문: {input}"),
                 ]
             )
+            print(f"DEBUG main.py: llm type before calling get_document_chain: {type(llm)}")
+            print(f"DEBUG main.py: rag_prompt type before calling get_document_chain: {type(rag_prompt)}")
             document_chain = get_document_chain(llm, rag_prompt)
 
             retrieval_chain = get_retrieval_chain(st.session_state.retriever, document_chain)
