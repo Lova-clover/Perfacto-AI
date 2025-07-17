@@ -14,6 +14,7 @@ import requests # 기본 이미지 다운로드를 위해 추가
 import re
 import json # JSON 파싱을 위해 추가
 import nest_asyncio
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 nest_asyncio.apply()
 
