@@ -26,3 +26,4 @@ ffmpeg-python
 boto3
 pydub
 llama-parse
+rank_bm25
