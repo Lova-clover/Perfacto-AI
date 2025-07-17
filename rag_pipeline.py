@@ -159,8 +159,8 @@ def get_retriever_from_source(source_type, source_input):
             retrievers=[bm25_retriever, faiss_retriever], weights=[0.5, 0.5]
         )
 
-        # CohereRerank 모델을 'rerank-multilingual-v2.0'으로 명시적으로 지정
-        compressor = CohereRerank(model="rerank-multilingual-v2.0") # <-- 이 줄을 수정했습니다.
+        # CohereRerank 모델을 'rerank-multilingual-v3.0'으로 명시적으로 지정
+        compressor = CohereRerank(model="rerank-multilingual-v3.0") # <-- 이 줄을 수정했습니다.
         compression_retriever = ContextualCompressionRetriever(
             base_compressor=compressor, base_retriever=ensemble_retriever
         )
