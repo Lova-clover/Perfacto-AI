@@ -595,43 +595,79 @@ for msg in st.session_state.messages:
         if "sources" in msg and msg["sources"]:
             with st.expander("참조 문서 확인하기"):
                 for source in msg["sources"]:
-                    st.markdown(f"- **출처**: [{source.metadata.get('source', 'N/A')}]({source.metadata.get('source', '#')})")
-                    st.text(source.page_content)
+                    st.markdown(f"- **출처**: [{source['metadata'].get('source', 'N/A')}]({source['metadata'].get('source', '#')})")
+                    st.text(source['page_content'])
 # 사용자 입력 처리
 if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI 기술 트렌드 알려줘)"):
     st.session_state.messages.append({"role": "user", "content": user_input})
     st.chat_message("user").markdown(user_input)
-    st.session_state.last_user_query = user_input # 마지막 사용자 쿼리 저장
+    st.session_state.last_user_query = user_input
 
-    with st.chat_message("assistant"):
-        container = st.empty()
-        ai_answer = ""
-        sources_list = []
-        
-        # RAG 사용 여부 결정 (URL 또는 파일이 처리된 경우)
-        if st.session_state.retriever:
-            retrieval_chain = get_document_chain(st.session_state.system_prompt, st.session_state.retriever)
+    if st.session_state.retriever:
+        with st.spinner("정보를 검색하고 답변을 생성 중입니다..."):
+            rag_system_prompt = """당신은 주어진 문서를 참고하여 질문에 답변하는 유능한 AI 어시스턴트입니다.
+            다음 'context'를 사용하여 질문에 답변하세요. 만약 'context'에 답변이 없다면,
+            사용자의 질문에 직접적으로 답변하지 말고, '주어진 정보로는 답변할 수 없습니다.'라고 말하세요.
+            답변은 항상 한국어로 하세요.
+
+            {context}
+            """
             
-            # 검색 및 답변 생성
-            full_response = retrieval_chain.invoke(
-                {"input": user_input, "chat_history": st.session_state.messages}
+            llm = GROQLLM(api_key=st.secrets["GROQ_API_KEY"])
+
+            rag_prompt = ChatPromptTemplate.from_messages(
+                [
+                    ("system", rag_system_prompt),
+                    MessagesPlaceholder(variable_name="chat_history"),
+                    ("user", "{input}"),
+                ]
             )
-            ai_answer = full_response.get("answer", "답변을 생성하는 데 문제가 발생했습니다.") 
-            # TODO: 소스 추출 로직 필요 (LangChain Chain에서 직접 소스 추출 어려움, 별도 처리 필요)
-            # 여기서는 임시로 빈 리스트를 사용하거나, 추후 Chain을 수정하여 소스 메타데이터를 반환하도록 해야 함
-            sources_list = [] 
+
+            document_chain = get_document_chain(llm, rag_prompt)
             
-        else:
-            # 일반 챗봇 모드 (RAG 비활성화)
-            chain = get_default_chain(st.session_state.system_prompt)
+            retrieval_chain = get_retrieval_chain(st.session_state.retriever, document_chain)
+
+            rag_chat_history = [
+                HumanMessage(content=msg["content"]) if msg["role"] == "user" else AIMessage(content=msg["content"])
+                for msg in st.session_state.messages[:-1]
+            ]
+
+            response = retrieval_chain.invoke({"input": user_input, "chat_history": rag_chat_history})
             
-            # 챗봇 스트리밍 응답
-            for token in chain.stream({"question": user_input, "chat_history": st.session_state.messages}):
+            ai_answer = response["answer"]
+            retrieved_sources = response["context"]
+
+            formatted_sources = []
+            for doc in retrieved_sources:
+                formatted_sources.append({
+                    "metadata": {"source": doc.metadata.get('source', '알 수 없음')},
+                    "page_content": doc.page_content
+                })
+            
+            st.session_state.messages.append({"role": "assistant", "content": ai_answer, "sources": formatted_sources})
+            st.chat_message("assistant").markdown(ai_answer)
+            if formatted_sources:
+                with st.expander("참조 문서 확인하기"):
+                    for source in formatted_sources:
+                        st.markdown(f"- **출처**: [{source['metadata'].get('source', 'N/A')}]({source['metadata'].get('source', '#')})")
+                        st.text(source['page_content'])
+
+    else:
+        with st.spinner("답변 생성 중..."):
+            general_chat_chain = get_default_chain(st.session_state.system_prompt)
+            
+            general_chat_history = [
+                HumanMessage(content=msg["content"]) if msg["role"] == "user" else AIMessage(content=msg["content"])
+                for msg in st.session_state.messages[:-1]
+            ]
+
+            ai_answer = ""
+            for token in general_chat_chain.stream({"question": user_input, "chat_history": general_chat_history}):
                 ai_answer += token
-                container.markdown(ai_answer)
-        
-        container.markdown(ai_answer)
-        st.session_state.messages.append({"role": "assistant", "content": ai_answer, "sources": sources_list})
+            
+            st.session_state.messages.append({"role": "assistant", "content": ai_answer})
+            st.chat_message("assistant").markdown(ai_answer)
+    st.rerun()
 
     # 챗봇이 답변을 생성한 후, 사이드바의 스크립트와 주제 필드를 자동으로 채웁니다.
     # 일반 챗봇 답변을 스크립트로 활용
