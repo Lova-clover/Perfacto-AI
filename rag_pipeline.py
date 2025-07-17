@@ -144,8 +144,15 @@ def get_document_chain(system_prompt, retriever):
         result = retrieval_chain.invoke(inputs)
         answer = result.get("answer", "")
         docs = retriever.get_relevant_documents(inputs["input"])
-        source_paragraphs = [doc.page_content.strip() for doc in docs[:3]]
-        return {"answer": answer, "sources": source_paragraphs}
+
+        # page_content와 출처 URL을 추출합니다
+        source_info = []
+        for doc in docs[:3]:
+            content = doc.page_content.strip()
+            source = doc.metadata.get('source', 'N/A') # 메타데이터에서 출처를 가져오고, 없으면 'N/A'로 기본값 설정
+            source_info.append({"content": content, "source": source})
+
+        return {"answer": answer, "sources": source_info} # 딕셔너리 리스트를 반환합니다
 
     return rag_with_sources
 
