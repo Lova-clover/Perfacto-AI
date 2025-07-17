@@ -613,9 +613,22 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
         if st.session_state.retriever:
             retrieval_chain = get_document_chain(st.session_state.system_prompt, st.session_state.retriever)
             result = retrieval_chain({"input": user_input, "chat_history": st.session_state.messages})
+    
+            # 답변은 그대로
             ai_answer = result.get("answer", "답변을 생성하는 중 문제가 발생했습니다.")
-            st.session_state.last_rag_sources = result.get("sources", [])
-            sources_list = []  # 메타데이터 출력에서 사용될 수 있음
+    
+            # 출처는 문서 원문 전체가 아닌, 문서 제목이나 핵심 요약만 간단히 추출
+            sources = result.get("sources", [])
+            simplified_sources = []
+            for para in sources[:3]:  # 최대 3개 출처
+                # 너무 길면 줄이기 (예: 150자 이내)
+                if len(para) > 150:
+                    simplified_sources.append(para[:147] + "...")
+                else:
+                    simplified_sources.append(para)
+    
+            st.session_state.last_rag_sources = simplified_sources
+            sources_list = simplified_sources
             
         else:
             # 일반 챗봇 모드 (RAG 비활성화)
