@@ -5,6 +5,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 import streamlit as st
+import asyncio
 
 # LlamaParse를 사용하기 위한 parser 객체 초기화
 LLAMA_CLOUD_API_KEY = st.secrets["LLAMA_CLOUD_API_KEY"]
@@ -24,7 +25,6 @@ def get_documents_from_files(uploaded_files):
             # LlamaParse를 사용하여 파일 파싱
             # LlamaParse는 비동기적으로 작동할 수 있으므로, 여기서는 간단한 동기 방식으로 호출합니다.
             # 복잡한 앱에서는 asyncio를 사용하는 것이 좋습니다.
-            import asyncio
             documents = asyncio.run(parser.aload_data(tmp_file_path))
             all_documents.extend(documents)
         
