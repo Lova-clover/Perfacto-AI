@@ -26,13 +26,13 @@ from pydantic import PrivateAttr
 # ✅ LLM 정의 (GROQ 기반)
 class GROQLLM(LLM):
     model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
-    _api_key: str = PrivateAttr()
-    _client: Groq = PrivateAttr()
+    # _api_key: str = PrivateAttr() # <-- 이 줄을 제거합니다.
+    # _client: Groq = PrivateAttr() # <-- 이 줄을 제거합니다.
 
     def __init__(self, api_key: str, model: str = "meta-llama/llama-4-scout-17b-16e-instruct", **kwargs):
         super().__init__(model=model, **kwargs)
-        self._api_key = api_key
-        self._client = Groq(api_key=self._api_key)
+        self._api_key = api_key # <-- 이제 PrivateAttr 없이 직접 할당합니다.
+        self._client = Groq(api_key=self._api_key) # <-- 이제 PrivateAttr 없이 직접 할당합니다.
 
     def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
         messages = [{"role": "user", "content": prompt}]
