@@ -157,31 +157,76 @@ with st.sidebar:
         
         if st.button("분석 시작"):
             st.session_state.retriever = None
+            all_documents = [] # 모든 소스의 문서를 담을 리스트
 
-            source_type = None
-            source_input = None
-
+            # 1. 파일 처리
             if uploaded_files:
-                source_type = "Files"
-                source_input = uploaded_files
+                with st.spinner("업로드된 파일을 파싱 중입니다..."):
+                    file_docs = get_documents_from_files(uploaded_files)
+                    all_documents.extend(file_docs)
+                    st.success(f"{len(file_docs)}개의 파일 문서 로드 완료.")
 
-            elif url_input:
-                with st.spinner("웹페이지를 수집하고 벡터화하는 중입니다..."):
-                    text_path, index_dir, error = full_web_ingest(url_input)
+            # 2. 검색 키워드 처리 (웹 수집)
+            if url_input:
+                with st.spinner(f"'{url_input}' 관련 웹페이지를 수집하고 정리하는 중입니다..."):
+                    web_docs, error = full_web_ingest(url_input)
                     if not error:
-                        source_type = "FAISS"
-                        source_input = index_dir   # 폴더 경로
+                        all_documents.extend(web_docs)
+                        st.success(f"{len(web_docs)}개의 웹 문서 로드 완료.")
                     else:
-                        st.error(f"웹페이지 수집 및 벡터화 중 오류 발생: {error}")
-            else:
-                st.warning("검색 키워드 또는 파일을 입력해 주세요.")
+                        st.error(f"웹페이지 수집 중 오류 발생: {error}")
 
-            if source_input and source_type:
-                st.session_state.retriever = get_retriever_from_source(source_type, source_input)
-                if st.session_state.retriever:
-                    st.success("분석이 완료되었습니다! 이제 질문해 보세요.")
-                else:
-                    st.error("문서 처리 중 오류가 발생했습니다. 다시 시도해 주세요.")
+            # 3. 결합된 문서로 하나의 리트리버 생성
+            if all_documents:
+                with st.spinner("모든 문서를 결합하고 벡터화하는 중입니다..."):
+                    # 텍스트 스플리터 적용
+                    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+                    split_documents = text_splitter.split_documents(all_documents)
+
+                    # 임베딩 모델 정의
+                    embedding = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+
+                    # FAISS 벡터스토어 생성
+                    combined_vectorstore = FAISS.from_documents(split_documents, embedding)
+                    st.session_state.retriever = combined_vectorstore.as_retriever()
+                    st.success("모든 소스의 문서로 분석 준비 완료! 이제 질문해 보세요.")
+            else:
+                st.warning("분석할 문서(파일 또는 웹 콘텐츠)가 없습니다. 검색 키워드 또는 파일을 입력해 주세요.")
+
+
+        if query := st.chat_input("질문 입력..."):
+            with st.chat_message("user"):
+                st.markdown(query)
+            st.session_state.messages.append(HumanMessage(content=query))
+
+            if not st.session_state.retriever:
+                with st.chat_message("ai"):
+                    st.markdown("분석할 문서가 준비되지 않았습니다. 먼저 '분석 시작' 버튼을 눌러주세요.")
+                st.session_state.messages.append(AIMessage(content="분석할 문서가 준비되지 않았습니다. 먼저 '분석 시작' 버튼을 눌러주세요."))
+            else:
+                with st.spinner("답변을 생성 중입니다..."):
+                    # 이전 채팅 기록 가져오기
+                    chat_history = [
+                        m for m in st.session_state.messages if isinstance(m, (HumanMessage, AIMessage))
+                    ]
+            
+                    ai_answer, sources = rag_with_sources(st.session_state.retriever, chat_history, query)
+
+                    with st.chat_message("ai"):
+                        st.markdown(ai_answer)
+                        if sources:
+                            st.markdown("---")
+                            st.markdown("**참고 출처:**")
+                            for source in sources:
+                                # source 딕셔너리에 'source' 키가 있다고 가정
+                                if "source" in source:
+                                    url = source["source"]
+                                    st.markdown(f"- [{url}]({url})")
+                                elif "content" in source:
+                                    # URL이 없는 경우 콘텐츠 스니펫 표시 (예: 파일 내용)
+                                    st.markdown(f"- 파일 내용: {source['content'][:100]}...") # 처음 100자만 표시
+                
+                    st.session_state.messages.append(AIMessage(content=ai_answer))
 
     st.markdown("---")
 

@@ -52,20 +52,31 @@ def embed_and_save(texts, output_dir):
     vectorstore.save_local(output_dir)
     print(f"[+] FAISS 인덱스 저장 완료: {output_dir}")
 
-def full_web_ingest(query, output_dir="output"):
-    urls = get_links(query)
-    texts = []
-    for url in urls:
-        raw = clean_html(url)
-        filtered = filter_noise(raw)
-        if len(filtered) > 300:
-            texts.append(filtered)
+def full_web_ingest(query): # output_dir 매개변수 제거
+    try:
+        print(f"[+] '{query}' 검색 중...")
+        urls = get_links(query)
+        if not urls:
+            return [], "검색 결과가 없습니다." # 문서 리스트와 에러 메시지 반환
 
-    if not texts:
-        return None, None, "충분한 문서를 수집하지 못했습니다."
+        cleaned_texts_with_urls = []
+        for url in urls:
+            raw_text = clean_html(url)
+            filtered_text = filter_noise(raw_text)
+            if filtered_text:
+                # Langchain Document 객체로 변환하고 URL을 metadata에 추가
+                doc = Document(page_content=filtered_text, metadata={"source": url, "query": query})
+                cleaned_texts_with_urls.append(doc)
 
-    os.makedirs(output_dir, exist_ok=True)
-    text_path = os.path.join(output_dir, "result_text.txt")
-    embed_and_save(texts, output_dir)
+        if not cleaned_texts_with_urls:
+            return [], "유효한 웹 문서를 찾을 수 없습니다." # 문서 리스트와 에러 메시지 반환
 
-    return text_path, output_dir, None
+        print(f"[+] {len(cleaned_texts_with_urls)}개의 웹 문서 수집 및 정리 완료.")
+
+        # 여기서는 FAISS 인덱스를 저장하지 않습니다.
+        # 문서 리스트 자체를 반환하여 main.py에서 파일 문서와 통합합니다.
+        return cleaned_texts_with_urls, None # 문서 리스트와 에러 없음 반환
+
+    except Exception as e:
+        print(f"[-] 웹 수집 중 오류 발생: {e}")
+        return [], f"웹 수집 중 오류 발생: {e}" # 빈 문서 리스트와 에러 메시지 반환
