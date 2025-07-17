@@ -25,6 +25,8 @@ from groq import Groq
 from langchain.llms.base import LLM
 from pydantic import PrivateAttr
 
+COHERE_API_KEY = st.secrets["COHERE_API_KEY"]
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ✅ LLM 정의 (GROQ 기반)
 class GROQLLM(LLM):
