@@ -1,3 +1,4 @@
+llama-index-parser-llama-parse
 groq
 streamlit
 langchain
