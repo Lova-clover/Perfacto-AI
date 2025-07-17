@@ -122,13 +122,13 @@ def get_retriever_from_source(source_type, source_input):
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ✅ RAG 체인 생성
-def get_document_chain(llm, prompt): # main.py에서 전달하는 인자(llm, rag_prompt)와 일치시킵니다.
-    # prompt와 llm은 main.py에서 이미 생성되어 이 함수로 전달됩니다.
-    # 따라서 여기서 다시 프롬프트를 만들거나, LLM을 정의할 필요가 없습니다.
-    document_chain = create_stuff_documents_chain(prompt, llm) # create_stuff_documents_chain의 올바른 순서는 (prompt, llm)입니다.
-    return document_chain # document_chain을 반환합니다.
+def get_document_chain(llm, prompt): # 인자 순서를 main.py 호출에 맞게 변경 (llm, prompt)
+    # create_stuff_documents_chain의 올바른 인자 순서는 (prompt, llm)입니다.
+    # main.py에서 이미 올바른 rag_prompt를 생성하여 전달하므로, 여기서는 prompt 인자를 그대로 사용합니다.
+    document_chain = create_stuff_documents_chain(prompt, llm)
+    return document_chain
 
-# 검색 체인 (retrieval_chain)을 생성하는 별도의 함수를 만듭니다.
+# Retrieval Chain을 생성하는 함수를 추가합니다.
 def get_retrieval_chain(retriever, document_chain):
     retrieval_chain = create_retrieval_chain(retriever, document_chain)
     return retrieval_chain

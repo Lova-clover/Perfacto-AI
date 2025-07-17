@@ -617,8 +617,6 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
                 [
                     ("system", rag_system_prompt),
                     MessagesPlaceholder(variable_name="chat_history"),
-                    # 사용자 메시지 템플릿에 {context} 변수를 명시적으로 포함시킵니다.
-                    # {context}에는 검색된 문서 내용이, {input}에는 사용자의 질문이 들어갑니다.
                     ("user", "다음 문서를 참고하여 질문에 답변하세요:\n\n{context}\n\n질문: {input}"),
                 ]
             )
