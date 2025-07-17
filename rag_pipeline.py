@@ -60,35 +60,57 @@ class GROQLLM(LLM):
 # ─────────────────────────────────────────────────────────────────────────────
 # ✅ 검색기 생성 함수 (BM25 + FAISS + Cohere Rerank 통합)
 def get_retriever_from_source(source_type, source_input):
-    documents = []
+    documents = [] # 최종적으로 텍스트 스플리터에 전달될 Document 객체 리스트
 
     with st.status("문서 처리 중...", expanded=True) as status:
         if source_type == "URL":
             status.update(label="URL 컨텐츠를 로드 중입니다...")
             loader = SeleniumURLLoader(urls=[source_input])
-            documents = loader.load()
+            raw_documents = loader.load() # SeleniumURLLoader가 반환하는 원본 문서
+
+            # raw_documents의 각 항목이 LangchainDocument 객체이고 page_content를 가지고 있는지 확인
+            for doc in raw_documents:
+                if hasattr(doc, 'page_content'):
+                    documents.append(LangchainDocument(page_content=doc.page_content, metadata=doc.metadata))
+                else:
+                    # page_content가 없는 경우, 경고를 표시하고 객체 전체를 내용으로 사용
+                    st.warning(f"경고: URL 로드된 문서에서 'page_content'를 찾을 수 없습니다. 문서 객체 전체를 content로 사용합니다. 객체 타입: {type(doc)}")
+                    documents.append(LangchainDocument(page_content=str(doc), metadata=getattr(doc, 'metadata', {})))
 
         elif source_type == "Files":
             status.update(label="파일을 파싱하고 있습니다...")
-            documents = get_documents_from_files(source_input)
+            raw_documents = get_documents_from_files(source_input) # LlamaParse를 통해 파싱된 원본 문서
+
+            # raw_documents의 각 항목이 LangchainDocument 객체이고 page_content를 가지고 있는지 확인
+            for doc in raw_documents:
+                if hasattr(doc, 'page_content'):
+                    documents.append(LangchainDocument(page_content=doc.page_content, metadata=doc.metadata))
+                else:
+                    # page_content가 없는 경우, 경고를 표시하고 객체 전체를 내용으로 사용
+                    st.warning(f"경고: 파일에서 파싱된 문서에서 'page_content'를 찾을 수 없습니다. 문서 객체 전체를 content로 사용합니다. 객체 타입: {type(doc)}")
+                    documents.append(LangchainDocument(page_content=str(doc), metadata=getattr(doc, 'metadata', {})))
 
         elif source_type == "FAISS":
-            embeddings = HuggingFaceEmbeddings(model_name="jhgan/ko-sbert-sts")
-            if os.path.isdir(source_input):
-                index_dir = source_input
-            else:
-                st.error(f"유효하지 않은 경로입니다: {source_input}")
+            status.update(label="FAISS 인덱스를 로드 중입니다...")
+            if not os.path.exists(source_input):
+                status.update(label=f"오류: FAISS 인덱스 경로를 찾을 수 없습니다: {source_input}", state="error")
+                return None
+            try:
+                embedding = GoogleGenerativeAIEmbeddings(
+                    model="models/embedding-001"
+                )
+                # allow_dangerous_deserialization=True는 FAISS 인덱스가 외부에서 생성되었을 때 필요할 수 있습니다.
+                # 보안에 유의하여 사용하십시오.
+                vectorstore = FAISS.load_local(source_input, embedding, allow_dangerous_deserialization=True)
+                retriever = vectorstore.as_retriever()
+                status.update(label="FAISS 인덱스 로드 완료.", state="complete")
+                return retriever
+            except Exception as e:
+                status.update(label=f"FAISS 인덱스 로드 중 오류 발생: {e}", state="error")
                 return None
 
-            retriever = FAISS.load_local(
-                index_dir,
-                embeddings,
-                allow_dangerous_deserialization=True
-            ).as_retriever(search_kwargs={"k": 10})
-            return retriever
-
         if not documents:
-            status.update(label="문서 로딩 실패.", state="error")
+            status.update(label="문서 로딩 실패. (내용이 없거나 파싱 오류)", state="error")
             return None
 
         status.update(label="문서를 청크(chunk)로 분할 중입니다...")
@@ -96,31 +118,25 @@ def get_retriever_from_source(source_type, source_input):
             chunk_size=1024,
             chunk_overlap=200,
         )
-        splits = text_splitter.split_documents(documents)
+        splits = text_splitter.split_documents(documents) # 이 부분에서 오류가 해결되어야 합니다.
 
         status.update(label="BM25 + FAISS 인덱싱 중...")
         bm25_retriever = BM25Retriever.from_documents(splits)
-        bm25_retriever.k = 10
 
-        embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-        vectorstore = FAISS.from_documents(splits, embeddings)
-        faiss_retriever = vectorstore.as_retriever(search_kwargs={"k": 10})
+        embedding = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+        faiss_vectorstore = FAISS.from_documents(splits, embedding)
+        faiss_retriever = faiss_vectorstore.as_retriever()
 
         ensemble_retriever = EnsembleRetriever(
-            retrievers=[bm25_retriever, faiss_retriever],
-            weights=[0.4, 0.6]
+            retrievers=[bm25_retriever, faiss_retriever], weights=[0.5, 0.5]
         )
 
-        status.update(label="Cohere Reranker 적용 중...")
-        reranker = CohereRerank(model="rerank-multilingual-v3.0", top_n=5)
+        compressor = CohereRerank()
         compression_retriever = ContextualCompressionRetriever(
-            base_retriever=ensemble_retriever,
-            base_compressor=reranker
+            base_compressor=compressor, base_retriever=ensemble_retriever
         )
-
-        status.update(label="문서 처리 완료!", state="complete")
-
-    return compression_retriever
+        status.update(label="문서 처리 및 인덱싱 완료.", state="complete")
+        return compression_retriever
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ✅ RAG 체인 생성
