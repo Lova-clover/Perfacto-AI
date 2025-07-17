@@ -1,12 +1,12 @@
 import requests
 from bs4 import BeautifulSoup
 from googlesearch import search
-from sentence_transformers import SentenceTransformer
-import faiss
-import numpy as np
+from sentence_transformers import SentenceTransformer # 현재 사용되지 않음
+import faiss # 현재 사용되지 않음
+import numpy as np # 현재 사용되지 않음
 import os
-from langchain_community.vectorstores import FAISS
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_community.vectorstores import FAISS # 현재 사용되지 않음
+from langchain_google_genai import GoogleGenerativeAIEmbeddings # 현재 사용되지 않음
 from langchain_core.documents import Document
 
 def get_links(query, num=30):
@@ -25,13 +25,87 @@ def clean_html(url):
     except:
         return ""
 
-def filter_noise(text):
-    ad_keywords = ["구매", "배너", "후원", "제휴", "마케팅", "광고"]
-    lines = text.split("\n")
-    return "\n".join([
-        line.strip() for line in lines
-        if not any(word in line for word in ad_keywords) and len(line.strip()) > 30
-    ])
+def filter_noise(html_content):
+    """
+    HTML 내용에서 노이즈(스크립트, 스타일, 헤더, 푸터, 내비게이션, 광고 등)를 제거하고
+    실제 텍스트 콘텐츠만 추출합니다.
+    """
+    if not html_content:
+        return ""
+
+    soup = BeautifulSoup(html_content, 'html.parser')
+
+    # 스크립트 및 스타일 태그 제거
+    for script_or_style in soup(["script", "style"]):
+        script_or_style.decompose()
+
+    # 특정 HTML 태그 제거 (헤더, 푸터, 내비게이션, 광고 등)
+    # 웹사이트 구조에 따라 추가하거나 제거할 수 있습니다.
+    for tag_name in ["header", "footer", "nav", "aside", "form", "button", "input", "select", "textarea", "img", "svg"]:
+        for tag in soup.find_all(tag_name):
+            tag.decompose()
+            
+    # 클래스나 ID로 특정 노이즈 영역 제거 (예: 광고, 사이드바)
+    # 실제 웹사이트를 분석하여 필요한 클래스/ID를 추가하세요.
+    for unwanted_class in ["sidebar", "ad", "advertisement", "popup", "modal", "cookie-banner"]:
+        for tag in soup.find_all(class_=unwanted_class):
+            tag.decompose()
+    
+    for unwanted_id in ["header", "footer", "navbar", "sidebar", "ads"]:
+        for tag in soup.find_all(id=unwanted_id):
+            tag.decompose()
+
+    # 텍스트 추출
+    text = soup.get_text()
+
+    # 여러 공백, 탭, 줄바꿈을 하나의 공백으로 축소
+    text = re.sub(r'\s+', ' ', text).strip()
+
+    # 특정 노이즈 패턴 제거 (예: "Just a moment...", "Enable JavaScript and cookies to continue...")
+    # 이 부분은 특히 중요합니다.
+    noise_patterns = [
+        r"Just a moment\.\.\. Enable JavaScript and cookies to continue\.\.\.",
+        r"Please wait while we verify your access\.",
+        r"Checking your browser before accessing",
+        r"This process is automatic\. Your browser will redirect to your requested content shortly\.",
+        r"DDoS protection by Cloudflare",
+        r"You are being redirected\.",
+        r"Click here if you are not redirected\.",
+        r"Privacy Policy", # 일반적인 푸터 링크
+        r"Terms of Service",
+        r"Cookie Policy",
+        r"All Rights Reserved",
+        r"Copyright \d{4}",
+        r"Skip to content",
+        r"Toggle navigation",
+        r"Search for:",
+        r"Subscribe to our newsletter",
+        r"Enter your email",
+        r"Sign Up",
+        r"Log In",
+        r"Register",
+        r"\[\d+\]", # [1], [2] 와 같은 각주 번호
+        r"\[edit\]", # 위키피디아 편집 링크
+        r"\[citation needed\]", # 위키피디아 인용 필요
+        r"\[hide\]", # 위키피디아 숨기기
+        r"\[show\]", # 위키피디아 보이기
+        r"\(listen\)", # 오디오 링크
+        r"\(help\)", # 도움말 링크
+        r"\(file\)", # 파일 링크
+        r"\(PDF\)", # PDF 링크
+        r"\(DOC\)", # DOC 링크
+        r"\(TXT\)", # TXT 링크
+        r"\(URL\)", # URL 링크
+        r"[\u0080-\u00FF]", # 비 ASCII 문자 중 일부 (더 정교한 필터링 필요시)
+    ]
+    for pattern in noise_patterns:
+        text = re.sub(pattern, '', text, flags=re.IGNORECASE).strip()
+
+    # 너무 짧거나 내용이 없는 텍스트는 무시
+    if len(text) < 50: # 최소 텍스트 길이 설정 (조절 가능)
+        return ""
+
+    return text
 
 def save_texts(text_list, filename):
     with open(filename, "w", encoding="utf-8") as f:
