@@ -31,7 +31,6 @@ st.markdown(
 Make your own vids automatically
 """
 )            
-
 # --- 세션 상태 초기화 ---
 if "messages" not in st.session_state:
     st.session_state["messages"] = []
@@ -643,6 +642,11 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
             rag_output = rag_with_sources(inputs_for_rag)
             ai_answer = rag_output["answer"]
             sources_list = rag_output["sources"]
+
+            #현재 문서에서 핵심 키워드를 입력하지 못하면 답변을 잘 못해서 추가함
+            if not sources_list:
+                ai_answer = "⚠️ **문서에서 관련 내용을 찾지 못해 AI의 일반적인 지식으로 답변합니다.**\n\n" + ai_answer
+            
 
             container.markdown(ai_answer)
 
