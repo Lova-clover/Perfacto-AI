@@ -4,6 +4,7 @@ import faiss
 import asyncio
 from typing import Optional, List
 
+# --- 필수 임포트 ---
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
 from langchain_community.document_loaders import SeleniumURLLoader
@@ -16,12 +17,13 @@ from langchain.chains import create_retrieval_chain
 from langchain.retrievers import BM25Retriever, EnsembleRetriever, ContextualCompressionRetriever
 from langchain.retrievers.document_compressors import CohereRerank
 from langchain_core.runnables import RunnableLambda
+from langchain_core.documents import Document as LangchainDocument # <-- 이 줄을 추가해주세요!
+import llama_index.core.schema # <-- 이 줄을 추가해주세요! (llama_index 문서 타입 확인용)
 
 from file_handler import get_documents_from_files
 from groq import Groq
 from langchain.llms.base import LLM
 from pydantic import PrivateAttr
-import llama_index.core.schema
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ✅ LLM 정의 (GROQ 기반)
@@ -31,35 +33,29 @@ class GROQLLM(LLM):
     _client: Groq = PrivateAttr()
 
     def __init__(self, api_key: str, model: str = "meta-llama/llama-4-scout-17b-16e-instruct", **kwargs):
-        super().__init__(model=model, **kwargs)
-
-        # ✅ 수정: Pydantic 안전 방식으로 설정
-        object.__setattr__(self, "_api_key", api_key)
-        object.__setattr__(self, "_client", Groq(api_key=api_key))
-
-    def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
-        messages = [{"role": "user", "content": prompt}]
-        completion = self._client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=0.6,
-            max_completion_tokens=512,
-            top_p=0.95,
-            stream=False,
-            stop=stop,
-        )
-        return completion.choices[0].message.content
-
-    @property
-    def _identifying_params(self):
-        return {"model": self.model}
+        super().__init__(**kwargs)
+        self._api_key = api_key
+        self._client = Groq(api_key=api_key)
 
     @property
     def _llm_type(self) -> str:
         return "groq"
 
+    def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
+        chat_completion = self._client.chat.completions.create(
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ],
+            model=self.model,
+            stop=stop,
+        )
+        return chat_completion.choices[0].message.content
+
 # ─────────────────────────────────────────────────────────────────────────────
-# ✅ 검색기 생성 함수 (BM25 + FAISS + Cohere Rerank 통합)
+# ✅ Retriever 정의
 def get_retriever_from_source(source_type, source_input):
     documents = [] # 최종적으로 텍스트 스플리터에 전달될 Document 객체 리스트
 
@@ -167,55 +163,27 @@ def get_retriever_from_source(source_type, source_input):
         return compression_retriever
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ✅ RAG 체인 생성
-def get_document_chain(system_prompt, retriever):
-    rag_prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", system_prompt),
-            MessagesPlaceholder(variable_name="chat_history"),
-            ("user", "{context}"),
-        ]
-    )
+# ✅ RAG Chain 정의
+def get_document_chain(llm, prompt):
+    return create_stuff_documents_chain(llm, prompt)
 
-    groq_api_key = st.secrets["GROQ_API_KEY"]
-    llm = GROQLLM(api_key=groq_api_key)
-
-    document_chain = create_stuff_documents_chain(llm, rag_prompt)
-    retrieval_chain = create_retrieval_chain(retriever, document_chain)
-
-    # ✅ 래퍼 함수로 감싸기: 답변 + 참고 문단 함께 반환
-    def rag_with_sources(inputs: dict):
-        result = retrieval_chain.invoke(inputs)
-        answer = result.get("answer", "")
-        docs = retriever.get_relevant_documents(inputs["input"])
-
-        # page_content와 출처 URL을 추출합니다
-        source_info = []
-        for doc in docs[:3]:
-            content = doc.page_content.strip()
-            source = doc.metadata.get('source', 'N/A') # 메타데이터에서 출처를 가져오고, 없으면 'N/A'로 기본값 설정
-            source_info.append({"content": content, "source": source})
-
-        return {"answer": answer, "sources": source_info} # 딕셔너리 리스트를 반환합니다
-
-    return rag_with_sources
+def get_retrieval_chain(retriever, document_chain):
+    return create_retrieval_chain(retriever, document_chain)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ✅ 일반 체인 (RAG 아닌 단순 프롬프트용)
-def get_default_chain(system_prompt):
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", system_prompt),
-            MessagesPlaceholder(variable_name="chat_history"),
-            ("user", "{question}"),
-        ]
-    )
-    groq_api_key = st.secrets["GROQ_API_KEY"]
-    llm = GROQLLM(api_key=groq_api_key)
-    return prompt | llm | StrOutputParser()
+# ✅ 기본 LLM 체인 정의
+def get_default_chain(system_prompt: str):
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        MessagesPlaceholder("chat_history"),
+        ("human", "{question}"),
+    ])
+    llm = GROQLLM(api_key=st.secrets["GROQ_API_KEY"])
+    output_parser = StrOutputParser()
+    return prompt | llm | output_parser
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ✅ 주제 인사이트 생성용 LLM 응답 파서
+# ✅ 영상 주제 인사이트 생성 함수
 def get_topic_insights_prompt(persona: str, domain: str, audience: str, tone: str, num_topics: int, constraints: str) -> str:
     return f"""
     당신은 {persona} 페르소나를 가진 AI 크리에이터입니다.
@@ -242,20 +210,75 @@ def generate_topic_insights(
     num_topics: int = 3
 ) -> List[str]:
     prompt_text = get_topic_insights_prompt(persona, domain, audience, tone, num_topics, constraints)
-    groq_api_key = st.secrets["GROQ_API_KEY"]
-    llm = GROQLLM(api_key=groq_api_key)
-
+    
+    # 기본 LLM 체인을 사용하여 주제 생성
+    # 이 부분에서 채팅 기록을 넘겨주지 않습니다. 독립적인 주제 생성 요청입니다.
+    llm = GROQLLM(api_key=st.secrets["GROQ_API_KEY"])
+    output_parser = StrOutputParser()
+    topic_chain = ChatPromptTemplate.from_messages([
+        ("system", "당신은 주어진 매개변수에 따라 영상 주제를 생성하는 전문 AI 크리에이터입니다. 지시 사항을 엄격히 준수하세요."),
+        ("human", "{prompt_text}")
+    ]) | llm | output_parser
+    
     try:
-        response = llm._call(prompt_text)
-        topics = []
-        for line in response.split('\n'):
-            if line.strip().startswith('- '):
-                topic = line.strip()[2:].strip()
-                if topic:
-                    topics.append(topic)
-        while len(topics) < num_topics:
-            topics.append(f"주제 {len(topics)+1}")
+        response_text = topic_chain.invoke({"prompt_text": prompt_text})
+        
+        # 하이픈으로 시작하는 각 줄을 주제로 분리
+        topics = [line.strip().lstrip('- ').strip() for line in response_text.split('\n') if line.strip().startswith('-')]
+        
+        # num_topics 개수만큼만 반환
         return topics[:num_topics]
     except Exception as e:
-        st.error(f"주제 생성 중 오류: {e}")
+        st.error(f"주제 인사이트 생성 중 오류 발생: {e}")
         return []
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ✅ RAG 답변 및 출처 추출 함수 (Streamlit 표시용)
+def rag_with_sources(inputs: dict):
+    llm = GROQLLM(api_key=st.secrets["GROQ_API_KEY"])
+    
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "당신은 질문에 답변하고 제공된 참조 문서에서 관련 정보를 추출하는 유용한 AI 비서입니다. 제공된 참조 문서의 내용을 바탕으로 답변하고, 참조 문서에 없는 내용은 답변하지 마세요. 답변은 항상 한국어로 하세요."),
+        MessagesPlaceholder("chat_history"),
+        ("human", "{input}"),
+    ])
+
+    document_chain = get_document_chain(llm, prompt)
+    retrieval_chain = get_retrieval_chain(st.session_state.retriever, document_chain)
+    
+    response = retrieval_chain.invoke(inputs)
+    
+    answer = response["answer"]
+    
+    # Langchain Document 객체에서 page_content와 source URL 추출
+    source_info = []
+    # 중복 출처 방지를 위한 Set
+    unique_sources = set()
+
+    for doc in response["context"]:
+        content = ""
+        source_url = ""
+
+        # LlamaIndex Document인 경우 'text' 속성 사용
+        if isinstance(doc, llama_index.core.schema.Document):
+            content = doc.text.strip()
+            source_url = doc.metadata.get('source', 'N/A')
+        # Langchain Document인 경우 'page_content' 속성 사용
+        elif hasattr(doc, 'page_content'):
+            content = doc.page_content.strip()
+            source_url = doc.metadata.get('source', 'N/A') or doc.metadata.get('url', 'N/A') or doc.metadata.get('source_url', 'N/A')
+        else:
+            # 기타 알 수 없는 문서 타입의 경우 문자열로 변환
+            content = str(doc).strip()
+            source_url = 'N/A'
+
+        # 중복 출처를 피하기 위해 URL 기준으로 확인
+        if source_url != 'N/A' and source_url not in unique_sources:
+            source_info.append({"content": content, "source": source_url})
+            unique_sources.add(source_url)
+        elif source_url == 'N/A' and content and content not in unique_sources: # URL이 없을 경우 내용으로 중복 확인
+            source_info.append({"content": content, "source": source_url})
+            unique_sources.add(content)
+
+
+    return {"answer": answer, "sources": source_info}
