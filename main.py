@@ -606,26 +606,26 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
 
     if st.session_state.retriever:
         with st.spinner("정보를 검색하고 답변을 생성 중입니다..."):
+            # rag_system_prompt에서 {context}를 제거하고, 순수한 시스템 지침으로 만듭니다.
             rag_system_prompt = """당신은 주어진 문서를 참고하여 질문에 답변하는 유능한 AI 어시스턴트입니다.
-            다음 'context'를 사용하여 질문에 답변하세요. 만약 'context'에 답변이 없다면,
-            사용자의 질문에 직접적으로 답변하지 말고, '주어진 정보로는 답변할 수 없습니다.'라고 말하세요.
+            주어진 정보로 답변할 수 없다면, '주어진 정보로는 답변할 수 없습니다.'라고 말하세요.
             답변은 항상 한국어로 하세요.
-
-            {context}
             """
-            
+
             llm = GROQLLM(api_key=st.secrets["GROQ_API_KEY"])
 
             rag_prompt = ChatPromptTemplate.from_messages(
                 [
                     ("system", rag_system_prompt),
                     MessagesPlaceholder(variable_name="chat_history"),
-                    ("user", "{input}"),
+                    # 사용자 메시지 템플릿에 {context} 변수를 명시적으로 포함시킵니다.
+                    # {context}에 검색된 문서 내용이, {input}에 사용자의 질문이 들어갑니다.
+                    ("user", "다음 문서를 참고하여 질문에 답변하세요:\n\n{context}\n\n질문: {input}"),
                 ]
             )
 
             document_chain = get_document_chain(llm, rag_prompt)
-            
+
             retrieval_chain = get_retrieval_chain(st.session_state.retriever, document_chain)
 
             rag_chat_history = [
@@ -634,7 +634,7 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
             ]
 
             response = retrieval_chain.invoke({"input": user_input, "chat_history": rag_chat_history})
-            
+
             ai_answer = response["answer"]
             retrieved_sources = response["context"]
 
@@ -644,7 +644,7 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
                     "metadata": {"source": doc.metadata.get('source', '알 수 없음')},
                     "page_content": doc.page_content
                 })
-            
+
             st.session_state.messages.append({"role": "assistant", "content": ai_answer, "sources": formatted_sources})
             st.chat_message("assistant").markdown(ai_answer)
             if formatted_sources:
@@ -656,7 +656,7 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
     else:
         with st.spinner("답변 생성 중..."):
             general_chat_chain = get_default_chain(st.session_state.system_prompt)
-            
+
             general_chat_history = [
                 HumanMessage(content=msg["content"]) if msg["role"] == "user" else AIMessage(content=msg["content"])
                 for msg in st.session_state.messages[:-1]
@@ -665,7 +665,7 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
             ai_answer = ""
             for token in general_chat_chain.stream({"question": user_input, "chat_history": general_chat_history}):
                 ai_answer += token
-            
+
             st.session_state.messages.append({"role": "assistant", "content": ai_answer})
             st.chat_message("assistant").markdown(ai_answer)
     st.rerun()
