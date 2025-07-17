@@ -1,3 +1,4 @@
+# rag_pipeline.py (Version 1: BM25 + Cohere)
 import streamlit as st
 import os
 import faiss
@@ -15,11 +16,11 @@ from langchain.embeddings import HuggingFaceEmbeddings
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.chains import create_retrieval_chain
-from langchain.retrievers import BM25Retriever, EnsembleRetriever, ContextualCompressionRetriever
+from langchain.retrievers import BM25Retriever, ContextualCompressionRetriever # EnsembleRetriever는 더 이상 필요하지 않음
 from langchain.retrievers.document_compressors import CohereRerank
 from langchain_core.runnables import RunnableLambda
-from langchain_core.documents import Document as LangchainDocument # <-- 이 줄을 추가해주세요!
-import llama_index.core.schema # <-- 이 줄을 추가해주세요! (llama_index 문서 타입 확인용)
+from langchain_core.documents import Document as LangchainDocument
+import llama_index.core.schema
 
 from file_handler import get_documents_from_files
 from groq import Groq
@@ -62,62 +63,25 @@ class GROQLLM(LLM):
 # ─────────────────────────────────────────────────────────────────────────────
 # ✅ Retriever 정의
 def get_retriever_from_source(source_type, source_input):
-    documents = [] # 최종적으로 텍스트 스플리터에 전달될 Document 객체 리스트
+    documents = [] 
 
     with st.status("문서 처리 중...", expanded=True) as status:
         if source_type == "URL":
             status.update(label="URL 컨텐츠를 로드 중입니다...")
             loader = SeleniumURLLoader(urls=[source_input])
-            raw_documents = loader.load() # SeleniumURLLoader가 반환하는 원본 문서
-
-            # raw_documents의 각 항목이 LangchainDocument 객체이고 page_content를 가지고 있는지 확인
+            raw_documents = loader.load()
             for doc in raw_documents:
-                content_to_use = ""
-                metadata_to_use = {}
-
-                if isinstance(doc, llama_index.core.schema.Document):
-                    # LlamaIndex Document인 경우 'text' 속성 사용
-                    content_to_use = doc.text
-                    metadata_to_use = doc.metadata
-                    st.warning(f"경고: URL 로드된 문서가 LlamaIndex Document입니다. 'text' 속성을 사용합니다.")
-                elif hasattr(doc, 'page_content'):
-                    # Langchain Document인 경우 'page_content' 속성 사용
-                    content_to_use = doc.page_content
-                    metadata_to_use = doc.metadata
-                else:
-                    # 그 외의 경우, 객체 전체를 문자열로 변환
-                    content_to_use = str(doc)
-                    metadata_to_use = getattr(doc, 'metadata', {})
-                    st.warning(f"경고: URL 로드된 문서에서 'page_content'나 'text'를 찾을 수 없습니다. 문서 객체 전체를 content로 사용합니다. 객체 타입: {type(doc)}")
-                
+                content_to_use = getattr(doc, 'page_content', str(doc))
+                metadata_to_use = getattr(doc, 'metadata', {})
                 documents.append(LangchainDocument(page_content=content_to_use, metadata=metadata_to_use))
 
         elif source_type == "Files":
             status.update(label="파일을 파싱하고 있습니다...")
-            raw_documents = get_documents_from_files(source_input) # LlamaParse를 통해 파싱된 원본 문서
-
-            # raw_documents의 각 항목이 LangchainDocument 객체이고 page_content를 가지고 있는지 확인
+            raw_documents = get_documents_from_files(source_input)
             for doc in raw_documents:
-                content_to_use = ""
-                metadata_to_use = {}
-                
-                if isinstance(doc, llama_index.core.schema.Document):
-                    # LlamaIndex Document인 경우 'text' 속성 사용
-                    content_to_use = doc.text
-                    metadata_to_use = doc.metadata
-                    st.warning(f"경고: 파일에서 파싱된 문서가 LlamaIndex Document입니다. 'text' 속성을 사용합니다.")
-                elif hasattr(doc, 'page_content'):
-                    # Langchain Document인 경우 'page_content' 속성 사용
-                    content_to_use = doc.page_content
-                    metadata_to_use = doc.metadata
-                else:
-                    # 그 외의 경우, 객체 전체를 문자열로 변환
-                    content_to_use = str(doc)
-                    metadata_to_use = getattr(doc, 'metadata', {})
-                    st.warning(f"경고: 파일에서 파싱된 문서에서 'page_content'나 'text'를 찾을 수 없습니다. 문서 객체 전체를 content로 사용합니다. 객체 타입: {type(doc)}")
-                
+                content_to_use = getattr(doc, 'page_content', getattr(doc, 'text', str(doc)))
+                metadata_to_use = getattr(doc, 'metadata', {})
                 documents.append(LangchainDocument(page_content=content_to_use, metadata=metadata_to_use))
-
 
         elif source_type == "FAISS":
             status.update(label="FAISS 인덱스를 로드 중입니다...")
@@ -125,11 +89,7 @@ def get_retriever_from_source(source_type, source_input):
                 status.update(label=f"오류: FAISS 인덱스 경로를 찾을 수 없습니다: {source_input}", state="error")
                 return None
             try:
-                embedding = GoogleGenerativeAIEmbeddings(
-                    model="models/embedding-001"
-                )
-                # allow_dangerous_deserialization=True는 FAISS 인덱스가 외부에서 생성되었을 때 필요할 수 있습니다.
-                # 보안에 유의하여 사용하십시오.
+                embedding = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
                 vectorstore = FAISS.load_local(source_input, embedding, allow_dangerous_deserialization=True)
                 retriever = vectorstore.as_retriever()
                 status.update(label="FAISS 인덱스 로드 완료.", state="complete")
@@ -147,25 +107,19 @@ def get_retriever_from_source(source_type, source_input):
             chunk_size=1024,
             chunk_overlap=200,
         )
-        splits = text_splitter.split_documents(documents) # 이 부분에서 오류가 해결되어야 합니다.
+        splits = text_splitter.split_documents(documents)
 
-        status.update(label="BM25 + FAISS 인덱싱 중...")
+        # === START: MODIFIED FOR BM25 + COHERE ===
+        status.update(label="BM25 인덱싱 및 Cohere 리랭커 설정 중...")
         bm25_retriever = BM25Retriever.from_documents(splits)
 
-        embedding = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-        faiss_vectorstore = FAISS.from_documents(splits, embedding)
-        faiss_retriever = faiss_vectorstore.as_retriever()
-
-        ensemble_retriever = EnsembleRetriever(
-            retrievers=[bm25_retriever, faiss_retriever], weights=[0.5, 0.5]
-        )
-
-        # CohereRerank 모델을 'rerank-multilingual-v3.0'으로 명시적으로 지정
-        compressor = CohereRerank(model="rerank-multilingual-v3.0") # <-- 이 줄을 수정했습니다.
+        compressor = CohereRerank(model="rerank-multilingual-v3.0", cohere_api_key=COHERE_API_KEY)
         compression_retriever = ContextualCompressionRetriever(
-            base_compressor=compressor, base_retriever=ensemble_retriever
+            base_compressor=compressor, base_retriever=bm25_retriever
         )
-        status.update(label="문서 처리 및 인덱싱 완료.", state="complete")
+        status.update(label="BM25 + Cohere 리트리버 생성 완료.", state="complete")
+        # === END: MODIFIED FOR BM25 + COHERE ===
+        
         return compression_retriever
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -217,8 +171,6 @@ def generate_topic_insights(
 ) -> List[str]:
     prompt_text = get_topic_insights_prompt(persona, domain, audience, tone, num_topics, constraints)
     
-    # 기본 LLM 체인을 사용하여 주제 생성
-    # 이 부분에서 채팅 기록을 넘겨주지 않습니다. 독립적인 주제 생성 요청입니다.
     llm = GROQLLM(api_key=st.secrets["GROQ_API_KEY"])
     output_parser = StrOutputParser()
     topic_chain = ChatPromptTemplate.from_messages([
@@ -228,11 +180,7 @@ def generate_topic_insights(
     
     try:
         response_text = topic_chain.invoke({"prompt_text": prompt_text})
-        
-        # 하이픈으로 시작하는 각 줄을 주제로 분리
         topics = [line.strip().lstrip('- ').strip() for line in response_text.split('\n') if line.strip().startswith('-')]
-        
-        # num_topics 개수만큼만 반환
         return topics[:num_topics]
     except Exception as e:
         st.error(f"주제 인사이트 생성 중 오류 발생: {e}")
@@ -240,17 +188,14 @@ def generate_topic_insights(
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ✅ RAG 답변 및 출처 추출 함수 (Streamlit 표시용)
-
 def rag_with_sources(inputs: dict):
     llm = GROQLLM(api_key=st.secrets["GROQ_API_KEY"])
     
-    # === 이 프롬프트 부분을 수정합니다 ===
     prompt = ChatPromptTemplate.from_messages([
         ("system", "당신은 질문에 답변하고 제공된 참조 문서에서 관련 정보를 추출하는 유용한 AI 비서입니다. 제공된 참조 문서의 내용을 바탕으로 질문에 답변해주세요. 만약 제공된 문서에 질문과 관련된 충분한 정보가 없다면, '제공된 문서로는 해당 질문에 대한 충분한 정보를 찾을 수 없습니다.'라고 명확히 밝히고, **추가 문서 업로드를 요청하지 마세요.** 답변은 항상 한국어로 하세요.\n\n{context}"),
         MessagesPlaceholder("chat_history"),
         ("human", "{input}"),
     ])
-    # ==================================
 
     document_chain = get_document_chain(llm, prompt)
     retrieval_chain = get_retrieval_chain(st.session_state.retriever, document_chain)
@@ -258,7 +203,7 @@ def rag_with_sources(inputs: dict):
     response = retrieval_chain.invoke(inputs)
     
     answer = response["answer"]
-
+    
     source_info = []
     unique_sources = set()
 
@@ -266,12 +211,9 @@ def rag_with_sources(inputs: dict):
         content = ""
         source_url = ""
 
-        if isinstance(doc, llama_index.core.schema.Document):
-            content = doc.text.strip()
-            source_url = doc.metadata.get('source', 'N/A')
-        elif hasattr(doc, 'page_content'):
+        if hasattr(doc, 'page_content'):
             content = doc.page_content.strip()
-            source_url = doc.metadata.get('source', 'N/A') or doc.metadata.get('url', 'N/A') or doc.metadata.get('source_url', 'N/A')
+            source_url = doc.metadata.get('source', 'N/A')
         else:
             content = str(doc).strip()
             source_url = 'N/A'
