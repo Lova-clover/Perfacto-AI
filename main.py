@@ -133,7 +133,7 @@ with st.sidebar:
                     st.stop() # 오류 시 스크립트 중단
 
             with st.spinner("전문가 페르소나가 주제를 생성하고 있습니다..."):
-                st.session_state.messages.append({"role": "user", "content": f"전문가 페르소나({expert_persona})로 '{expert_domain}'에 대한 '{expert_audience}' 대상의 '{expert_tone}' 톤으로 {expert_output_count}개의 주제를 생성해 줘. 추가 조건: {expert_constraints}"})
+                st.session_state.messages.append(HumanMessage(content=f"전문가 페르소나({expert_persona})로 '{expert_domain}'에 대한 '{expert_audience}' 대상의 '{expert_tone}' 톤으로 {expert_output_count}개의 주제를 생성해 줘. 추가 조건: {expert_constraints}"))
                 st.session_state.generated_topics = generate_topic_insights(
                     persona=expert_persona,
                     domain=expert_domain,
@@ -144,10 +144,10 @@ with st.sidebar:
                 )
                 if st.session_state.generated_topics:
                     topic_list_str = "\n".join([f"- {topic}" for topic in st.session_state.generated_topics])
-                    st.session_state.messages.append({"role": "assistant", "content": f"다음 주제들이 생성되었습니다:\n{topic_list_str}"})
+                    st.session_state.messages.append(AIMessage(content=f"다음 주제들이 생성되었습니다:\n{topic_list_str}"))
                     st.session_state.selected_generated_topic = st.session_state.generated_topics[0] if st.session_state.generated_topics else ""
                 else:
-                    st.session_state.messages.append({"role": "assistant", "content": "주제 생성에 실패했어요. 설정을 다시 확인해 주세요."})
+                    st.session_state.messages.append(AIMessage(content="주제 생성에 실패했어요. 설정을 다시 확인해 주세요."))
             st.rerun()
     
     st.markdown("---")
@@ -302,7 +302,7 @@ with st.sidebar:
                     위 원칙에 따라 매력적이고 바이럴성 있는 숏폼 비디오 스크립트를 작성해주세요.
                     """
                     )           
-                    st.session_state.messages.append({"role": "user", "content": f"선택된 주제 '{st.session_state.selected_generated_topic}'에 대한 스크립트를 만들어 줘."})
+                    st.session_state.messages.append(HumanMessage(content=f"선택된 주제 '{st.session_state.selected_generated_topic}'에 대한 스크립트를 만들어 줘."))
                     
                     generated_script = ""
                     for token in script_chain.stream({"question": script_prompt_content, "chat_history": []}): # chat_history는 필요에 따라 추가
@@ -345,7 +345,7 @@ with st.sidebar:
                         else:
                             st.session_state.video_title = "제목 없음" # 추출 실패 시 기본값
 
-                    st.session_state.messages.append({"role": "assistant", "content": f"**다음 스크립트가 생성되었습니다:**\n\n{st.session_state.edited_script_content}"})
+                    st.session_state.messages.append(AIMessage(content=f"**다음 스크립트가 생성되었습니다:**\n\n{st.session_state.edited_script_content}"))
                 st.success("스크립트 생성이 완료되었습니다!")
                 st.rerun() # 스크립트가 업데이트되도록 다시 로드
             else:
