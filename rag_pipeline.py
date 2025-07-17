@@ -244,11 +244,13 @@ def generate_topic_insights(
 def rag_with_sources(inputs: dict):
     llm = GROQLLM(api_key=st.secrets["GROQ_API_KEY"])
     
+    # === 이 프롬프트 부분을 수정합니다 ===
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "당신은 질문에 답변하고 제공된 참조 문서에서 관련 정보를 추출하는 유용한 AI 비서입니다. 제공된 참조 문서의 내용을 바탕으로 답변하고, 참조 문서에 없는 내용은 답변하지 마세요. 답변은 항상 한국어로 하세요.\n\n{context}"),
+        ("system", "당신은 질문에 답변하고 제공된 참조 문서에서 관련 정보를 추출하는 유용한 AI 비서입니다. 제공된 참조 문서의 내용을 바탕으로 질문에 답변해주세요. 만약 제공된 문서에 질문과 관련된 충분한 정보가 없다면, '제공된 문서로는 해당 질문에 대한 충분한 정보를 찾을 수 없습니다.'라고 명확히 밝히고, **추가 문서 업로드를 요청하지 마세요.** 답변은 항상 한국어로 하세요.\n\n{context}"),
         MessagesPlaceholder("chat_history"),
         ("human", "{input}"),
     ])
+    # ==================================
 
     document_chain = get_document_chain(llm, prompt)
     retrieval_chain = get_retrieval_chain(st.session_state.retriever, document_chain)
@@ -257,9 +259,9 @@ def rag_with_sources(inputs: dict):
     
     answer = response["answer"]
     
-    # --- 디버깅을 위한 코드 추가 ---
+    # --- 디버깅을 위한 코드 추가 (기존 디버그 코드는 그대로 유지) ---
     st.write("--- rag_with_sources 내부 디버그 ---")
-    st.write(f"LLM이 생성한 원본 답변: {answer}") # LLM이 생성한 원본 답변 확인
+    st.write(f"LLM이 생성한 원본 답변: {answer}")
     st.write("검색된 컨텍스트 문서:")
     if response["context"]:
         for i, doc in enumerate(response["context"]):
@@ -267,7 +269,7 @@ def rag_with_sources(inputs: dict):
             if hasattr(doc, 'page_content'):
                 st.write(f"    내용 미리보기: {doc.page_content[:200]}...")
                 st.write(f"    메타데이터: {doc.metadata}")
-            elif hasattr(doc, 'text'): # LlamaIndex Document (file_handler에서 Langchain Document로 변환되므로 이 경우는 줄어들 것임)
+            elif hasattr(doc, 'text'):
                 st.write(f"    내용 미리보기: {doc.text[:200]}...")
                 st.write(f"    메타데이터: {doc.metadata}")
             else:
@@ -284,24 +286,20 @@ def rag_with_sources(inputs: dict):
         content = ""
         source_url = ""
 
-        # LlamaIndex Document인 경우 'text' 속성 사용 (file_handler에서 Langchain Document로 변환되므로 이 경우는 줄어들 것임)
         if isinstance(doc, llama_index.core.schema.Document):
             content = doc.text.strip()
             source_url = doc.metadata.get('source', 'N/A')
-        # Langchain Document인 경우 'page_content' 속성 사용
         elif hasattr(doc, 'page_content'):
             content = doc.page_content.strip()
-            # source 메타데이터 확인 순서: 'source' -> 'url' -> 'source_url'
             source_url = doc.metadata.get('source', 'N/A') or doc.metadata.get('url', 'N/A') or doc.metadata.get('source_url', 'N/A')
         else:
             content = str(doc).strip()
             source_url = 'N/A'
 
-        # 중복 출처를 피하기 위해 URL 기준으로 확인
         if source_url != 'N/A' and source_url not in unique_sources:
             source_info.append({"content": content, "source": source_url})
             unique_sources.add(source_url)
-        elif source_url == 'N/A' and content and content not in unique_sources: # URL이 없을 경우 내용으로 중복 확인
+        elif source_url == 'N/A' and content and content not in unique_sources:
             source_info.append({"content": content, "source": source_url})
             unique_sources.add(content)
 
