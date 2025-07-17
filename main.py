@@ -212,9 +212,18 @@ with st.sidebar:
                     # 이전 채팅 기록 가져오기
                     chat_history = [
                         m for m in st.session_state.messages if isinstance(m, (HumanMessage, AIMessage))
-                    ]
+                   ]
             
-                    ai_answer, sources = rag_with_sources(st.session_state.retriever, chat_history, query)
+            # rag_with_sources 함수 호출 방식 수정
+            # inputs 딕셔너리를 생성하여 전달
+                    rag_inputs = {
+                        "input": query,
+                        "chat_history": chat_history
+                    }
+                    ai_answer_data = rag_with_sources(rag_inputs) # 수정된 부분
+            
+                    ai_answer = ai_answer_data["answer"]
+                    sources = ai_answer_data["sources"]
 
                     with st.chat_message("ai"):
                         st.markdown(ai_answer)
@@ -231,7 +240,6 @@ with st.sidebar:
                                     st.markdown(f"- 파일 내용: {source['content'][:100]}...") # 처음 100자만 표시
                 
                     st.session_state.messages.append(AIMessage(content=ai_answer))
-
     st.markdown("---")
 
     with st.expander("스크립트 생성", expanded=True): # 새로운 "스크립트 생성" expander
