@@ -221,7 +221,27 @@ with st.sidebar:
                     # 콘텐츠 제작자 페르소나로 스크립트 생성
                     # 스크립트 생성 프롬프트에 페르소나, 대상 시청자, 추가 조건 반영
                     script_prompt_content = f"주어진 주제: '{st.session_state.selected_generated_topic}'. 이 주제에 대해 다음 조건을 사용하여 숏폼 비디오 스크립트를 작성해 주세요. 페르소나: {script_expert_persona}, 대상 시청자: {script_expert_audience}, 톤 : {script_expert_tone}, 추가 조건: {script_expert_constraints}"
-                    script_chain = get_default_chain(system_prompt="당신은 TikTok, YouTube Shorts, Instagram Reels과 같은 **매력적이고 바이럴성 있는 숏폼 비디오 스크립트**를 작성하는 전문 크리에이터입니다. 이모지는 사용하지 않습니다. **각 문장의 끝에는 반드시 마침표(.), 물음표(?), 또는 느낌표(!)를 사용하여 명확하게 구분해주세요.** 또한, **문장이 길더라도 핵심 내용 단위로 끊어서 한 줄에 한 세그먼트(문장 또는 구)씩 배치하여, 빠르고 역동적인 숏폼 비디오 씬에 적합한 템포를 유지하도록 스크립트를 생성해주세요.** 불필요한 설명을 최소화하고, 강렬한 메시지를 전달하는 데 집중합니다. 이를 참고하여 스크립트를 제작해주세요.")                
+                    script_chain = get_default_chain(
+                    system_prompt="""당신은 TikTok, YouTube Shorts, Instagram Reels 등에서 **즉시 시선을 사로잡고 끝까지 시청하게 만드는 바이럴성 숏폼 비디오 스크립트**를 작성하는 전문 크리에이터입니다.
+
+                    **핵심 원칙:**
+                    1.  **강력한 오프닝 훅:** 첫 문장부터 시청자의 스크롤을 멈추게 할 질문, 충격적인 사실, 또는 궁금증 유발하는 문구로 시작하세요.
+                    2.  **초고속 전개:** 각 문장은 독립적인 하나의 아이디어 또는 짧은 구문으로 구성하고, 불필요한 서론이나 수식어는 제거하여 빠른 템포를 유지합니다. **한 줄에 한 문장/구만 배치하여 다음 장면으로의 빠른 전환을 유도하세요.**
+                    3.  **명확한 메시지:** 각 세그먼트(문장)는 마침표(.), 물음표(!), 느낌표(!)로 깔끔하게 끝나야 합니다.
+                    4.  **정보 밀도 & 재미:** 유익한 정보, 놀라운 사실, 혹은 재미있는 관점을 간결하게 전달하여 시청자에게 '아하!'하는 순간을 선사합니다.
+                    5.  **이모지 사용 금지.**
+                    6.  **마지막에 강력한 마무리:** 시청자가 공유, 좋아요, 팔로우하고 싶게 만드는 여운을 남기거나, 간단한 다음 행동을 유도할 수 있습니다.
+
+                    **예시 스타일 (참고):**
+                    - "세상에 이런 일이?" (인트로)
+                    - "블랙홀 근처 시계는 느리게 간다." (정보)
+                    - "믿을 수 없죠? 아인슈타인이 증명!" (강조)
+                    - "과학이 이렇게 재밌다니!" (감탄)
+                    - "더 많은 과학 꿀팁은 팔로우!" (CTA)
+
+                    위 원칙에 따라 매력적이고 바이럴성 있는 숏폼 비디오 스크립트를 작성해주세요.
+                    """
+                    )                
                     st.session_state.messages.append({"role": "user", "content": f"선택된 주제 '{st.session_state.selected_generated_topic}'에 대한 스크립트를 만들어 줘."})
                     
                     generated_script = ""
@@ -251,7 +271,14 @@ with st.sidebar:
                         {generated_script.strip()}
 
                         영상 제목:"""
-                        title_llm_chain = get_default_chain(system_prompt="당신은 주어진 텍스트에서 영상 제목을 추출하는 유용한 조수입니다.")
+                        title_llm_chain = get_default_chain(
+                        system_prompt="""당신은 TikTok, YouTube Shorts, Instagram Reels과 같은 **매력적이고 바이럴성 있는 숏폼 비디오 제목**을 작성하는 전문 크리에이터입니다.
+                        다음 스크립트에서 시청자의 스크롤을 멈추게 할 수 있는, **최대 5단어 이내의 간결하고 임팩트 있는 한국어 제목**을 생성해주세요.
+                        이 제목은 호기심을 유발하고, 핵심 내용을 빠르게 전달하며, 클릭을 유도하는 강력한 후크 역할을 해야 합니다.
+                        **예시: '체스 초고수 꿀팁!', '이거 알면 체스 끝!', '체스 천재되는 법?'**
+                        **제목만 응답하세요.**
+                        """
+                        )
                         extracted_title_for_ui = title_llm_chain.invoke({"question": title_extraction_prompt, "chat_history": []}).strip()
                         if extracted_title_for_ui:
                             st.session_state.video_title = extracted_title_for_ui
