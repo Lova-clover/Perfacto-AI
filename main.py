@@ -1,7 +1,7 @@
 import streamlit as st
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, AIMessage
-from rag_pipeline import get_retriever_from_source, get_document_chain, get_default_chain, generate_topic_insights
+from rag_pipeline import get_retriever_from_source, get_document_chain, get_default_chain, generate_topic_insights, rag_with_sources
 from web_ingest import full_web_ingest # web_ingest는 별도로 정의되어 있어야 합니다.
 from image_generator import generate_images_for_topic
 from elevenlabs_tts import generate_tts, TTS_ELEVENLABS_TEMPLATES, TTS_POLLY_VOICES
@@ -612,36 +612,41 @@ for msg in st.session_state.messages:
                     st.text(content)
 # 사용자 입력 처리
 if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI 기술 트렌드 알려줘)"):
-    st.session_state.messages.append({"role": "user", "content": user_input})
-    st.chat_message("user").markdown(user_input)
+    st.session_state.messages.append(HumanMessage(content=user_input)) # Langchain HumanMessage 사용
+    with st.chat_message("human"):
+        st.markdown(user_input)
     st.session_state.last_user_query = user_input # 마지막 사용자 쿼리 저장
 
-    with st.chat_message("assistant"):
+    with st.chat_message("ai"):
         container = st.empty()
         ai_answer = ""
         sources_list = []
         
         # RAG 사용 여부 결정 (URL 또는 파일이 처리된 경우)
         if st.session_state.retriever:
-            retrieval_chain = get_document_chain(st.session_state.system_prompt, st.session_state.retriever)
-            result = retrieval_chain({"input": user_input, "chat_history": st.session_state.messages})
-    
-            # 답변은 그대로
-            ai_answer = result.get("answer", "답변을 생성하는 중 문제가 발생했습니다.")
-    
-            # 출처는 문서 원문 전체가 아닌, 문서 제목이나 핵심 요약만 간단히 추출
-            sources = result.get("sources", [])
-            simplified_sources = []
-            for para in sources[:3]:  # 최대 3개 출처
-                # 너무 길면 줄이기 (예: 150자 이내)
-                if len(para) > 150:
-                    simplified_sources.append(para[:147] + "...")
-                else:
-                    simplified_sources.append(para)
-    
-            st.session_state.last_rag_sources = simplified_sources
-            sources_list = simplified_sources
+            # --- 기존의 잘못된 라인 (오류 발생 원인) ---
+            # retrieval_chain = get_document_chain(st.session_state.system_prompt, st.session_state.retriever)
+            # result = retrieval_chain({"input": user_input, "chat_history": st.session_state.messages})
+            # ai_answer = result.get("answer", "답변을 생성하는 중 문제가 발생했습니다.")
+            # sources = result.get("sources", [])
             
+            # --- 2. 수정된 올바른 라인: rag_with_sources 함수 직접 호출 ---
+            inputs_for_rag = {"input": user_input, "chat_history": st.session_state.messages}
+            rag_output = rag_with_sources(inputs_for_rag)
+            ai_answer = rag_output["answer"]
+            sources_list = rag_output["sources"] # 출처 정보는 딕셔너리 리스트 형태로 제공됨
+
+            # 답변을 스트리밍 방식으로 표시 (선택 사항: rag_with_sources가 스트리밍을 지원한다면)
+            # 현재 rag_with_sources는 invoke를 사용하여 한 번에 답변을 반환하므로, 스트리밍 효과는 별도 구현 필요
+            # 여기서는 답변을 한 번에 표시합니다.
+            container.markdown(ai_answer)
+
+            # 출처 정보는 이제 rag_output["sources"]에서 직접 가져옵니다.
+            # 이전에 사용된 simplified_sources 로직은 rag_with_sources 내부에서 처리되거나
+            # 여기에서 source_info 형식을 활용하도록 변경되어야 합니다.
+            # rag_with_sources가 source_info를 반환하도록 이미 수정되었으므로,
+            # sources_list에 직접 할당하면 됩니다.
+
         else:
             # 일반 챗봇 모드 (RAG 비활성화)
             chain = get_default_chain(st.session_state.system_prompt)
@@ -651,12 +656,30 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
                 ai_answer += token
                 container.markdown(ai_answer)
         
-        container.markdown(ai_answer)
-        st.session_state.messages.append({"role": "assistant", "content": ai_answer, "sources": sources_list})
-        if st.session_state.last_rag_sources:
+        # ai_answer가 이미 container.markdown(ai_answer)로 표시되었으므로, 이 줄은 중복일 수 있습니다.
+        # RAG 경로에서는 이미 위에서 처리됨. Non-RAG 경로에서는 for 루프 내에서 처리됨.
+        # 따라서 아래 container.markdown(ai_answer)는 제거하거나 조건부로 실행해야 할 수 있습니다.
+        # container.markdown(ai_answer) # 이 줄은 일반적으로 제거하는 것이 좋음
+
+        st.session_state.messages.append(AIMessage(content=ai_answer, sources=sources_list)) # sources도 함께 저장
+        
+        # RAG 기반 출처 표시 (이전 코드를 통합)
+        if sources_list: # sources_list에 값이 있을 때만 표시
             st.write("### 📚 참고 문단 (RAG 기반)")
-            for idx, para in enumerate(st.session_state.last_rag_sources, start=1):
-                st.markdown(f"**출처 {idx}:**\n> {para}")
+            for idx, source_item in enumerate(sources_list, start=1):
+                content_display = source_item["content"]
+                source_url_display = source_item.get("source", "N/A")
+                
+                # 내용이 너무 길면 줄이기
+                if len(content_display) > 200:
+                    content_display = content_display[:200] + "..."
+                
+                # URL이 있으면 링크와 함께 표시
+                if source_url_display != 'N/A':
+                    st.markdown(f"**출처 {idx}:** [{source_url_display}]({source_url_display})\n> {content_display}")
+                else:
+                    st.markdown(f"**출처 {idx}:**\n> {content_display}")
+
 
     # 챗봇이 답변을 생성한 후, 사이드바의 스크립트와 주제 필드를 자동으로 채웁니다.
     # 일반 챗봇 답변을 스크립트로 활용
