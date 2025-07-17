@@ -31,30 +31,31 @@ COHERE_API_KEY = st.secrets["COHERE_API_KEY"]
 # ✅ LLM 정의 (GROQ 기반)
 class GROQLLM(LLM):
     model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
-    _api_key: str = PrivateAttr()
-    _client: Groq = PrivateAttr()
+    _api_key: str = PrivateAttr()  # <-- 이 줄을 추가합니다.
+    _client: Groq = PrivateAttr()  # <-- 이 줄을 추가합니다.
 
     def __init__(self, api_key: str, model: str = "meta-llama/llama-4-scout-17b-16e-instruct", **kwargs):
-        super().__init__(**kwargs)
+        super().__init__(model=model, **kwargs) # model도 super().__init__으로 전달
         self._api_key = api_key
         self._client = Groq(api_key=api_key)
 
     @property
     def _llm_type(self) -> str:
-        return "groq"
+        return "groq_llm"
 
     def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
         chat_completion = self._client.chat.completions.create(
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
-            ],
+            messages=[{"role": "user", "content": prompt}],
             model=self.model,
             stop=stop,
+            temperature=0.0
         )
         return chat_completion.choices[0].message.content
+
+    @property
+    def _identifying_params(self) -> dict:
+        return {"model": self.model}
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ✅ Retriever 정의
