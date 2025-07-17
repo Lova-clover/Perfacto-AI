@@ -122,18 +122,14 @@ def get_retriever_from_source(source_type, source_input):
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ✅ RAG 체인 생성
-def get_document_chain(system_prompt, retriever):
-    rag_prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", system_prompt),
-            MessagesPlaceholder(variable_name="chat_history"),
-            ("user", "{context}"),
-        ]
-    )
-    groq_api_key = st.secrets["GROQ_API_KEY"]
-    llm = GROQLLM(api_key=groq_api_key)
+def get_document_chain(llm, prompt): # main.py에서 전달하는 인자(llm, rag_prompt)와 일치시킵니다.
+    # prompt와 llm은 main.py에서 이미 생성되어 이 함수로 전달됩니다.
+    # 따라서 여기서 다시 프롬프트를 만들거나, LLM을 정의할 필요가 없습니다.
+    document_chain = create_stuff_documents_chain(prompt, llm) # create_stuff_documents_chain의 올바른 순서는 (prompt, llm)입니다.
+    return document_chain # document_chain을 반환합니다.
 
-    document_chain = create_stuff_documents_chain(llm, rag_prompt)
+# 검색 체인 (retrieval_chain)을 생성하는 별도의 함수를 만듭니다.
+def get_retrieval_chain(retriever, document_chain):
     retrieval_chain = create_retrieval_chain(retriever, document_chain)
     return retrieval_chain
 
