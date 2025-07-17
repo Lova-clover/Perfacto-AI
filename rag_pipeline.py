@@ -21,6 +21,7 @@ from file_handler import get_documents_from_files
 from groq import Groq
 from langchain.llms.base import LLM
 from pydantic import PrivateAttr
+import llama_index.core.schema
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ✅ LLM 정의 (GROQ 기반)
@@ -70,12 +71,25 @@ def get_retriever_from_source(source_type, source_input):
 
             # raw_documents의 각 항목이 LangchainDocument 객체이고 page_content를 가지고 있는지 확인
             for doc in raw_documents:
-                if hasattr(doc, 'page_content'):
-                    documents.append(LangchainDocument(page_content=doc.page_content, metadata=doc.metadata))
+                content_to_use = ""
+                metadata_to_use = {}
+
+                if isinstance(doc, llama_index.core.schema.Document):
+                    # LlamaIndex Document인 경우 'text' 속성 사용
+                    content_to_use = doc.text
+                    metadata_to_use = doc.metadata
+                    st.warning(f"경고: URL 로드된 문서가 LlamaIndex Document입니다. 'text' 속성을 사용합니다.")
+                elif hasattr(doc, 'page_content'):
+                    # Langchain Document인 경우 'page_content' 속성 사용
+                    content_to_use = doc.page_content
+                    metadata_to_use = doc.metadata
                 else:
-                    # page_content가 없는 경우, 경고를 표시하고 객체 전체를 내용으로 사용
-                    st.warning(f"경고: URL 로드된 문서에서 'page_content'를 찾을 수 없습니다. 문서 객체 전체를 content로 사용합니다. 객체 타입: {type(doc)}")
-                    documents.append(LangchainDocument(page_content=str(doc), metadata=getattr(doc, 'metadata', {})))
+                    # 그 외의 경우, 객체 전체를 문자열로 변환
+                    content_to_use = str(doc)
+                    metadata_to_use = getattr(doc, 'metadata', {})
+                    st.warning(f"경고: URL 로드된 문서에서 'page_content'나 'text'를 찾을 수 없습니다. 문서 객체 전체를 content로 사용합니다. 객체 타입: {type(doc)}")
+                
+                documents.append(LangchainDocument(page_content=content_to_use, metadata=metadata_to_use))
 
         elif source_type == "Files":
             status.update(label="파일을 파싱하고 있습니다...")
@@ -83,12 +97,26 @@ def get_retriever_from_source(source_type, source_input):
 
             # raw_documents의 각 항목이 LangchainDocument 객체이고 page_content를 가지고 있는지 확인
             for doc in raw_documents:
-                if hasattr(doc, 'page_content'):
-                    documents.append(LangchainDocument(page_content=doc.page_content, metadata=doc.metadata))
+                content_to_use = ""
+                metadata_to_use = {}
+                
+                if isinstance(doc, llama_index.core.schema.Document):
+                    # LlamaIndex Document인 경우 'text' 속성 사용
+                    content_to_use = doc.text
+                    metadata_to_use = doc.metadata
+                    st.warning(f"경고: 파일에서 파싱된 문서가 LlamaIndex Document입니다. 'text' 속성을 사용합니다.")
+                elif hasattr(doc, 'page_content'):
+                    # Langchain Document인 경우 'page_content' 속성 사용
+                    content_to_use = doc.page_content
+                    metadata_to_use = doc.metadata
                 else:
-                    # page_content가 없는 경우, 경고를 표시하고 객체 전체를 내용으로 사용
-                    st.warning(f"경고: 파일에서 파싱된 문서에서 'page_content'를 찾을 수 없습니다. 문서 객체 전체를 content로 사용합니다. 객체 타입: {type(doc)}")
-                    documents.append(LangchainDocument(page_content=str(doc), metadata=getattr(doc, 'metadata', {})))
+                    # 그 외의 경우, 객체 전체를 문자열로 변환
+                    content_to_use = str(doc)
+                    metadata_to_use = getattr(doc, 'metadata', {})
+                    st.warning(f"경고: 파일에서 파싱된 문서에서 'page_content'나 'text'를 찾을 수 없습니다. 문서 객체 전체를 content로 사용합니다. 객체 타입: {type(doc)}")
+                
+                documents.append(LangchainDocument(page_content=content_to_use, metadata=metadata_to_use))
+
 
         elif source_type == "FAISS":
             status.update(label="FAISS 인덱스를 로드 중입니다...")
