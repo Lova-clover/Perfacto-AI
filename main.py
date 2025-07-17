@@ -595,17 +595,20 @@ for msg in st.session_state.messages:
         st.chat_message("assistant").markdown(msg["content"])
         if "sources" in msg and msg["sources"]:
             with st.expander("참조 문서 확인하기"):
-                for source_item in msg["sources"]: # 'source' 대신 'source_item'으로 변경하여 이름 충돌 방지
-                    # source_item은 이제 {"content": "...", "source": "..."} 형태의 딕셔너리입니다.
-                    url = source_item.get('source', 'N/A') # 딕셔너리에서 'source' 키를 직접 가져옵니다.
-                    content = source_item.get('content', '내용 없음') # 딕셔너리에서 'content' 키를 직접 가져옵니다.
+                for source in msg["sources"]:
+                    metadata = getattr(source, "metadata", {})
+                    if not isinstance(metadata, dict):
+                        metadata = {}
 
-                    # URL이 'N/A'이거나 유효하지 않으면 링크를 만들지 않습니다.
-                    if url and url != 'N/A' and url.startswith(('http://', 'https://')):
-                        st.markdown(f"- **출처**: [{url}]({url})")
-                    else:
-                        st.markdown(f"- **출처**: {url}")
+                    # metadata 안에 실제 URL이 저장된 다른 키 확인 (예: 'url', 'source_url' 등)
+                    url = metadata.get('source') or metadata.get('url') or metadata.get('source_url') or '#'
+                    title = url if url != '#' else 'N/A'
 
+                    st.markdown(f"- **출처**: [{title}]({url})")
+
+                    content = getattr(source, "page_content", None)
+                    if content is None:
+                        content = str(source)
                     st.text(content)
 # 사용자 입력 처리
 if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI 기술 트렌드 알려줘)"):
