@@ -5,6 +5,7 @@ import asyncio
 from typing import Optional, List
 
 # --- 필수 임포트 ---
+import streamlit as st 
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
 from langchain_community.document_loaders import SeleniumURLLoader
@@ -239,13 +240,12 @@ def generate_topic_insights(
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ✅ RAG 답변 및 출처 추출 함수 (Streamlit 표시용)
+
 def rag_with_sources(inputs: dict):
     llm = GROQLLM(api_key=st.secrets["GROQ_API_KEY"])
     
-    # 프롬프트에 {context} 변수를 추가합니다.
-    # 이 변수에 리트리버가 가져온 문서 내용이 채워집니다.
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "당신은 질문에 답변하고 제공된 참조 문서에서 관련 정보를 추출하는 유용한 AI 비서입니다. 제공된 참조 문서의 내용을 바탕으로 답변하고, 참조 문서에 없는 내용은 답변하지 마세요. 답변은 항상 한국어로 하세요.\n\n{context}"), # <-- 이 줄을 수정했습니다.
+        ("system", "당신은 질문에 답변하고 제공된 참조 문서에서 관련 정보를 추출하는 유용한 AI 비서입니다. 제공된 참조 문서의 내용을 바탕으로 답변하고, 참조 문서에 없는 내용은 답변하지 마세요. 답변은 항상 한국어로 하세요.\n\n{context}"),
         MessagesPlaceholder("chat_history"),
         ("human", "{input}"),
     ])
@@ -257,25 +257,43 @@ def rag_with_sources(inputs: dict):
     
     answer = response["answer"]
     
-    # Langchain Document 객체에서 page_content와 source URL 추출
+    # --- 디버깅을 위한 코드 추가 ---
+    st.write("--- rag_with_sources 내부 디버그 ---")
+    st.write(f"LLM이 생성한 원본 답변: {answer}") # LLM이 생성한 원본 답변 확인
+    st.write("검색된 컨텍스트 문서:")
+    if response["context"]:
+        for i, doc in enumerate(response["context"]):
+            st.write(f"  문서 {i+1} (타입: {type(doc)}):")
+            if hasattr(doc, 'page_content'):
+                st.write(f"    내용 미리보기: {doc.page_content[:200]}...")
+                st.write(f"    메타데이터: {doc.metadata}")
+            elif hasattr(doc, 'text'): # LlamaIndex Document (file_handler에서 Langchain Document로 변환되므로 이 경우는 줄어들 것임)
+                st.write(f"    내용 미리보기: {doc.text[:200]}...")
+                st.write(f"    메타데이터: {doc.metadata}")
+            else:
+                st.write(f"    알 수 없는 문서 타입: {str(doc)[:200]}...")
+    else:
+        st.write("  검색된 컨텍스트 문서가 없습니다.")
+    st.write("--- 디버그 끝 ---")
+    # --- 디버깅 코드 끝 ---
+
     source_info = []
-    # 중복 출처 방지를 위한 Set
     unique_sources = set()
 
     for doc in response["context"]:
         content = ""
         source_url = ""
 
-        # LlamaIndex Document인 경우 'text' 속성 사용
+        # LlamaIndex Document인 경우 'text' 속성 사용 (file_handler에서 Langchain Document로 변환되므로 이 경우는 줄어들 것임)
         if isinstance(doc, llama_index.core.schema.Document):
             content = doc.text.strip()
             source_url = doc.metadata.get('source', 'N/A')
         # Langchain Document인 경우 'page_content' 속성 사용
         elif hasattr(doc, 'page_content'):
             content = doc.page_content.strip()
+            # source 메타데이터 확인 순서: 'source' -> 'url' -> 'source_url'
             source_url = doc.metadata.get('source', 'N/A') or doc.metadata.get('url', 'N/A') or doc.metadata.get('source_url', 'N/A')
         else:
-            # 기타 알 수 없는 문서 타입의 경우 문자열로 변환
             content = str(doc).strip()
             source_url = 'N/A'
 
