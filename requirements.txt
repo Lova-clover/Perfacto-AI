@@ -1,4 +1,3 @@
-llama-index-parser-llama-parse
 groq
 streamlit
 langchain
@@ -26,3 +25,4 @@ imageio-ffmpeg
 ffmpeg-python
 boto3
 pydub
+llama-index-parser-llama-parse
