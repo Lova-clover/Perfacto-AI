@@ -606,7 +606,6 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
 
     if st.session_state.retriever:
         with st.spinner("정보를 검색하고 답변을 생성 중입니다..."):
-            # rag_system_prompt에서 {context}를 제거하고, 순수한 시스템 지침으로 만듭니다.
             rag_system_prompt = """당신은 주어진 문서를 참고하여 질문에 답변하는 유능한 AI 어시스턴트입니다.
             주어진 정보로 답변할 수 없다면, '주어진 정보로는 답변할 수 없습니다.'라고 말하세요.
             답변은 항상 한국어로 하세요.
@@ -619,11 +618,10 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
                     ("system", rag_system_prompt),
                     MessagesPlaceholder(variable_name="chat_history"),
                     # 사용자 메시지 템플릿에 {context} 변수를 명시적으로 포함시킵니다.
-                    # {context}에 검색된 문서 내용이, {input}에 사용자의 질문이 들어갑니다.
+                    # {context}에는 검색된 문서 내용이, {input}에는 사용자의 질문이 들어갑니다.
                     ("user", "다음 문서를 참고하여 질문에 답변하세요:\n\n{context}\n\n질문: {input}"),
                 ]
             )
-
             document_chain = get_document_chain(llm, rag_prompt)
 
             retrieval_chain = get_retrieval_chain(st.session_state.retriever, document_chain)
