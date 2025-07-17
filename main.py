@@ -596,7 +596,13 @@ for msg in st.session_state.messages:
         if "sources" in msg and msg["sources"]:
             with st.expander("참조 문서 확인하기"):
                 for source in msg["sources"]:
-                    st.markdown(f"- **출처**: [{source.metadata.get('source', 'N/A')}]({source.metadata.get('source', '#')})")
+                    metadata = getattr(source, "metadata", {})
+                    if not isinstance(metadata, dict):
+                        metadata = {}
+                    url = metadata.get('source', '#')
+                    title = metadata.get('source', 'N/A')
+            
+                    st.markdown(f"- **출처**: [{title}]({url})")
                     st.text(source.page_content)
 # 사용자 입력 처리
 if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI 기술 트렌드 알려줘)"):
