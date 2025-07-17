@@ -241,8 +241,10 @@ def generate_topic_insights(
 def rag_with_sources(inputs: dict):
     llm = GROQLLM(api_key=st.secrets["GROQ_API_KEY"])
     
+    # 프롬프트에 {context} 변수를 추가합니다.
+    # 이 변수에 리트리버가 가져온 문서 내용이 채워집니다.
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "당신은 질문에 답변하고 제공된 참조 문서에서 관련 정보를 추출하는 유용한 AI 비서입니다. 제공된 참조 문서의 내용을 바탕으로 답변하고, 참조 문서에 없는 내용은 답변하지 마세요. 답변은 항상 한국어로 하세요."),
+        ("system", "당신은 질문에 답변하고 제공된 참조 문서에서 관련 정보를 추출하는 유용한 AI 비서입니다. 제공된 참조 문서의 내용을 바탕으로 답변하고, 참조 문서에 없는 내용은 답변하지 마세요. 답변은 항상 한국어로 하세요.\n\n{context}"), # <-- 이 줄을 수정했습니다.
         MessagesPlaceholder("chat_history"),
         ("human", "{input}"),
     ])
@@ -283,6 +285,5 @@ def rag_with_sources(inputs: dict):
         elif source_url == 'N/A' and content and content not in unique_sources: # URL이 없을 경우 내용으로 중복 확인
             source_info.append({"content": content, "source": source_url})
             unique_sources.add(content)
-
 
     return {"answer": answer, "sources": source_info}
