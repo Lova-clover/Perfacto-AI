@@ -8,6 +8,7 @@ from elevenlabs_tts import generate_tts, TTS_ELEVENLABS_TEMPLATES, TTS_POLLY_VOI
 from generate_timed_segments import generate_subtitle_from_script, generate_ass_subtitle, SUBTITLE_TEMPLATES
 from video_maker import create_video_with_segments, add_subtitles_to_video
 from deep_translator import GoogleTranslator
+from file_handler import get_documents_from_files
 import os
 import requests # 기본 이미지 다운로드를 위해 추가
 import re
