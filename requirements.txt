@@ -25,4 +25,4 @@ imageio-ffmpeg
 ffmpeg-python
 boto3
 pydub
-llama-index-parser-llama-parse
+llama-parse
