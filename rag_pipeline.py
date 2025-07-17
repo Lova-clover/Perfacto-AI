@@ -26,13 +26,13 @@ from pydantic import PrivateAttr
 # ✅ LLM 정의 (GROQ 기반)
 class GROQLLM(LLM):
     model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
-    # _api_key: str = PrivateAttr() # <-- 이 줄을 제거합니다.
-    # _client: Groq = PrivateAttr() # <-- 이 줄을 제거합니다.
+    _api_key: str = PrivateAttr()
+    _client: Groq = PrivateAttr()
 
     def __init__(self, api_key: str, model: str = "meta-llama/llama-4-scout-17b-16e-instruct", **kwargs):
         super().__init__(model=model, **kwargs)
-        self._api_key = api_key # <-- 이제 PrivateAttr 없이 직접 할당합니다.
-        self._client = Groq(api_key=self._api_key) # <-- 이제 PrivateAttr 없이 직접 할당합니다.
+        self._api_key = api_key
+        self._client = Groq(api_key=self._api_key)
 
     def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
         messages = [{"role": "user", "content": prompt}]
@@ -122,16 +122,30 @@ def get_retriever_from_source(source_type, source_input):
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ✅ RAG 체인 생성
-def get_document_chain(llm, prompt):
-    print(f"DEBUG rag_pipeline.py: Inside get_document_chain - llm type: {type(llm)}")
-    print(f"DEBUG rag_pipeline.py: Inside get_document_chain - prompt type: {type(prompt)}")
-    document_chain = create_stuff_documents_chain(prompt, llm)
-    return document_chain
+def get_document_chain(system_prompt, retriever):
+    rag_prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", system_prompt),
+            MessagesPlaceholder(variable_name="chat_history"),
+            ("user", "{context}"),
+        ]
+    )
 
-# Retrieval Chain을 생성하는 함수를 추가합니다.
-def get_retrieval_chain(retriever, document_chain):
+    groq_api_key = st.secrets["GROQ_API_KEY"]
+    llm = GROQLLM(api_key=groq_api_key)
+
+    document_chain = create_stuff_documents_chain(llm, rag_prompt)
     retrieval_chain = create_retrieval_chain(retriever, document_chain)
-    return retrieval_chain
+
+    # ✅ 래퍼 함수로 감싸기: 답변 + 참고 문단 함께 반환
+    def rag_with_sources(inputs: dict):
+        result = retrieval_chain.invoke(inputs)
+        answer = result.get("answer", "")
+        docs = retriever.get_relevant_documents(inputs["input"])
+        source_paragraphs = [doc.page_content.strip() for doc in docs[:3]]
+        return {"answer": answer, "sources": source_paragraphs}
+
+    return rag_with_sources
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ✅ 일반 체인 (RAG 아닌 단순 프롬프트용)
