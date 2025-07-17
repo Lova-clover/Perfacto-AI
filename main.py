@@ -16,6 +16,7 @@ import json # JSON 파싱을 위해 추가
 import nest_asyncio
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_community.vectorstores import FAISS
 
 nest_asyncio.apply()
 
