@@ -31,8 +31,10 @@ class GROQLLM(LLM):
 
     def __init__(self, api_key: str, model: str = "meta-llama/llama-4-scout-17b-16e-instruct", **kwargs):
         super().__init__(model=model, **kwargs)
-        self._api_key = api_key
-        self._client = Groq(api_key=self._api_key)
+
+        # ✅ 수정: Pydantic 안전 방식으로 설정
+        object.__setattr__(self, "_api_key", api_key)
+        object.__setattr__(self, "_client", Groq(api_key=api_key))
 
     def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
         messages = [{"role": "user", "content": prompt}]
