@@ -31,11 +31,12 @@ COHERE_API_KEY = st.secrets["COHERE_API_KEY"]
 # ✅ LLM 정의 (GROQ 기반)
 class GROQLLM(LLM):
     model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
-    _api_key: str = PrivateAttr()  # <-- 이 줄을 추가합니다.
-    _client: Groq = PrivateAttr()  # <-- 이 줄을 추가합니다.
+    _api_key: str = PrivateAttr()  # <-- 이 줄을 추가 또는 수정해주세요!
+    _client: Groq = PrivateAttr()  # <-- 이 줄을 추가 또는 수정해주세요!
 
     def __init__(self, api_key: str, model: str = "meta-llama/llama-4-scout-17b-16e-instruct", **kwargs):
-        super().__init__(model=model, **kwargs) # model도 super().__init__으로 전달
+        # super().__init__ 호출 시 model 필드를 전달합니다.
+        super().__init__(model=model, **kwargs)
         self._api_key = api_key
         self._client = Groq(api_key=api_key)
 
@@ -55,6 +56,7 @@ class GROQLLM(LLM):
     @property
     def _identifying_params(self) -> dict:
         return {"model": self.model}
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
