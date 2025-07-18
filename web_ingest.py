@@ -27,16 +27,6 @@ def clean_html(url):
     except:
         return ""
 
-# web_ingest.py (수정 후)
-
-import requests
-from bs4 import BeautifulSoup
-from googlesearch import search
-import re # <-- re 모듈 임포트 확인
-from langchain_core.documents import Document
-
-# ... (기존 get_links, clean_html 함수들은 그대로 유지) ...
-
 def filter_noise(html_content):
     """
     HTML 내용에서 노이즈(스크립트, 스타일, 헤더, 푸터, 내비게이션, 광고, 봇 방지 페이지 등)를 제거하고
