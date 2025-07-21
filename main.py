@@ -210,7 +210,8 @@ with st.sidebar:
                 with st.spinner(f"'{st.session_state.selected_generated_topic}' 주제로 스크립트를 만드는 중입니다..."):
                     # 콘텐츠 제작자 페르소나로 스크립트 생성
                     # 스크립트 생성 프롬프트에 페르소나, 대상 시청자, 추가 조건 반영
-                    script_prompt_content = f"주어진 주제: '{st.session_state.selected_generated_topic}'. 이 주제에 대해 다음 조건을 사용하여 숏폼 비디오 스크립트를 작성해 주세요. 페르소나: {script_expert_persona}, 대상 시청자: {script_expert_audience}, 톤 : {script_expert_tone}, 추가 조건: {script_expert_constraints}"
+                    #script_prompt_content = f"주어진 주제: '{st.session_state.selected_generated_topic}'. 이 주제에 대해 다음 조건을 사용하여 숏폼 비디오 스크립트를 작성해 주세요. 페르소나: {script_expert_persona}, 대상 시청자: {script_expert_audience}, 톤 : {script_expert_tone}, 추가 조건: {script_expert_constraints}"
+                    prompt = f"""주어진 주제: "{st.session_state.selected_generated_topic}"\n\n스크립트 지시: {script_instruction}"""
                     script_chain = get_default_chain(
                     system_prompt="""당신은 TikTok, YouTube Shorts, Instagram Reels 등에서 **즉시 시선을 사로잡고 끝까지 시청하게 만드는 바이럴성 숏폼 비디오 스크립트**를 작성하는 전문 크리에이터입니다.
 
@@ -233,7 +234,7 @@ with st.sidebar:
                     st.session_state.messages.append(HumanMessage(content=f"선택된 주제 '{st.session_state.selected_generated_topic}'에 대한 스크립트를 만들어 줘."))
                     
                     generated_script = ""
-                    for token in script_chain.stream({"question": script_prompt_content, "chat_history": []}): # chat_history는 필요에 따라 추가
+                    for token in script_chain.stream({"question": prompt, "chat_history": []}): # script_prompt_content -> prompt로 수정
                         generated_script += token
                     
                     st.session_state.edited_script_content = generated_script.strip()
