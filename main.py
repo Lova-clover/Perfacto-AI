@@ -160,6 +160,13 @@ with st.sidebar:
                 if st.session_state.generated_topics:
                     st.success("주제 생성 완료!")
                     st.session_state.selected_generated_topic = st.session_state.generated_topics[0]
+                    # ✅ 전문가 페르소나 결과도 persona_blocks에 추가 (이름: "전문가 페르소나")
+                    st.session_state.persona_blocks.append({
+                        "name": "전문가 페르소나",
+                        "text": expert_instruction,
+                        "use_prev_idx": expert_prev_idx,
+                        "result": response_text
+                    })
                 else:
                     st.warning("주제를 생성하지 못했습니다. 문장을 다시 확인해 주세요.")
     
@@ -273,6 +280,12 @@ with st.sidebar:
 
                     st.session_state.messages.append(AIMessage(content=f"**다음 스크립트가 생성되었습니다:**\n\n{st.session_state.edited_script_content}"))
                 st.success("스크립트 생성이 완료되었습니다!")
+                st.session_state.persona_blocks.append({
+                    "name": "스크립트 페르소나",
+                    "text": script_instruction,
+                    "use_prev_idx": None,  # 혹시 이전 응답 이어받기 기능 붙이려면 연결
+                    "result": st.session_state.edited_script_content
+                })
                 st.rerun() # 스크립트가 업데이트되도록 다시 로드
             else:
                 st.warning("먼저 생성된 주제를 선택해 주세요.")
