@@ -99,7 +99,7 @@ with st.sidebar:
         })
 
     for i, block in enumerate(st.session_state.persona_blocks):
-        st.markdown(f"---\n### 🎭 페르소나 #{i+1} - `{block['name']}`")
+        st.markdown(f"---\n### 페르소나 #{i+1} - `{block['name']}`")
 
         st.session_state.persona_blocks[i]["name"] = st.text_input(
             "페르소나 역할 이름", value=block["name"], key=f"name_{i}"
