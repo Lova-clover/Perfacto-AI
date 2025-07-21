@@ -160,7 +160,7 @@ with st.sidebar:
 
     if delete_idx is not None:
         del st.session_state.persona_blocks[delete_idx]
-        st.experimental_rerun()
+        st.rerun()
 
     with st.expander("전문가 페르소나 설정", expanded=True):
         st.write("주제 생성을 위한 전문가 페르소나에게 자연어로 지시하세요.")
