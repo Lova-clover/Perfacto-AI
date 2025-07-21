@@ -238,6 +238,42 @@ def generate_topic_insights(
         st.error(f"주제 인사이트 생성 중 오류 발생: {e}")
         return []
 
+def generate_topic_insights_from_natural_prompt(natural_prompt: str) -> List[str]:
+    from langchain_core.output_parsers import StrOutputParser
+    from langchain_core.prompts import ChatPromptTemplate
+    from rag_pipeline import GROQLLM  # 이미 정의돼 있음
+
+    llm = GROQLLM(api_key=st.secrets["GROQ_API_KEY"])
+    output_parser = StrOutputParser()
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", """당신은 영상 주제를 생성하는 AI입니다.
+
+사용자의 문장 속에서 전문가 페르소나, 도메인, 대상 시청자, 톤, 개수 등을 스스로 파악하고,
+그에 맞춰 **2~7단어 이내의 한국어 주제를 줄 단위로 생성**하세요.
+
+**출력 규칙:**
+- 반드시 '-'로 시작하는 항목만 나열하세요.
+- 설명, 머리말, 꼬리말, 예시는 절대 포함하지 마세요.
+- 줄바꿈된 주제 리스트만 응답하세요.
+
+예시:
+- 왕들의 숨겨진 취미
+- 조선시대의 놀라운 과학
+- 세종대왕의 교육법
+"""),
+        ("human", "{question}")
+    ]) | llm | output_parser
+
+    try:
+        response = prompt.invoke({"question": natural_prompt})
+        topics = [line.strip().lstrip("- ").strip() for line in response.split("\n") if line.strip().startswith("-")]
+        return topics
+    except Exception as e:
+        st.error(f"주제 생성 실패: {e}")
+        return []
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ✅ RAG 답변 및 출처 추출 함수 (Streamlit 표시용)
 
