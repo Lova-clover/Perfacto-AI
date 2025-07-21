@@ -266,12 +266,21 @@ with st.sidebar:
                 final_prompt = f"이전 응답:\n{prev_response}\n\n지시:\n{expert_instruction}"
 
             with st.spinner("전문가 페르소나가 주제를 생성하고 있습니다..."):
-                if st.session_state.expert_use_rag and st.session_state.expert_retriever:
-                    response_text = rag_with_sources({
-                        "input": final_prompt,
-                        "chat_history": [],
-                        "retriever": st.session_state.expert_retriever
-                    })["answer"]
+                if st.session_state.expert_use_rag:
+                    if st.session_state.expert_retriever is not None:
+                        rag_result = rag_with_sources({
+                            "input": final_prompt,
+                            "chat_history": [],
+                            "retriever": st.session_state.expert_retriever
+                        })
+                        if rag_result and isinstance(rag_result, dict):
+                            response_text = rag_result.get("answer", "")
+                        else:
+                            st.warning("RAG 결과가 비어 있거나 형식이 잘못되었습니다.")
+                            response_text = ""
+                    else:
+                        st.warning("⚠️ 전문가용 retriever가 설정되지 않았습니다. 먼저 문서 분석을 완료해주세요.")
+                        response_text = ""
                 else:
                     response_text = generate_response_from_persona(final_prompt)
                 st.session_state.generated_topics = [
