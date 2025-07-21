@@ -158,11 +158,17 @@ with st.sidebar:
                 response_text = generate_response_from_persona(final_prompt)
                 st.session_state.generated_topics = [
                     line.strip().lstrip("-").strip() for line in response_text.split("\n") if line.strip().startswith("-")
-                ][:3]  # 기본 3개만 자름
+                ][:3]  # 최대 3개 추출
 
                 if st.session_state.generated_topics:
                     st.success("주제 생성 완료!")
-                    st.session_state.selected_generated_topic = st.session_state.generated_topics[0]
+                    # ✅ 주제 선택 dropdown 추가
+                    st.session_state.selected_generated_topic = st.selectbox(
+                        "👇 생성된 주제 중 하나를 선택하세요:",
+                        options=st.session_state.generated_topics,
+                        index=0,
+                        key="selected_topic_after_generation"
+                    )
                 else:
                     st.warning("주제를 생성하지 못했습니다. 문장을 다시 확인해 주세요.")
                 st.rerun()
