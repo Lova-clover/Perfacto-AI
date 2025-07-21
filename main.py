@@ -171,7 +171,6 @@ with st.sidebar:
                     )
                 else:
                     st.warning("주제를 생성하지 못했습니다. 문장을 다시 확인해 주세요.")
-                st.rerun()
     
     st.markdown("---")
 
