@@ -400,12 +400,18 @@ with st.sidebar:
                     st.session_state.messages.append(HumanMessage(content=f"선택된 주제 '{st.session_state.selected_generated_topic}'에 대한 스크립트를 만들어 줘."))
                     
                     if use_script_rag and "script_retriever" in st.session_state:
-                        rag_response = rag_with_sources({
+                        rag_context = rag_with_sources({
                             "input": prompt,
                             "chat_history": [],
-                            "retriever": st.session_state.script_retriever
+                        "retriever": st.session_state.script_retriever
                         })
-                        generated_script = rag_response.get("answer", "").strip()
+
+                        # RAG 문서 context를 prompt에 포함시켜 직접 LLM 호출
+                        rag_augmented_prompt = f"""참고 문서:\n{rag_context.get('context', '')}\n\n질문:\n{prompt}"""
+                        
+                        generated_script = ""
+                        for token in script_chain.stream({"question": rag_augmented_prompt, "chat_history": []}):
+                            generated_script += token
                     else:
                         generated_script = ""
                         for token in script_chain.stream({"question": prompt, "chat_history": []}):

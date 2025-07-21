@@ -239,9 +239,6 @@ def generate_topic_insights(
         return []
 
 def generate_response_from_persona(prompt_text: str) -> str:
-    from langchain_core.prompts import ChatPromptTemplate
-    from langchain_core.output_parsers import StrOutputParser
-
     llm = GROQLLM(api_key=st.secrets["GROQ_API_KEY"])
     output_parser = StrOutputParser()
 
