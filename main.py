@@ -206,10 +206,6 @@ with st.sidebar:
                     AIMessage(content=result_text)
                 )
                 st.session_state.persona_blocks[i]["result"] = result_text
-
-        #if block["result"]:
-        #    st.markdown("**📌 생성된 응답:**")
-        #    st.markdown(block["result"])
             
         if st.button(f"🗑️ 페르소나 삭제", key=f"delete_{i}"):
             delete_idx = i
@@ -314,6 +310,31 @@ with st.sidebar:
 
     with st.expander("스크립트 생성", expanded=True): # 새로운 "스크립트 생성" expander
         st.subheader("스크립트 생성 및 설정")
+        
+        script_prev_idx = st.selectbox(
+            "이전 페르소나 응답 이어받기",
+            options=[None] + list(range(len(st.session_state.persona_blocks))) + ["expert"],
+            format_func=lambda x: (
+                "없음" if x is None else (
+                    "전문가 페르소나" if x == "expert" else f"{x+1} - {st.session_state.persona_blocks[x]['name']}"
+                )
+            ),
+            key="script_use_prev_idx"
+        )
+
+        if script_prev_idx is not None:
+            if script_prev_idx == "expert":
+                prev_response = st.session_state.virtual_personas.get("expert", {}).get("result", "")
+            else:
+                prev_response = st.session_state.persona_blocks[script_prev_idx]["result"]
+            script_instruction = f"이전 응답:\n{prev_response}\n\n지시:\n{script_instruction}"
+
+        script_instruction = st.text_area(
+            "스크립트 지시 문장 (페르소나, 말투, 대상 등 자유롭게 기술)",
+            value=script_instruction,
+            placeholder="예: 너는 대중에게 유익한 역사 콘텐츠를 만들 줄 아는 전문가야. 재미있고 간결하게 설명해줘.",
+            key="script_instruction_input"
+        )
         
         use_script_rag = st.checkbox("🔎 스크립트 생성에 RAG 사용", value=False, key="use_script_rag")
         all_documents = []
