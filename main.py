@@ -78,6 +78,8 @@ if "expert_constraints" not in st.session_state:
     st.session_state.expert_constraints = "{}"
 if "last_rag_sources" not in st.session_state:
     st.session_state.last_rag_sources = []
+if "virtual_personas" not in st.session_state:
+    st.session_state.virtual_personas = {} 
 
 # --- 사이드바: AI 페르소나 설정 및 RAG 설정 ---
 with st.sidebar:
@@ -102,10 +104,26 @@ with st.sidebar:
             "페르소나 역할 이름", value=block["name"], key=f"name_{i}"
         )
 
+        # 기본 옵션 (페르소나 블록 인덱스)
+        persona_options = list(range(len(st.session_state.persona_blocks)))
+
+        # 가상 페르소나 옵션 추가
+        if "expert" in st.session_state.virtual_personas:
+            persona_options.append(-1)
+        if "script" in st.session_state.virtual_personas:
+            persona_options.append(-2)
+
+        # 드롭다운 구성
         prev_idx = st.selectbox(
             "이전 페르소나 응답 이어받기",
-            options=[None] + list(range(i)),
-            format_func=lambda x: "없음" if x is None else f"{x+1} - {st.session_state.persona_blocks[x]['name']}",
+            options=[None] + persona_options,
+            format_func=lambda x: (
+                "없음" if x is None else (
+                    "전문가 페르소나" if x == -1 else
+                    "스크립트 페르소나" if x == -2 else
+                    f"{x+1} - {st.session_state.persona_blocks[x]['name']}"
+                )
+            ),
             key=f"use_prev_idx_{i}"
         )
         st.session_state.persona_blocks[i]["use_prev_idx"] = prev_idx
@@ -117,7 +135,13 @@ with st.sidebar:
         if st.button(f"🧠 이 페르소나로 실행", key=f"run_{i}"):
             final_prompt = ""
             if prev_idx is not None:
-                prev = st.session_state.persona_blocks[prev_idx]["result"]
+                if prev_idx == -1:
+                    prev = st.session_state.virtual_personas["expert"]["result"]
+                elif prev_idx == -2:
+                    prev = st.session_state.virtual_personas["script"]["result"]
+                else:
+                    prev = st.session_state.persona_blocks[prev_idx]["result"]
+
                 final_prompt = f"이전 응답:\n{prev}\n\n지시:\n{block['text']}"
             else:
                 final_prompt = block["text"]
@@ -160,13 +184,12 @@ with st.sidebar:
                 if st.session_state.generated_topics:
                     st.success("주제 생성 완료!")
                     st.session_state.selected_generated_topic = st.session_state.generated_topics[0]
-                    # ✅ 전문가 페르소나 결과도 persona_blocks에 추가 (이름: "전문가 페르소나")
-                    st.session_state.persona_blocks.append({
+                    st.session_state.virtual_personas["expert"] = {
                         "name": "전문가 페르소나",
                         "text": expert_instruction,
-                        "use_prev_idx": expert_prev_idx,
                         "result": response_text
-                    })
+                    }
+
                 else:
                     st.warning("주제를 생성하지 못했습니다. 문장을 다시 확인해 주세요.")
     
@@ -280,12 +303,11 @@ with st.sidebar:
 
                     st.session_state.messages.append(AIMessage(content=f"**다음 스크립트가 생성되었습니다:**\n\n{st.session_state.edited_script_content}"))
                 st.success("스크립트 생성이 완료되었습니다!")
-                st.session_state.persona_blocks.append({
+                st.session_state.virtual_personas["script"] = {
                     "name": "스크립트 페르소나",
                     "text": script_instruction,
-                    "use_prev_idx": None,  # 혹시 이전 응답 이어받기 기능 붙이려면 연결
-                    "result": st.session_state.edited_script_content
-                })
+                    "result": generated_script.strip()
+                }
                 st.rerun() # 스크립트가 업데이트되도록 다시 로드
             else:
                 st.warning("먼저 생성된 주제를 선택해 주세요.")
