@@ -344,33 +344,6 @@ with st.sidebar:
                 else:
                     st.warning("문서가 비어 있거나 수집에 실패했습니다.")
         
-        # 주제 선택 드롭다운 (새 expander로 이동)
-        if st.session_state.generated_topics:
-            st.session_state.selected_generated_topic = st.selectbox(
-                "생성된 주제 중 하나를 선택하세요:",
-                options=st.session_state.generated_topics,
-                index=st.session_state.generated_topics.index(st.session_state.selected_generated_topic) if st.session_state.selected_generated_topic in st.session_state.generated_topics else 0,
-                key="script_topic_select"
-            )
-        
-        # # 페르소나, 대상 시청자, 추가 조건 복사 (원래 위치에도 유지)
-        # script_expert_persona = st.text_input("페르소나", 
-        #                                        value=st.session_state.expert_persona, 
-        #                                        placeholder="예: 역사학자, 과학자", 
-        #                                        key="script_expert_persona_input")
-        # script_expert_audience = st.text_input("대상 시청자", 
-        #                                         value=st.session_state.expert_audience, 
-        #                                         placeholder="예: 고등학생, 일반인, 전문가", 
-        #                                         key="script_expert_audience_input")
-        # script_expert_tone = st.text_input("톤", 
-        #                              value=st.session_state.expert_tone, 
-        #                              placeholder="예: 유익함, 재미있음, 진지함", 
-        #                              key="script_tone_input") 
-        # script_expert_constraints = st.text_area("추가 조건 (JSON 형식 권장)", 
-        #                                          value=st.session_state.expert_constraints, 
-        #                                          placeholder="예: {\"length\": \"short\", \"keywords\": [\"파이썬\", \"데이터\"]}", 
-        #                                          key="script_expert_constraints_input")
-
         # 1. 이전 응답 선택
         script_prev_idx = st.selectbox(
             "이전 페르소나 응답 이어받기",
@@ -399,6 +372,33 @@ with st.sidebar:
             script_instruction = f"이전 응답:\n{prev_response}\n\n지시:\n{base_instruction}"
         else:
             script_instruction = base_instruction
+        
+        # 주제 선택 드롭다운 (새 expander로 이동)
+        if st.session_state.generated_topics:
+            st.session_state.selected_generated_topic = st.selectbox(
+                "생성된 주제 중 하나를 선택하세요:",
+                options=st.session_state.generated_topics,
+                index=st.session_state.generated_topics.index(st.session_state.selected_generated_topic) if st.session_state.selected_generated_topic in st.session_state.generated_topics else 0,
+                key="script_topic_select"
+            )
+        
+        # # 페르소나, 대상 시청자, 추가 조건 복사 (원래 위치에도 유지)
+        # script_expert_persona = st.text_input("페르소나", 
+        #                                        value=st.session_state.expert_persona, 
+        #                                        placeholder="예: 역사학자, 과학자", 
+        #                                        key="script_expert_persona_input")
+        # script_expert_audience = st.text_input("대상 시청자", 
+        #                                         value=st.session_state.expert_audience, 
+        #                                         placeholder="예: 고등학생, 일반인, 전문가", 
+        #                                         key="script_expert_audience_input")
+        # script_expert_tone = st.text_input("톤", 
+        #                              value=st.session_state.expert_tone, 
+        #                              placeholder="예: 유익함, 재미있음, 진지함", 
+        #                              key="script_tone_input") 
+        # script_expert_constraints = st.text_area("추가 조건 (JSON 형식 권장)", 
+        #                                          value=st.session_state.expert_constraints, 
+        #                                          placeholder="예: {\"length\": \"short\", \"keywords\": [\"파이썬\", \"데이터\"]}", 
+        #                                          key="script_expert_constraints_input")
 
         if st.button("스크립트 생성", help="선택된 주제로 숏폼 영상 스크립트를 만들어 드립니다.", key="generate_script_button"):
             if st.session_state.selected_generated_topic:
