@@ -274,6 +274,11 @@ def generate_response_from_persona(prompt_text: str) -> str:
 
 def rag_with_sources(inputs: dict):
     llm = GROQLLM(api_key=st.secrets["GROQ_API_KEY"])
+    retriever = inputs.get("retriever", None)
+
+    if retriever is None:
+        st.error("❌ RAG 실행에 필요한 retriever가 지정되지 않았습니다.")
+        return {"answer": "⚠️ 오류: retriever가 없습니다.", "context": [], "sources": []}
 
     # === 이 프롬프트 부분을 수정합니다 ===
     prompt = ChatPromptTemplate.from_messages([
