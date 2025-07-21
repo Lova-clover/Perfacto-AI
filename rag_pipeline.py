@@ -338,3 +338,9 @@ def rag_with_sources(inputs: dict):
         elif source_url == 'N/A' and content and content not in unique_sources:
             source_info.append({"content": content, "source": source_url})
             unique_sources.add(content)
+        
+    return {
+        "answer": answer,
+        "context": response["context"],
+        "sources": source_info
+    }
