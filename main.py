@@ -88,6 +88,8 @@ with st.sidebar:
     if "persona_blocks" not in st.session_state:
         st.session_state.persona_blocks = []
         
+    delete_idx = None
+    
     # --- 페르소나 문장 기반 생성기 (범용 응답 생성) ---
     if st.button("➕ 페르소나 추가"):
         st.session_state.persona_blocks.append({
