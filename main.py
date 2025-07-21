@@ -1,7 +1,7 @@
 import streamlit as st
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, AIMessage
-from rag_pipeline import get_retriever_from_source, get_document_chain, get_default_chain, generate_topic_insights, rag_with_sources, generate_topic_insights_from_natural_prompt
+from rag_pipeline import get_retriever_from_source, get_document_chain, get_default_chain, generate_topic_insights, rag_with_sources, generate_response_from_persona
 from web_ingest import full_web_ingest # web_ingest는 별도로 정의되어 있어야 합니다.
 from image_generator import generate_images_for_topic
 from elevenlabs_tts import generate_tts, TTS_ELEVENLABS_TEMPLATES, TTS_POLLY_VOICES
@@ -22,9 +22,6 @@ nest_asyncio.apply()
 
 # API 키 불러오기
 load_dotenv()
-
-if "personas" not in st.session_state:
-    st.session_state.personas = []
 
 # --- 앱 기본 설정 ---
 st.set_page_config(page_title="Perfacto AI", page_icon="🤖")
@@ -86,50 +83,48 @@ if "last_rag_sources" not in st.session_state:
 with st.sidebar:
     st.header("⚙️ AI 페르소나 및 RAG 설정")
     
-    # --- 페르소나 문장 기반 생성기 (여러 개) ---
-    st.markdown("## 🧬 페르소나 생성기 (문장 기반)")
-    st.caption("문장으로 주제를 생성하고, 이전 결과를 이어받아 페르소나를 연결할 수 있어요.")
+    # --- 페르소나 문장 기반 생성기 (범용 응답 생성) ---
+    st.markdown("## 🧬 페르소나 시뮬레이터")
+    st.caption("각 페르소나의 자연어 입력에 따라 AI 응답을 생성하고, 필요시 이전 페르소나 응답을 이어받을 수 있습니다.")
 
-    # 세션 상태 초기화
     if "persona_blocks" not in st.session_state:
-        t.session_state.persona_blocks = []
+        st.session_state.persona_blocks = []
 
-    # 페르소나 블록 추가 버튼
     if st.button("➕ 페르소나 추가"):
         st.session_state.persona_blocks.append({
             "text": "",
             "use_prev": False,
-            "result": []
+            "result": ""
         })
 
-    # 블록 렌더링
     for i, block in enumerate(st.session_state.persona_blocks):
         st.markdown(f"---\n### 🧠 페르소나 #{i+1}")
-    
-        use_prev = st.checkbox("이전 페르소나에서 이어받기", key=f"use_prev_{i}", value=block["use_prev"])
+
+        # 이어받기 여부
+        use_prev = st.checkbox("이전 페르소나 응답 이어받기", key=f"use_prev_{i}", value=block["use_prev"])
         st.session_state.persona_blocks[i]["use_prev"] = use_prev
 
-        text_input = st.text_area("문장 입력", value=block["text"], key=f"text_input_{i}")
+        # 자연어 입력
+        text_input = st.text_area("문장 입력 (명령, 질문, 요청 등)", value=block["text"], key=f"text_input_{i}")
         st.session_state.persona_blocks[i]["text"] = text_input
 
-        if st.button(f"🪄 이 페르소나로 주제 생성", key=f"generate_{i}"):
+        if st.button(f"🧠 이 페르소나로 응답 생성", key=f"generate_{i}"):
             full_prompt = ""
             if use_prev and i > 0:
-                prev_result = st.session_state.persona_blocks[i-1]["result"]
-                prev_text = "\n".join([f"- {line}" for line in prev_result]) if prev_result else ""
-                full_prompt = prev_text + "\n\n" + text_input
+                prev_result = st.session_state.persona_blocks[i - 1]["result"]
+                full_prompt = f"{prev_result}\n\n{text_input}"
             else:
                 full_prompt = text_input
 
-            with st.spinner("주제를 생성 중입니다..."):
-                generated = generate_topic_insights_from_natural_prompt(full_prompt)
-                st.session_state.persona_blocks[i]["result"] = generated
+            with st.spinner("응답 생성 중..."):
+                response = generate_response_from_persona(full_prompt)
+                st.session_state.persona_blocks[i]["result"] = response
                 st.success("생성 완료!")
 
+        # 응답 출력
         if block["result"]:
-            st.markdown("**📌 생성된 주제:**")
-            for r in block["result"]:
-                st.markdown(f"- {r}")
+            st.markdown("**📌 생성된 응답:**")
+            st.markdown(block["result"])
 
     with st.expander("전문가 페르소나 설정", expanded=True):
         st.write("주제 생성을 위한 전문가 AI의 설정을 정의해 보세요.")
