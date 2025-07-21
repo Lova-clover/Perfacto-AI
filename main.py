@@ -158,18 +158,59 @@ with st.sidebar:
                 response_text = generate_response_from_persona(final_prompt)
                 st.session_state.generated_topics = [
                     line.strip().lstrip("-").strip() for line in response_text.split("\n") if line.strip().startswith("-")
-                ][:3]  # 최대 3개 추출
+                ][:3]  # 기본 3개만 자름
 
                 if st.session_state.generated_topics:
-                    st.session_state.selected_generated_topic = st.selectbox(
-                        "👇 생성된 주제 중 하나를 선택하세요:",
-                        options=st.session_state.generated_topics,
-                        index=0,
-                        key="selected_topic_after_generation"
-                    )
+                    st.success("주제 생성 완료!")
+                    st.session_state.selected_generated_topic = st.session_state.generated_topics[0]
                 else:
                     st.warning("주제를 생성하지 못했습니다. 문장을 다시 확인해 주세요.")
     
+    st.markdown("---")
+
+    with st.expander("RAG (검색 증강 생성) 설정", expanded=True):
+        st.subheader("🔎 분석 대상 설정")
+        url_input = st.text_input("검색 키워드 입력", placeholder="ex) 인공지능 윤리")
+        uploaded_files = st.file_uploader(
+            "파일 업로드 (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"], accept_multiple_files=True
+        )
+        
+        if st.button("분석 시작"):
+            st.session_state.retriever = None # 초기화
+            all_documents = [] # 모든 소스의 문서를 담을 리스트
+
+            # 1. 파일 처리
+            if uploaded_files:
+                with st.spinner("업로드된 파일을 파싱 중입니다..."):
+                    file_docs = get_documents_from_files(uploaded_files)
+                    all_documents.extend(file_docs)
+                    st.success(f"{len(file_docs)}개의 파일 문서 로드 완료.")
+
+            # 2. 검색 키워드 처리 (웹 수집)
+            if url_input:
+                with st.spinner(f"'{url_input}' 관련 웹페이지를 수집하고 정리하는 중입니다..."):
+                    web_docs, error = full_web_ingest(url_input)
+                    if not error:
+                        all_documents.extend(web_docs)
+                        st.success(f"{len(web_docs)}개의 웹 문서 로드 완료.")
+                    else:
+                        st.error(f"웹페이지 수집 중 오류 발생: {error}")
+    
+
+            # 3. 결합된 문서로 하나의 리트리버 생성
+            if all_documents:
+                with st.spinner("모든 문서를 결합하고 벡터화하는 중입니다..."):
+                    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+                    split_documents = text_splitter.split_documents(all_documents)
+
+                    embedding = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+                    combined_vectorstore = FAISS.from_documents(split_documents, embedding)
+                    st.session_state.retriever = combined_vectorstore.as_retriever()
+                    st.success("모든 소스의 문서로 분석 준비 완료! 이제 질문해 보세요.")
+            else:
+                st.warning("분석할 문서(파일 또는 웹 콘텐츠)가 없습니다. 검색 키워드 또는 파일을 입력해 주세요.")
+
+
     st.markdown("---")
 
     with st.expander("스크립트 생성", expanded=True): # 새로운 "스크립트 생성" expander
