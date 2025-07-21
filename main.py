@@ -96,15 +96,15 @@ with st.sidebar:
 
     if "persona_blocks" not in st.session_state:
         st.session_state.persona_blocks = []
-        
+
     delete_idx = None
-    
+
     # --- 페르소나 문장 기반 생성기 (범용 응답 생성) ---
     if st.button("➕ 페르소나 추가"):
         st.session_state.persona_blocks.append({
             "name": "새 페르소나",
             "text": "",
-            "use_prev_idx": None,
+            "use_prev_idx": [],
             "result": ""
         })
 
@@ -116,28 +116,27 @@ with st.sidebar:
         )
 
         # 기본 옵션 (페르소나 블록 인덱스)
-        persona_options = list(range(len(st.session_state.persona_blocks)))
+        persona_options = [("persona", idx) for idx in range(len(st.session_state.persona_blocks)) if idx != i]
 
         # 가상 페르소나 옵션 추가
         if "expert" in st.session_state.virtual_personas:
-            persona_options.append(-1)
+            persona_options.append(("expert", -1))
         if "script" in st.session_state.virtual_personas:
-            persona_options.append(-2)
+            persona_options.append(("script", -2))
 
-        # 드롭다운 구성
-        prev_idx = st.selectbox(
+        # 멀티 셀렉트 구성
+        prev_idxs = st.multiselect(
             "이전 페르소나 응답 이어받기",
-            options=[None] + persona_options,
+            options=persona_options,
             format_func=lambda x: (
-                "없음" if x is None else (
-                    "전문가 페르소나" if x == -1 else
-                    "스크립트 페르소나" if x == -2 else
-                    f"{x+1} - {st.session_state.persona_blocks[x]['name']}"
-                )
+                "전문가 페르소나" if x[0] == "expert" else
+                "스크립트 페르소나" if x[0] == "script" else
+                f"{x[1]+1} - {st.session_state.persona_blocks[x[1]]['name']}"
             ),
+            default=block.get("use_prev_idx", []),
             key=f"use_prev_idx_{i}"
         )
-        st.session_state.persona_blocks[i]["use_prev_idx"] = prev_idx
+        st.session_state.persona_blocks[i]["use_prev_idx"] = prev_idxs
 
         st.session_state.persona_blocks[i]["text"] = st.text_area(
             "지시 문장", value=block["text"], key=f"text_{i}"
@@ -176,18 +175,17 @@ with st.sidebar:
                         st.success("이 페르소나에 대한 문서 분석이 완료되었습니다.")
 
         if st.button(f"🧠 페르소나 실행", key=f"run_{i}"):
-            final_prompt = ""
-            if prev_idx is not None:
-                if prev_idx == -1:
-                    prev = st.session_state.virtual_personas["expert"]["result"]
-                elif prev_idx == -2:
-                    prev = st.session_state.virtual_personas["script"]["result"]
-                else:
-                    prev = st.session_state.persona_blocks[prev_idx]["result"]
+            prev_blocks = []
+            for ptype, pidx in st.session_state.persona_blocks[i].get("use_prev_idx", []):
+                if ptype == "expert":
+                    prev_blocks.append(f"[전문가 페르소나]\n{st.session_state.virtual_personas['expert']['result']}")
+                elif ptype == "script":
+                    prev_blocks.append(f"[스크립트 페르소나]\n{st.session_state.virtual_personas['script']['result']}")
+                elif ptype == "persona" and pidx != i:
+                    prev_blocks.append(f"[페르소나 #{pidx+1}]\n{st.session_state.persona_blocks[pidx]['result']}")
 
-                final_prompt = f"이전 응답:\n{prev}\n\n지시:\n{block['text']}"
-            else:
-                final_prompt = block["text"]
+            joined_prev = "\n\n".join(prev_blocks)
+            final_prompt = f"{joined_prev}\n\n지시:\n{block['text']}" if joined_prev else block["text"]
 
             if use_rag and i in st.session_state.persona_rag_retrievers:
                 rag_result = rag_with_sources({
@@ -206,7 +204,7 @@ with st.sidebar:
                     AIMessage(content=result_text)
                 )
                 st.session_state.persona_blocks[i]["result"] = result_text
-            
+
         if st.button(f"🗑️ 페르소나 삭제", key=f"delete_{i}"):
             delete_idx = i
 
@@ -217,11 +215,11 @@ with st.sidebar:
     with st.expander("전문가 페르소나 설정", expanded=True):
         st.write("주제 생성을 위한 전문가 페르소나에게 자연어로 지시하세요.")
 
-        expert_prev_idx = st.selectbox(
+        expert_prev_indices = st.multiselect(
             "이전 페르소나 응답 이어받기",
-            options=[None] + list(range(len(st.session_state.persona_blocks))),
-            format_func=lambda x: "없음" if x is None else f"{x+1} - {st.session_state.persona_blocks[x]['name']}",
-            key="expert_use_prev_idx"
+            options=[("persona", i) for i in range(len(st.session_state.persona_blocks))],
+            format_func=lambda x: f"{x[1]+1} - {st.session_state.persona_blocks[x[1]]['name']}",
+            key="expert_use_prev_multi"
         )
     
         expert_instruction = st.text_area(
@@ -264,10 +262,13 @@ with st.sidebar:
                         st.success("전문가용 문서 분석이 완료되었습니다.")
         
         if st.button("주제 생성"):
-            final_prompt = expert_instruction
-            if expert_prev_idx is not None:
-                prev_response = st.session_state.persona_blocks[expert_prev_idx]["result"]
-                final_prompt = f"이전 응답:\n{prev_response}\n\n지시:\n{expert_instruction}"
+            prev_blocks = []
+            for block_type, idx in expert_prev_indices:
+                if block_type == "persona":
+                    prev = st.session_state.persona_blocks[idx]["result"]
+                    prev_blocks.append(f"[페르소나 #{idx+1}]\n{prev}")
+            joined_prev_text = "\n\n".join(prev_blocks)
+            final_prompt = f"{joined_prev_text}\n\n지시:\n{expert_instruction}" if joined_prev_text else expert_instruction
 
             with st.spinner("전문가 페르소나가 주제를 생성하고 있습니다..."):
                 if st.session_state.expert_use_rag:
@@ -305,6 +306,7 @@ with st.sidebar:
 
                 else:
                     st.warning("주제를 생성하지 못했습니다. 문장을 다시 확인해 주세요.")
+
     
     st.markdown("---")
 
@@ -371,16 +373,14 @@ with st.sidebar:
         #                                          placeholder="예: {\"length\": \"short\", \"keywords\": [\"파이썬\", \"데이터\"]}", 
         #                                          key="script_expert_constraints_input")
 
-        # 1. 이전 응답 선택
-        script_prev_idx = st.selectbox(
+        # 1. 여러 개의 이전 응답 선택 가능하도록 수정
+        selected_prev_indices = st.multiselect(
             "이전 페르소나 응답 이어받기",
-            options=[None] + list(range(len(st.session_state.persona_blocks))) + ["expert"],
+            options=[("persona", i) for i in range(len(st.session_state.persona_blocks))] + [("expert", -1)],
             format_func=lambda x: (
-                "없음" if x is None else (
-                    "전문가 페르소나" if x == "expert" else f"{x+1} - {st.session_state.persona_blocks[x]['name']}"
-                )
+                f"{x[1]+1} - {st.session_state.persona_blocks[x[1]]['name']}" if x[0] == "persona" else "전문가 페르소나"
             ),
-            key="script_use_prev_idx"
+            key="script_use_prev_multi"
         )
 
         # 2. 지시문 입력 (실제 입력은 base_instruction으로 받음)
@@ -390,15 +390,17 @@ with st.sidebar:
             key="script_instruction_input"
         )
 
-        # 3. 최종 프롬프트 구성 (사용자는 base_instruction만 보게 함)
-        if script_prev_idx is not None:
-            if script_prev_idx == "expert":
-                prev_response = st.session_state.virtual_personas.get("expert", {}).get("result", "")
-            else:
-                prev_response = st.session_state.persona_blocks[script_prev_idx]["result"]
-            script_instruction = f"이전 응답:\n{prev_response}\n\n지시:\n{base_instruction}"
-        else:
-            script_instruction = base_instruction
+        prev_blocks = []
+        for block_type, idx in selected_prev_indices:
+            if block_type == "expert":
+                prev = st.session_state.virtual_personas.get("expert", {}).get("result", "")
+                prev_blocks.append(f"[전문가 응답]\n{prev}")
+            elif block_type == "persona":
+                prev = st.session_state.persona_blocks[idx]["result"]
+                prev_blocks.append(f"[페르소나 #{idx+1}]\n{prev}")
+
+        joined_prev_text = "\n\n".join(prev_blocks)
+        script_instruction = f"{joined_prev_text}\n\n지시:\n{base_instruction}" if joined_prev_text else base_instruction
 
         if st.button("스크립트 생성", help="선택된 주제로 숏폼 영상 스크립트를 만들어 드립니다.", key="generate_script_button"):
             if st.session_state.selected_generated_topic:
@@ -406,7 +408,7 @@ with st.sidebar:
                     # 콘텐츠 제작자 페르소나로 스크립트 생성
                     # 스크립트 생성 프롬프트에 페르소나, 대상 시청자, 추가 조건 반영
                     #script_prompt_content = f"주어진 주제: '{st.session_state.selected_generated_topic}'. 이 주제에 대해 다음 조건을 사용하여 숏폼 비디오 스크립트를 작성해 주세요. 페르소나: {script_expert_persona}, 대상 시청자: {script_expert_audience}, 톤 : {script_expert_tone}, 추가 조건: {script_expert_constraints}"
-                    prompt = f"""주어진 주제: "{st.session_state.selected_generated_topic}"\n\n스크립트 지시: {script_instruction}"""
+                    prompt = f"""주어진 주제: \"{st.session_state.selected_generated_topic}\"\n\n스크립트 지시: {script_instruction}"""
                     script_chain = get_default_chain(
                     system_prompt="""당신은 TikTok, YouTube Shorts, Instagram Reels 등에서 **즉시 시선을 사로잡고 끝까지 시청하게 만드는 바이럴성 숏폼 비디오 스크립트**를 작성하는 전문 크리에이터입니다.
 
