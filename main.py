@@ -454,7 +454,10 @@ with st.sidebar:
                         else:
                             st.session_state.video_title = "제목 없음" # 추출 실패 시 기본값
 
-                    st.session_state.messages.append(AIMessage(content=f"**다음 스크립트가 생성되었습니다:**\n\n{st.session_state.edited_script_content}"))
+                    st.session_state.messages.append(
+                        AIMessage(content=f"**다음 스크립트가 생성되었습니다:**\n\n{generated_script.strip()}",
+                            additional_kwargs={"sources": rag_context.get("sources", [])})
+                    )
                 st.success("스크립트 생성이 완료되었습니다!")
                 st.session_state.virtual_personas["script"] = {
                     "name": "스크립트 페르소나",
