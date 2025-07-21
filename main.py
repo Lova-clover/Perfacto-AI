@@ -180,24 +180,30 @@ with st.sidebar:
                 key="script_topic_select"
             )
         
-        # 페르소나, 대상 시청자, 추가 조건 복사 (원래 위치에도 유지)
-        script_expert_persona = st.text_input("페르소나", 
-                                               value=st.session_state.expert_persona, 
-                                               placeholder="예: 역사학자, 과학자", 
-                                               key="script_expert_persona_input")
-        script_expert_audience = st.text_input("대상 시청자", 
-                                                value=st.session_state.expert_audience, 
-                                                placeholder="예: 고등학생, 일반인, 전문가", 
-                                                key="script_expert_audience_input")
-        script_expert_tone = st.text_input("톤", 
-                                     value=st.session_state.expert_tone, 
-                                     placeholder="예: 유익함, 재미있음, 진지함", 
-                                     key="script_tone_input") 
-        script_expert_constraints = st.text_area("추가 조건 (JSON 형식 권장)", 
-                                                 value=st.session_state.expert_constraints, 
-                                                 placeholder="예: {\"length\": \"short\", \"keywords\": [\"파이썬\", \"데이터\"]}", 
-                                                 key="script_expert_constraints_input")
+        # # 페르소나, 대상 시청자, 추가 조건 복사 (원래 위치에도 유지)
+        # script_expert_persona = st.text_input("페르소나", 
+        #                                        value=st.session_state.expert_persona, 
+        #                                        placeholder="예: 역사학자, 과학자", 
+        #                                        key="script_expert_persona_input")
+        # script_expert_audience = st.text_input("대상 시청자", 
+        #                                         value=st.session_state.expert_audience, 
+        #                                         placeholder="예: 고등학생, 일반인, 전문가", 
+        #                                         key="script_expert_audience_input")
+        # script_expert_tone = st.text_input("톤", 
+        #                              value=st.session_state.expert_tone, 
+        #                              placeholder="예: 유익함, 재미있음, 진지함", 
+        #                              key="script_tone_input") 
+        # script_expert_constraints = st.text_area("추가 조건 (JSON 형식 권장)", 
+        #                                          value=st.session_state.expert_constraints, 
+        #                                          placeholder="예: {\"length\": \"short\", \"keywords\": [\"파이썬\", \"데이터\"]}", 
+        #                                          key="script_expert_constraints_input")
 
+        # ✅ 통합 지시 문장 입력
+        script_instruction = st.text_area(
+            "스크립트 지시 문장 (페르소나, 말투, 대상 등 자유롭게 기술)",
+            placeholder="예: 너는 대중에게 유익한 역사 콘텐츠를 만들 줄 아는 전문가야. 재미있고 간결하게 설명해줘.",
+            key="script_instruction_input"
+        )
 
         if st.button("스크립트 생성", help="선택된 주제로 숏폼 영상 스크립트를 만들어 드립니다.", key="generate_script_button"):
             if st.session_state.selected_generated_topic:
