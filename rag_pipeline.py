@@ -289,7 +289,7 @@ def rag_with_sources(inputs: dict):
     # ==================================
 
     document_chain = get_document_chain(llm, prompt)
-    retrieval_chain = get_retrieval_chain(st.session_state.retriever, document_chain)
+    retrieval_chain = get_retrieval_chain(retriever, document_chain)
 
     response = retrieval_chain.invoke(inputs)
 
