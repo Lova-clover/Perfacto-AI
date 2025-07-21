@@ -309,31 +309,33 @@ with st.sidebar:
         script_rag_files = st.file_uploader("스크립트용 문서 업로드", type=["pdf", "docx", "txt"], accept_multiple_files=True, key="script_rag_files")
         all_documents = []
         
-        if use_script_rag and st.button("📄 스크립트용 문서 분석", key="analyze_script_rag"):
-            
-            if script_rag_files:
-                file_docs = get_documents_from_files(script_rag_files)
-                all_documents.extend(file_docs)
-                st.success(f"{len(file_docs)}개의 파일 문서 로드 완료.")
+        if use_script_rag:
+            if st.button("📄 스크립트용 문서 분석", key="analyze_script_rag"):
+                # 문서 수집 및 분할
+                if script_rag_files:
+                    file_docs = get_documents_from_files(script_rag_files)
+                    all_documents.extend(file_docs)
+                    st.success(f"{len(file_docs)}개의 파일 문서 로드 완료.")
 
-            if script_rag_url:
-                from web_ingest import full_web_ingest
-                web_docs, error = full_web_ingest(script_rag_url)
-                if not error:
-                    all_documents.extend(web_docs)
-                    st.success(f"{len(web_docs)}개의 웹 문서 로드 완료.")
+                if script_rag_url:
+                    from web_ingest import full_web_ingest
+                    web_docs, error = full_web_ingest(script_rag_url)
+                    if not error:
+                        all_documents.extend(web_docs)
+                        st.success(f"{len(web_docs)}개의 웹 문서 로드 완료.")
+                    else:
+                        st.error(f"웹페이지 수집 오류: {error}")
+
+                # retriever 생성은 버튼 내부에서만 실행되게 함
+                if all_documents:
+                    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+                    split_docs = splitter.split_documents(all_documents)
+                    embedding = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+                    vectorstore = FAISS.from_documents(split_docs, embedding)
+                    st.session_state.script_retriever = vectorstore.as_retriever()
+                    st.success("스크립트 생성용 RAG 문서 분석이 완료되었습니다.")
                 else:
-                    st.error(f"웹페이지 수집 오류: {error}")
-
-        if all_documents:
-            splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-            split_docs = splitter.split_documents(all_documents)
-            embedding = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-            vectorstore = FAISS.from_documents(split_docs, embedding)
-            st.session_state.script_retriever = vectorstore.as_retriever()
-            st.success("스크립트 생성용 RAG 문서 분석이 완료되었습니다.")
-        else:
-            st.warning("문서가 비어 있거나 수집에 실패했습니다.")
+                    st.warning("문서가 비어 있거나 수집에 실패했습니다.")
         
         # 주제 선택 드롭다운 (새 expander로 이동)
         if st.session_state.generated_topics:
