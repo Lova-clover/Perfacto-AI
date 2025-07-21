@@ -82,14 +82,11 @@ if "last_rag_sources" not in st.session_state:
 # --- 사이드바: AI 페르소나 설정 및 RAG 설정 ---
 with st.sidebar:
     st.header("⚙️ AI 페르소나 및 RAG 설정")
-    
-    # --- 페르소나 문장 기반 생성기 (범용 응답 생성) ---
-    st.markdown("## 🧬 페르소나 시뮬레이터")
-    st.caption("각 페르소나의 자연어 입력에 따라 AI 응답을 생성하고, 필요시 이전 페르소나 응답을 이어받을 수 있습니다.")
 
     if "persona_blocks" not in st.session_state:
         st.session_state.persona_blocks = []
-
+        
+    # --- 페르소나 문장 기반 생성기 (범용 응답 생성) ---
     if st.button("➕ 페르소나 추가"):
         st.session_state.persona_blocks.append({
             "name": "새 페르소나",
