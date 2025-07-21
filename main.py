@@ -303,7 +303,38 @@ with st.sidebar:
 
     with st.expander("스크립트 생성", expanded=True): # 새로운 "스크립트 생성" expander
         st.subheader("스크립트 생성 및 설정")
+        
+        use_script_rag = st.checkbox("🔎 스크립트 생성에 RAG 사용", value=False, key="use_script_rag")
+        script_rag_url = st.text_input("스크립트용 웹 키워드", key="script_rag_url")
+        script_rag_files = st.file_uploader("스크립트용 문서 업로드", type=["pdf", "docx", "txt"], accept_multiple_files=True, key="script_rag_files")
+        
+        if use_script_rag and st.button("📄 스크립트용 문서 분석", key="analyze_script_rag"):
+            all_documents = []
 
+            if script_rag_files:
+                file_docs = get_documents_from_files(script_rag_files)
+                all_documents.extend(file_docs)
+                st.success(f"{len(file_docs)}개의 파일 문서 로드 완료.")
+
+            if script_rag_url:
+                from web_ingest import full_web_ingest
+                web_docs, error = full_web_ingest(script_rag_url)
+                if not error:
+                    all_documents.extend(web_docs)
+                    st.success(f"{len(web_docs)}개의 웹 문서 로드 완료.")
+                else:
+                    st.error(f"웹페이지 수집 오류: {error}")
+
+        if all_documents:
+            splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+            split_docs = splitter.split_documents(all_documents)
+            embedding = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+            vectorstore = FAISS.from_documents(split_docs, embedding)
+            st.session_state.script_retriever = vectorstore.as_retriever()
+            st.success("스크립트 생성용 RAG 문서 분석이 완료되었습니다.")
+        else:
+            st.warning("문서가 비어 있거나 수집에 실패했습니다.")
+        
         # 주제 선택 드롭다운 (새 expander로 이동)
         if st.session_state.generated_topics:
             st.session_state.selected_generated_topic = st.selectbox(
@@ -366,9 +397,17 @@ with st.sidebar:
                     )           
                     st.session_state.messages.append(HumanMessage(content=f"선택된 주제 '{st.session_state.selected_generated_topic}'에 대한 스크립트를 만들어 줘."))
                     
-                    generated_script = ""
-                    for token in script_chain.stream({"question": prompt, "chat_history": []}): # script_prompt_content -> prompt로 수정
-                        generated_script += token
+                    if use_script_rag and "script_retriever" in st.session_state:
+                        rag_response = rag_with_sources({
+                            "input": prompt,
+                            "chat_history": [],
+                            "retriever": st.session_state.script_retriever
+                        })
+                        generated_script = rag_response.get("answer", "").strip()
+                    else:
+                        generated_script = ""
+                        for token in script_chain.stream({"question": prompt, "chat_history": []}):
+                            generated_script += token
                     
                     st.session_state.edited_script_content = generated_script.strip()
                     with st.spinner("생성된 스크립트에서 영상 주제를 자동으로 추출하고 있습니다..."):
