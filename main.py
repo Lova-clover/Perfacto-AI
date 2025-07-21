@@ -92,36 +92,42 @@ with st.sidebar:
 
     if st.button("➕ 페르소나 추가"):
         st.session_state.persona_blocks.append({
+            "name": "새 페르소나",
             "text": "",
-            "use_prev": False,
+            "use_prev_idx": None,
             "result": ""
         })
 
     for i, block in enumerate(st.session_state.persona_blocks):
-        st.markdown(f"---\n### 🧠 페르소나 #{i+1}")
+        st.markdown(f"---\n### 🎭 페르소나 #{i+1} - `{block['name']}`")
 
-        # 이어받기 여부
-        use_prev = st.checkbox("이전 페르소나 응답 이어받기", key=f"use_prev_{i}", value=block["use_prev"])
-        st.session_state.persona_blocks[i]["use_prev"] = use_prev
+        st.session_state.persona_blocks[i]["name"] = st.text_input(
+            "페르소나 역할 이름", value=block["name"], key=f"name_{i}"
+        )
 
-        # 자연어 입력
-        text_input = st.text_area("문장 입력 (명령, 질문, 요청 등)", value=block["text"], key=f"text_input_{i}")
-        st.session_state.persona_blocks[i]["text"] = text_input
+        prev_idx = st.selectbox(
+            "이전 페르소나 응답 이어받기",
+            options=[None] + list(range(i)),
+            format_func=lambda x: "없음" if x is None else f"{x+1} - {st.session_state.persona_blocks[x]['name']}",
+            key=f"use_prev_idx_{i}"
+        )
+        st.session_state.persona_blocks[i]["use_prev_idx"] = prev_idx
 
-        if st.button(f"🧠 이 페르소나로 응답 생성", key=f"generate_{i}"):
-            full_prompt = ""
-            if use_prev and i > 0:
-                prev_result = st.session_state.persona_blocks[i - 1]["result"]
-                full_prompt = f"{prev_result}\n\n{text_input}"
+        st.session_state.persona_blocks[i]["text"] = st.text_area(
+            "지시 문장", value=block["text"], key=f"text_{i}"
+        )
+
+        if st.button(f"🧠 이 페르소나로 실행", key=f"run_{i}"):
+            final_prompt = ""
+            if prev_idx is not None:
+                prev = st.session_state.persona_blocks[prev_idx]["result"]
+                final_prompt = f"이전 응답:\n{prev}\n\n지시:\n{block['text']}"
             else:
-                full_prompt = text_input
+                final_prompt = block["text"]
 
-            with st.spinner("응답 생성 중..."):
-                response = generate_response_from_persona(full_prompt)
-                st.session_state.persona_blocks[i]["result"] = response
-                st.success("생성 완료!")
+            result = generate_response_from_persona(final_prompt)
+            st.session_state.persona_blocks[i]["result"] = result
 
-        # 응답 출력
         if block["result"]:
             st.markdown("**📌 생성된 응답:**")
             st.markdown(block["result"])

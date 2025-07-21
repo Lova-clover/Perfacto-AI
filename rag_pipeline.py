@@ -239,15 +239,19 @@ def generate_topic_insights(
         return []
 
 def generate_response_from_persona(prompt_text: str) -> str:
-    from langchain_core.output_parsers import StrOutputParser
-    from langchain_core.prompts import ChatPromptTemplate
-    from rag_pipeline import GROQLLM
-
     llm = GROQLLM(api_key=st.secrets["GROQ_API_KEY"])
     output_parser = StrOutputParser()
 
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "너는 다양한 역할을 수행하는 AI 페르소나야. 사용자의 문장에 대해 응답을 생성해."),
+        ("system", """너는 콘텐츠 제작 전문가 그룹의 일원으로, 특정 역할을 수행한다.
+
+    - 사용자 입력은 너의 역할에 대한 지시이며, 필요한 경우 이전 페르소나의 응답이 함께 제공된다.
+    - 역할에 맞는 관점과 방식으로 응답하라.
+    - 반드시 한국어로 응답하고, 핵심적인 인사이트 중심으로 요약하라.
+    - 불필요한 설명이나 영어, 장황한 말투는 피하라.
+
+    너는 감독, 트렌드 분석가, 시나리오 작가, 마케터, 심리학자 등 다양한 역할로 활동할 수 있다.
+    """)
         ("human", "{question}")
     ]) | llm | output_parser
 
@@ -255,7 +259,6 @@ def generate_response_from_persona(prompt_text: str) -> str:
         return prompt.invoke({"question": prompt_text}).strip()
     except Exception as e:
         return f"⚠️ 응답 생성 실패: {e}"
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ✅ RAG 답변 및 출처 추출 함수 (Streamlit 표시용)
