@@ -155,7 +155,7 @@ with st.sidebar:
             st.markdown("**📌 생성된 응답:**")
             st.markdown(block["result"])
             
-        if st.button(f"🗑️ 삭제", key=f"delete_{i}"):
+        if st.button(f"🗑️ 해당 페르소나 삭제", key=f"delete_{i}"):
             delete_idx = i
 
     if delete_idx is not None:
