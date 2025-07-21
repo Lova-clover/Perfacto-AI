@@ -190,14 +190,22 @@ with st.sidebar:
                 final_prompt = block["text"]
 
             if use_rag and i in st.session_state.persona_rag_retrievers:
-                result = rag_with_sources({
+                rag_result = rag_with_sources({
                     "input": final_prompt,
                     "chat_history": [],
                     "retriever": st.session_state.persona_rag_retrievers[i]
-                })["answer"]
+                })
+                result_text = rag_result.get("answer", "")
+                st.session_state.messages.append(
+                    AIMessage(content=result_text, additional_kwargs={"sources": rag_result.get("sources", [])})
+                )
+                st.session_state.persona_blocks[i]["result"] = result_text
             else:
-                result = generate_response_from_persona(final_prompt)
-            st.session_state.persona_blocks[i]["result"] = result
+                result_text = generate_response_from_persona(final_prompt)
+                st.session_state.messages.append(
+                    AIMessage(content=result_text)
+                )
+                st.session_state.persona_blocks[i]["result"] = result_text
 
         if block["result"]:
             st.markdown("**📌 생성된 응답:**")
@@ -283,6 +291,9 @@ with st.sidebar:
                         response_text = ""
                 else:
                     response_text = generate_response_from_persona(final_prompt)
+                    st.session_state.messages.append(
+                        AIMessage(content=response_text)
+                    )
                 st.session_state.generated_topics = [
                     line.strip().lstrip("-").strip() for line in response_text.split("\n") if line.strip().startswith("-")
                 ][:3]  # 기본 3개만 자름
