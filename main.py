@@ -133,70 +133,39 @@ with st.sidebar:
             st.markdown(block["result"])
 
     with st.expander("전문가 페르소나 설정", expanded=True):
-        st.write("주제 생성을 위한 전문가 AI의 설정을 정의해 보세요.")
-        expert_persona = st.text_input("페르소나", 
-                                       value=st.session_state.expert_persona, 
-                                       placeholder="예: 역사학자, 과학자", 
-                                       key="expert_persona_input")
-        expert_domain = st.text_input("주제 전문 분야", 
-                                       value=st.session_state.expert_domain, 
-                                       placeholder="예: 조선 시대, 블랙홀, 인공지능", 
-                                       key="expert_domain_input")
-        expert_audience = st.text_input("대상 시청자", 
-                                         value=st.session_state.expert_audience, 
-                                         placeholder="예: 고등학생, 일반인, 전문가", 
-                                         key="expert_audience_input")
-        expert_tone = st.text_input("톤", 
-                                     value=st.session_state.expert_tone, 
-                                     placeholder="예: 유익함, 재미있음, 진지함", 
-                                     key="expert_tone_input")
-        expert_output_count = st.number_input("출력 개수", # '출력 형식' 대신 '출력 개수'
-                                              min_value=1, max_value=10, 
-                                              value=st.session_state.expert_output_count, 
-                                              key="expert_output_count_input")
-        expert_constraints = st.text_area("추가 조건 (JSON 형식 권장)", 
-                                           value=st.session_state.expert_constraints, 
-                                           placeholder="예: {\"length\": \"short\", \"keywords\": [\"파이썬\", \"데이터\"]}", 
-                                           key="expert_constraints_input")
+        st.write("주제 생성을 위한 전문가 페르소나에게 자연어로 지시하세요.")
+    
+        expert_prev_idx = st.selectbox(
+            "이전 페르소나 응답 이어받기",
+            options=[None] + list(range(len(st.session_state.persona_blocks))),
+            format_func=lambda x: "없음" if x is None else f"{x+1} - {st.session_state.persona_blocks[x]['name']}",
+            key="expert_use_prev_idx"
+        )
+    
+        expert_instruction = st.text_area(
+            "지시 문장",
+            placeholder="예: 너는 유튜브 트렌드 전문가야. 최근 쇼츠에서 인기있는 주제 3개만 뽑아줘.",
+            key="expert_instruction_input"
+        )
 
         if st.button("주제 생성"):
-            if not expert_persona.strip():
-                st.warning("페르소나를 입력해 주세요.")
-                st.stop()
-            if not expert_domain.strip():
-                st.warning("주제 전문 분야를 입력해 주세요.")
-                st.stop()
-            if not expert_audience.strip():
-                st.warning("대상 시청자를 입력해 주세요.")
-                st.stop()
-            if not expert_tone.strip():
-                st.warning("톤을 입력해 주세요.")
-                st.stop()
-            constraints_dict = {}
-            if expert_constraints.strip(): # 추가 조건이 비어있지 않을 때만 파싱 시도
-                try:
-                    constraints_dict = json.loads(expert_constraints) # json.loads 사용 권장
-                except json.JSONDecodeError:
-                    st.error("추가 조건이 올바른 JSON 형식이 아닙니다.")
-                    st.stop() # 오류 시 스크립트 중단
+            final_prompt = expert_instruction
+            if expert_prev_idx is not None:
+                prev_response = st.session_state.persona_blocks[expert_prev_idx]["result"]
+                final_prompt = f"이전 응답:\n{prev_response}\n\n지시:\n{expert_instruction}"
 
             with st.spinner("전문가 페르소나가 주제를 생성하고 있습니다..."):
-                st.session_state.messages.append(HumanMessage(content=f"전문가 페르소나({expert_persona})로 '{expert_domain}'에 대한 '{expert_audience}' 대상의 '{expert_tone}' 톤으로 {expert_output_count}개의 주제를 생성해 줘. 추가 조건: {expert_constraints}"))
-                st.session_state.generated_topics = generate_topic_insights(
-                    persona=expert_persona,
-                    domain=expert_domain,
-                    audience=expert_audience,
-                    tone=expert_tone,
-                    num_topics=expert_output_count, # 출력 개수 전달
-                    constraints=expert_constraints # 문자열로 전달 (generate_topic_insights 내부에서 처리)
-                )
+                response_text = generate_response_from_persona(final_prompt)
+                st.session_state.generated_topics = [
+                    line.strip().lstrip("-").strip() for line in response_text.split("\n") if line.strip().startswith("-")
+                ][:3]  # 기본 3개만 자름
+
                 if st.session_state.generated_topics:
-                    topic_list_str = "\n".join([f"- {topic}" for topic in st.session_state.generated_topics])
-                    st.session_state.messages.append(AIMessage(content=f"다음 주제들이 생성되었습니다:\n{topic_list_str}"))
-                    st.session_state.selected_generated_topic = st.session_state.generated_topics[0] if st.session_state.generated_topics else ""
+                    st.success("주제 생성 완료!")
+                    st.session_state.selected_generated_topic = st.session_state.generated_topics[0]
                 else:
-                    st.session_state.messages.append(AIMessage(content="주제 생성에 실패했어요. 설정을 다시 확인해 주세요."))
-            st.rerun()
+                    st.warning("주제를 생성하지 못했습니다. 문장을 다시 확인해 주세요.")
+                st.rerun()
     
     st.markdown("---")
 
