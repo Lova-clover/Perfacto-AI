@@ -307,10 +307,10 @@ with st.sidebar:
         use_script_rag = st.checkbox("🔎 스크립트 생성에 RAG 사용", value=False, key="use_script_rag")
         script_rag_url = st.text_input("스크립트용 웹 키워드", key="script_rag_url")
         script_rag_files = st.file_uploader("스크립트용 문서 업로드", type=["pdf", "docx", "txt"], accept_multiple_files=True, key="script_rag_files")
+        all_documents = []
         
         if use_script_rag and st.button("📄 스크립트용 문서 분석", key="analyze_script_rag"):
-            all_documents = []
-
+            
             if script_rag_files:
                 file_docs = get_documents_from_files(script_rag_files)
                 all_documents.extend(file_docs)
