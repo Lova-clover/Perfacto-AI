@@ -305,11 +305,11 @@ with st.sidebar:
         st.subheader("스크립트 생성 및 설정")
         
         use_script_rag = st.checkbox("🔎 스크립트 생성에 RAG 사용", value=False, key="use_script_rag")
-        script_rag_url = st.text_input("스크립트용 웹 키워드", key="script_rag_url")
-        script_rag_files = st.file_uploader("스크립트용 문서 업로드", type=["pdf", "docx", "txt"], accept_multiple_files=True, key="script_rag_files")
         all_documents = []
         
         if use_script_rag:
+            script_rag_url = st.text_input("스크립트용 웹 키워드", key="script_rag_url")
+            script_rag_files = st.file_uploader("스크립트용 문서 업로드", type=["pdf", "docx", "txt"], accept_multiple_files=True, key="script_rag_files")
             if st.button("📄 스크립트용 문서 분석", key="analyze_script_rag"):
                 # 문서 수집 및 분할
                 if script_rag_files:
