@@ -239,6 +239,9 @@ def generate_topic_insights(
         return []
 
 def generate_response_from_persona(prompt_text: str) -> str:
+    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_core.output_parsers import StrOutputParser
+
     llm = GROQLLM(api_key=st.secrets["GROQ_API_KEY"])
     output_parser = StrOutputParser()
 
@@ -256,12 +259,15 @@ def generate_response_from_persona(prompt_text: str) -> str:
 """
         ),
         ("human", "{question}")
-    ]) | llm | output_parser
+    ])
+
+    chain = prompt | llm | output_parser
 
     try:
-        return prompt.invoke({"question": prompt_text}).strip()
+        return chain.invoke({"question": prompt_text}).strip()
     except Exception as e:
         return f"⚠️ 응답 생성 실패: {e}"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ✅ RAG 답변 및 출처 추출 함수 (Streamlit 표시용)
