@@ -371,12 +371,34 @@ with st.sidebar:
         #                                          placeholder="예: {\"length\": \"short\", \"keywords\": [\"파이썬\", \"데이터\"]}", 
         #                                          key="script_expert_constraints_input")
 
-        # ✅ 통합 지시 문장 입력
-        script_instruction = st.text_area(
+        # 1. 이전 응답 선택
+        script_prev_idx = st.selectbox(
+            "이전 페르소나 응답 이어받기",
+            options=[None] + list(range(len(st.session_state.persona_blocks))) + ["expert"],
+            format_func=lambda x: (
+                "없음" if x is None else (
+                    "전문가 페르소나" if x == "expert" else f"{x+1} - {st.session_state.persona_blocks[x]['name']}"
+                )
+            ),
+            key="script_use_prev_idx"
+        )
+
+        # 2. 지시문 입력 (실제 입력은 base_instruction으로 받음)
+        base_instruction = st.text_area(
             "스크립트 지시 문장 (페르소나, 말투, 대상 등 자유롭게 기술)",
-            placeholder="예: 너는 대중에게 유익한 역사 콘텐츠를 만들 줄 아는 전문가야. 재미있고 간결하게 설명해줘.",
+            value=st.session_state.get("script_instruction_input_val", ""),
             key="script_instruction_input"
         )
+
+        # 3. 최종 프롬프트 구성 (사용자는 base_instruction만 보게 함)
+        if script_prev_idx is not None:
+            if script_prev_idx == "expert":
+                prev_response = st.session_state.virtual_personas.get("expert", {}).get("result", "")
+            else:
+                prev_response = st.session_state.persona_blocks[script_prev_idx]["result"]
+            script_instruction = f"이전 응답:\n{prev_response}\n\n지시:\n{base_instruction}"
+        else:
+            script_instruction = base_instruction
 
         if st.button("스크립트 생성", help="선택된 주제로 숏폼 영상 스크립트를 만들어 드립니다.", key="generate_script_button"):
             if st.session_state.selected_generated_topic:
@@ -461,9 +483,11 @@ with st.sidebar:
                         else:
                             st.session_state.video_title = "제목 없음" # 추출 실패 시 기본값
 
+                    sources_for_message = rag_context.get("sources", []) if "rag_context" in locals() else []
+
                     st.session_state.messages.append(
                         AIMessage(content=f"**다음 스크립트가 생성되었습니다:**\n\n{generated_script.strip()}",
-                            additional_kwargs={"sources": rag_context.get("sources", [])})
+                                additional_kwargs={"sources": sources_for_message})
                     )
                 st.success("스크립트 생성이 완료되었습니다!")
                 st.session_state.virtual_personas["script"] = {
