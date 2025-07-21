@@ -303,25 +303,25 @@ def rag_with_sources(inputs: dict):
 
     answer = response["answer"]
     
-    # --- 디버깅을 위한 코드 추가 (기존 디버그 코드는 그대로 유지) ---
-    st.write("--- rag_with_sources 내부 디버그 ---")
-    st.write(f"LLM이 생성한 원본 답변: {answer}")
-    st.write("검색된 컨텍스트 문서:")
-    if response["context"]:
-        for i, doc in enumerate(response["context"]):
-            st.write(f"  문서 {i+1} (타입: {type(doc)}):")
-            if hasattr(doc, 'page_content'):
-                st.write(f"    내용 미리보기: {doc.page_content[:200]}...")
-                st.write(f"    메타데이터: {doc.metadata}")
-            elif hasattr(doc, 'text'):
-                st.write(f"    내용 미리보기: {doc.text[:200]}...")
-                st.write(f"    메타데이터: {doc.metadata}")
-            else:
-                st.write(f"    알 수 없는 문서 타입: {str(doc)[:200]}...")
-    else:
-        st.write("  검색된 컨텍스트 문서가 없습니다.")
-    st.write("--- 디버그 끝 ---")
-    # --- 디버깅 코드 끝 ---
+    # # --- 디버깅을 위한 코드 추가 (기존 디버그 코드는 그대로 유지) ---
+    # st.write("--- rag_with_sources 내부 디버그 ---")
+    # st.write(f"LLM이 생성한 원본 답변: {answer}")
+    # st.write("검색된 컨텍스트 문서:")
+    # if response["context"]:
+    #     for i, doc in enumerate(response["context"]):
+    #         st.write(f"  문서 {i+1} (타입: {type(doc)}):")
+    #         if hasattr(doc, 'page_content'):
+    #             st.write(f"    내용 미리보기: {doc.page_content[:200]}...")
+    #             st.write(f"    메타데이터: {doc.metadata}")
+    #         elif hasattr(doc, 'text'):
+    #             st.write(f"    내용 미리보기: {doc.text[:200]}...")
+    #             st.write(f"    메타데이터: {doc.metadata}")
+    #         else:
+    #             st.write(f"    알 수 없는 문서 타입: {str(doc)[:200]}...")
+    # else:
+    #     st.write("  검색된 컨텍스트 문서가 없습니다.")
+    # st.write("--- 디버그 끝 ---")
+    # # --- 디버깅 코드 끝 ---
 
     source_info = []
     unique_sources = set()
