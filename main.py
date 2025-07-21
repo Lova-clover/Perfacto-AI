@@ -134,7 +134,7 @@ with st.sidebar:
             "지시 문장", value=block["text"], key=f"text_{i}"
         )
 
-        if st.button(f"🧠 이 페르소나로 실행", key=f"run_{i}"):
+        if st.button(f"🧠 페르소나 실행", key=f"run_{i}"):
             final_prompt = ""
             if prev_idx is not None:
                 if prev_idx == -1:
@@ -155,7 +155,7 @@ with st.sidebar:
             st.markdown("**📌 생성된 응답:**")
             st.markdown(block["result"])
             
-        if st.button(f"🗑️ 해당 페르소나 삭제", key=f"delete_{i}"):
+        if st.button(f"🗑️ 페르소나 삭제", key=f"delete_{i}"):
             delete_idx = i
 
     if delete_idx is not None:
