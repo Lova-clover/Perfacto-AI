@@ -109,39 +109,6 @@ with st.sidebar:
         })
 
     for i, block in enumerate(st.session_state.persona_blocks):
-        use_rag = st.checkbox("🔎 이 페르소나에 RAG 사용", value=st.session_state.persona_rag_flags.get(i, False), key=f"use_rag_{i}")
-        st.session_state.persona_rag_flags[i] = use_rag
-
-        if use_rag:
-            with st.expander("RAG 설정", expanded=True):
-                url_input = st.text_input("웹 키워드 입력", key=f"url_input_{i}")
-                uploaded_files = st.file_uploader("파일 업로드 (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"], accept_multiple_files=True, key=f"files_{i}")
-
-                if st.button("📄 RAG 문서 분석", key=f"rag_analyze_{i}"):
-                    all_documents = []
-
-                    if uploaded_files:
-                        file_docs = get_documents_from_files(uploaded_files)
-                        all_documents.extend(file_docs)
-                        st.success(f"{len(file_docs)}개의 파일 문서 로드 완료.")
-
-                    if url_input:
-                        web_docs, error = full_web_ingest(url_input)
-                        if not error:
-                            all_documents.extend(web_docs)
-                            st.success(f"{len(web_docs)}개의 웹 문서 로드 완료.")
-                        else:
-                            st.error(f"웹페이지 수집 오류: {error}")
-
-                    if all_documents:
-                        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-                        split_docs = text_splitter.split_documents(all_documents)
-
-                        embedding = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-                        vectorstore = FAISS.from_documents(split_docs, embedding)
-                        st.session_state.persona_rag_retrievers[i] = vectorstore.as_retriever()
-                        st.success("이 페르소나에 대한 문서 분석이 완료되었습니다.")
-
         st.markdown(f"---\n### 페르소나 #{i+1} - `{block['name']}`")
 
         st.session_state.persona_blocks[i]["name"] = st.text_input(
@@ -175,6 +142,38 @@ with st.sidebar:
         st.session_state.persona_blocks[i]["text"] = st.text_area(
             "지시 문장", value=block["text"], key=f"text_{i}"
         )
+        use_rag = st.checkbox("🔎 이 페르소나에 RAG 사용", value=st.session_state.persona_rag_flags.get(i, False), key=f"use_rag_{i}")
+        st.session_state.persona_rag_flags[i] = use_rag
+
+        if use_rag:
+            with st.expander("RAG 설정", expanded=True):
+                url_input = st.text_input("웹 키워드 입력", key=f"url_input_{i}")
+                uploaded_files = st.file_uploader("파일 업로드 (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"], accept_multiple_files=True, key=f"files_{i}")
+
+                if st.button("📄 RAG 문서 분석", key=f"rag_analyze_{i}"):
+                    all_documents = []
+
+                    if uploaded_files:
+                        file_docs = get_documents_from_files(uploaded_files)
+                        all_documents.extend(file_docs)
+                        st.success(f"{len(file_docs)}개의 파일 문서 로드 완료.")
+
+                    if url_input:
+                        web_docs, error = full_web_ingest(url_input)
+                        if not error:
+                            all_documents.extend(web_docs)
+                            st.success(f"{len(web_docs)}개의 웹 문서 로드 완료.")
+                        else:
+                            st.error(f"웹페이지 수집 오류: {error}")
+
+                    if all_documents:
+                        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+                        split_docs = text_splitter.split_documents(all_documents)
+
+                        embedding = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+                        vectorstore = FAISS.from_documents(split_docs, embedding)
+                        st.session_state.persona_rag_retrievers[i] = vectorstore.as_retriever()
+                        st.success("이 페르소나에 대한 문서 분석이 완료되었습니다.")
 
         if st.button(f"🧠 페르소나 실행", key=f"run_{i}"):
             final_prompt = ""
@@ -212,6 +211,21 @@ with st.sidebar:
         st.rerun()
 
     with st.expander("전문가 페르소나 설정", expanded=True):
+        st.write("주제 생성을 위한 전문가 페르소나에게 자연어로 지시하세요.")
+
+        expert_prev_idx = st.selectbox(
+            "이전 페르소나 응답 이어받기",
+            options=[None] + list(range(len(st.session_state.persona_blocks))),
+            format_func=lambda x: "없음" if x is None else f"{x+1} - {st.session_state.persona_blocks[x]['name']}",
+            key="expert_use_prev_idx"
+        )
+    
+        expert_instruction = st.text_area(
+            "지시 문장",
+            placeholder="예: 너는 유튜브 트렌드 전문가야. 최근 쇼츠에서 인기있는 주제 3개만 뽑아줘.",
+            key="expert_instruction_input"
+        )
+
         use_expert_rag = st.checkbox("🔎 전문가 페르소나에 RAG 사용", value=st.session_state.expert_use_rag)
         st.session_state.expert_use_rag = use_expert_rag
 
@@ -244,22 +258,7 @@ with st.sidebar:
                         vectorstore = FAISS.from_documents(split_docs, embedding)
                         st.session_state.expert_retriever = vectorstore.as_retriever()
                         st.success("전문가용 문서 분석이 완료되었습니다.")
-                        
-        st.write("주제 생성을 위한 전문가 페르소나에게 자연어로 지시하세요.")
-
-        expert_prev_idx = st.selectbox(
-            "이전 페르소나 응답 이어받기",
-            options=[None] + list(range(len(st.session_state.persona_blocks))),
-            format_func=lambda x: "없음" if x is None else f"{x+1} - {st.session_state.persona_blocks[x]['name']}",
-            key="expert_use_prev_idx"
-        )
-    
-        expert_instruction = st.text_area(
-            "지시 문장",
-            placeholder="예: 너는 유튜브 트렌드 전문가야. 최근 쇼츠에서 인기있는 주제 3개만 뽑아줘.",
-            key="expert_instruction_input"
-        )
-
+        
         if st.button("주제 생성"):
             final_prompt = expert_instruction
             if expert_prev_idx is not None:
