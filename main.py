@@ -207,9 +207,9 @@ with st.sidebar:
                 )
                 st.session_state.persona_blocks[i]["result"] = result_text
 
-        if block["result"]:
-            st.markdown("**📌 생성된 응답:**")
-            st.markdown(block["result"])
+        #if block["result"]:
+        #    st.markdown("**📌 생성된 응답:**")
+        #    st.markdown(block["result"])
             
         if st.button(f"🗑️ 페르소나 삭제", key=f"delete_{i}"):
             delete_idx = i
