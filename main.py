@@ -201,13 +201,6 @@ with st.sidebar:
             st.session_state.edited_script_content = st.session_state.persona_blocks[selected_script_persona_idx[0]]["result"]
         else:
             st.warning("사용 가능한 페르소나 결과가 없습니다. 먼저 페르소나 실행을 통해 결과를 생성해 주세요.")
-
-        # 영상 주제 입력 필드
-        st.session_state.video_topic = st.text_input(
-            "이미지 생성에 사용될 키워드",
-            value=st.session_state.video_topic,
-            key="video_topic_input_final"
-        )
         
         # 영상 주제 입력 필드 이름 변경 (Moved here)
         st.session_state.video_topic = st.text_input(
