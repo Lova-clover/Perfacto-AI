@@ -102,10 +102,11 @@ with st.sidebar:
 
         # 멀티 셀렉트 구성
         prev_idxs = st.multiselect(
-            "이전 페르소나 응답 이어받기",
-            options=persona_options,
-            default=block.get("use_prev_idx", []),
-            key=f"use_prev_idx_{i}"
+        "이전 페르소나 응답 이어받기",
+        options=persona_options,
+        default=block.get("use_prev_idx", []),
+        key=f"use_prev_idx_{i}",
+        format_func=lambda x: f"{x[1]+1} - {st.session_state.persona_blocks[x[1]]['name']}"
         )
         st.session_state.persona_blocks[i]["use_prev_idx"] = prev_idxs
 
