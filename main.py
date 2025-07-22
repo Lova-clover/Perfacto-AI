@@ -104,11 +104,6 @@ with st.sidebar:
         prev_idxs = st.multiselect(
             "이전 페르소나 응답 이어받기",
             options=persona_options,
-            format_func=lambda x: (
-                "전문가 페르소나" if x[0] == "expert" else
-                "스크립트 페르소나" if x[0] == "script" else
-                f"{x[1]+1} - {st.session_state.persona_blocks[x[1]]['name']}"
-            ),
             default=block.get("use_prev_idx", []),
             key=f"use_prev_idx_{i}"
         )
@@ -186,22 +181,33 @@ with st.sidebar:
     
     st.markdown("---")
 
-    with st.expander("영상 제작 설정", expanded=True): # 원래 있던 "영상 제작 설정" expander
-        
+    with st.expander("영상 제작 설정", expanded=True):
         st.subheader("📜 사용할 스크립트 선택 (페르소나 응답 중)")
+
         available_personas_with_results = [
             (i, block["name"]) for i, block in enumerate(st.session_state.persona_blocks)
             if block.get("result", "").strip()
         ]
 
-        selected_script_persona_idx = st.selectbox(
-            "스크립트로 사용할 페르소나 선택:",
-            options=available_personas_with_results,
-            format_func=lambda x: f"{x[0]+1} - {x[1]}",
-            key="selected_script_persona_for_video"
+        if available_personas_with_results:
+            selected_script_persona_idx = st.selectbox(
+                "스크립트로 사용할 페르소나 선택:",
+                options=available_personas_with_results,
+                format_func=lambda x: f"{x[0]+1} - {x[1]}",
+                key="selected_script_persona_for_video",
+                index=0
+            )
+            # 선택된 페르소나 응답을 영상 스크립트로 설정
+            st.session_state.edited_script_content = st.session_state.persona_blocks[selected_script_persona_idx[0]]["result"]
+        else:
+            st.warning("사용 가능한 페르소나 결과가 없습니다. 먼저 페르소나 실행을 통해 결과를 생성해 주세요.")
+
+        # 영상 주제 입력 필드
+        st.session_state.video_topic = st.text_input(
+            "이미지 생성에 사용될 키워드",
+            value=st.session_state.video_topic,
+            key="video_topic_input_final"
         )
-        # 선택된 페르소나 응답을 영상용 스크립트로 설정
-        st.session_state.edited_script_content = st.session_state.persona_blocks[selected_script_persona_idx[0]]["result"]
         
         # 영상 주제 입력 필드 이름 변경 (Moved here)
         st.session_state.video_topic = st.text_input(
