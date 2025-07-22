@@ -182,7 +182,7 @@ with st.sidebar:
     st.markdown("---")
 
     with st.expander("영상 제작 설정", expanded=True):
-        st.subheader("📜 사용할 스크립트 선택 (페르소나 응답 중)")
+        st.subheader("📜 사용할 스크립트 선택")
 
         available_personas_with_results = [
             (i, block["name"]) for i, block in enumerate(st.session_state.persona_blocks)
