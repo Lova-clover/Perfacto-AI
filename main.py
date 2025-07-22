@@ -64,30 +64,12 @@ if "selected_generated_topic" not in st.session_state:
     st.session_state.selected_generated_topic = ""
 if "audio_path" not in st.session_state: 
     st.session_state.audio_path = None
-if "expert_persona" not in st.session_state:
-    st.session_state.expert_persona = "" 
-if "expert_domain" not in st.session_state:
-    st.session_state.expert_domain = ""
-if "expert_audience" not in st.session_state:
-    st.session_state.expert_audience = ""
-if "expert_tone" not in st.session_state:
-    st.session_state.expert_tone = ""
-if "expert_output_count" not in st.session_state: # 'format' 대신 'output_count'
-    st.session_state.expert_output_count = 3 # 기본값 설정
-if "expert_constraints" not in st.session_state:
-    st.session_state.expert_constraints = "{}"
 if "last_rag_sources" not in st.session_state:
     st.session_state.last_rag_sources = []
-if "virtual_personas" not in st.session_state:
-    st.session_state.virtual_personas = {} 
 if "persona_rag_flags" not in st.session_state:
     st.session_state.persona_rag_flags = {}  # 각 페르소나가 RAG 사용할지 여부
 if "persona_rag_retrievers" not in st.session_state:
     st.session_state.persona_rag_retrievers = {}  # 각 페르소나 전용 retriever
-if "expert_use_rag" not in st.session_state:
-    st.session_state.expert_use_rag = False
-if "expert_retriever" not in st.session_state:
-    st.session_state.expert_retriever = None
 
 
 # --- 사이드바: AI 페르소나 설정 및 RAG 설정 ---
@@ -117,12 +99,6 @@ with st.sidebar:
 
         # 기본 옵션 (페르소나 블록 인덱스)
         persona_options = [("persona", idx) for idx in range(len(st.session_state.persona_blocks)) if idx != i]
-
-        # 가상 페르소나 옵션 추가
-        if "expert" in st.session_state.virtual_personas:
-            persona_options.append(("expert", -1))
-        if "script" in st.session_state.virtual_personas:
-            persona_options.append(("script", -2))
 
         # 멀티 셀렉트 구성
         prev_idxs = st.multiselect(
@@ -177,11 +153,7 @@ with st.sidebar:
         if st.button(f"🧠 페르소나 실행", key=f"run_{i}"):
             prev_blocks = []
             for ptype, pidx in st.session_state.persona_blocks[i].get("use_prev_idx", []):
-                if ptype == "expert":
-                    prev_blocks.append(f"[전문가 페르소나]\n{st.session_state.virtual_personas['expert']['result']}")
-                elif ptype == "script":
-                    prev_blocks.append(f"[스크립트 페르소나]\n{st.session_state.virtual_personas['script']['result']}")
-                elif ptype == "persona" and pidx != i:
+                if ptype == "persona" and pidx != i:
                     prev_blocks.append(f"[페르소나 #{pidx+1}]\n{st.session_state.persona_blocks[pidx]['result']}")
 
             joined_prev = "\n\n".join(prev_blocks)
@@ -211,308 +183,26 @@ with st.sidebar:
     if delete_idx is not None:
         del st.session_state.persona_blocks[delete_idx]
         st.rerun()
-
-    with st.expander("전문가 페르소나 설정", expanded=True):
-        st.write("주제 생성을 위한 전문가 페르소나에게 자연어로 지시하세요.")
-
-        expert_prev_indices = st.multiselect(
-            "이전 페르소나 응답 이어받기",
-            options=[("persona", i) for i in range(len(st.session_state.persona_blocks))],
-            format_func=lambda x: f"{x[1]+1} - {st.session_state.persona_blocks[x[1]]['name']}",
-            key="expert_use_prev_multi"
-        )
-    
-        expert_instruction = st.text_area(
-            "지시 문장",
-            placeholder="예: 너는 유튜브 트렌드 전문가야. 최근 쇼츠에서 인기있는 주제 3개만 뽑아줘.",
-            key="expert_instruction_input"
-        )
-
-        use_expert_rag = st.checkbox("🔎 전문가 페르소나에 RAG 사용", value=st.session_state.expert_use_rag)
-        st.session_state.expert_use_rag = use_expert_rag
-
-        if use_expert_rag:
-            with st.expander("전문가용 RAG 설정", expanded=True):
-                url_input = st.text_input("전문가 웹 키워드 입력", key="expert_url_input")
-                uploaded_files = st.file_uploader("전문가용 파일 업로드", type=["pdf", "docx", "txt"], accept_multiple_files=True, key="expert_files")
-
-                if st.button("📄 전문가용 RAG 분석", key="expert_rag_analyze"):
-                    all_documents = []
-
-                    if uploaded_files:
-                        file_docs = get_documents_from_files(uploaded_files)
-                        all_documents.extend(file_docs)
-                        st.success(f"{len(file_docs)}개 문서 로드 완료.")
-
-                    if url_input:
-                        web_docs, error = full_web_ingest(url_input)
-                        if not error:
-                            all_documents.extend(web_docs)
-                            st.success(f"{len(web_docs)}개 웹 문서 로드 완료.")
-                        else:
-                            st.error(f"웹 수집 실패: {error}")
-
-                    if all_documents:
-                        splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-                        split_docs = splitter.split_documents(all_documents)
-
-                        embedding = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-                        vectorstore = FAISS.from_documents(split_docs, embedding)
-                        st.session_state.expert_retriever = vectorstore.as_retriever()
-                        st.success("전문가용 문서 분석이 완료되었습니다.")
-        
-        if st.button("주제 생성"):
-            prev_blocks = []
-            for block_type, idx in expert_prev_indices:
-                if block_type == "persona":
-                    prev = st.session_state.persona_blocks[idx]["result"]
-                    prev_blocks.append(f"[페르소나 #{idx+1}]\n{prev}")
-            joined_prev_text = "\n\n".join(prev_blocks)
-            final_prompt = f"{joined_prev_text}\n\n지시:\n{expert_instruction}" if joined_prev_text else expert_instruction
-
-            with st.spinner("전문가 페르소나가 주제를 생성하고 있습니다..."):
-                if st.session_state.expert_use_rag:
-                    if st.session_state.expert_retriever is not None:
-                        rag_result = rag_with_sources({
-                            "input": final_prompt,
-                            "chat_history": [],
-                            "retriever": st.session_state.expert_retriever
-                        })
-                        if rag_result and isinstance(rag_result, dict):
-                            response_text = rag_result.get("answer", "")
-                        else:
-                            st.warning("RAG 결과가 비어 있거나 형식이 잘못되었습니다.")
-                            response_text = ""
-                    else:
-                        st.warning("⚠️ 전문가용 retriever가 설정되지 않았습니다. 먼저 문서 분석을 완료해주세요.")
-                        response_text = ""
-                else:
-                    response_text = generate_response_from_persona(final_prompt)
-                    st.session_state.messages.append(
-                        AIMessage(content=response_text)
-                    )
-                st.session_state.generated_topics = [
-                    line.strip().lstrip("-").strip() for line in response_text.split("\n") if line.strip().startswith("-")
-                ][:3]  # 기본 3개만 자름
-
-                if st.session_state.generated_topics:
-                    st.success("주제 생성 완료!")
-                    st.session_state.selected_generated_topic = st.session_state.generated_topics[0]
-                    st.session_state.virtual_personas["expert"] = {
-                        "name": "전문가 페르소나",
-                        "text": expert_instruction,
-                        "result": response_text
-                    }
-
-                else:
-                    st.warning("주제를 생성하지 못했습니다. 문장을 다시 확인해 주세요.")
-
     
     st.markdown("---")
 
-    with st.expander("스크립트 생성", expanded=True): # 새로운 "스크립트 생성" expander
-        st.subheader("스크립트 생성 및 설정")
-        
-        use_script_rag = st.checkbox("🔎 스크립트 생성에 RAG 사용", value=False, key="use_script_rag")
-        all_documents = []
-        
-        if use_script_rag:
-            script_rag_url = st.text_input("스크립트용 웹 키워드", key="script_rag_url")
-            script_rag_files = st.file_uploader("스크립트용 문서 업로드", type=["pdf", "docx", "txt"], accept_multiple_files=True, key="script_rag_files")
-            if st.button("📄 스크립트용 문서 분석", key="analyze_script_rag"):
-                # 문서 수집 및 분할
-                if script_rag_files:
-                    file_docs = get_documents_from_files(script_rag_files)
-                    all_documents.extend(file_docs)
-                    st.success(f"{len(file_docs)}개의 파일 문서 로드 완료.")
-
-                if script_rag_url:
-                    from web_ingest import full_web_ingest
-                    web_docs, error = full_web_ingest(script_rag_url)
-                    if not error:
-                        all_documents.extend(web_docs)
-                        st.success(f"{len(web_docs)}개의 웹 문서 로드 완료.")
-                    else:
-                        st.error(f"웹페이지 수집 오류: {error}")
-
-                # retriever 생성은 버튼 내부에서만 실행되게 함
-                if all_documents:
-                    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-                    split_docs = splitter.split_documents(all_documents)
-                    embedding = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-                    vectorstore = FAISS.from_documents(split_docs, embedding)
-                    st.session_state.script_retriever = vectorstore.as_retriever()
-                    st.success("스크립트 생성용 RAG 문서 분석이 완료되었습니다.")
-                else:
-                    st.warning("문서가 비어 있거나 수집에 실패했습니다.")
-        
-        # 주제 선택 드롭다운 (새 expander로 이동)
-        if st.session_state.generated_topics:
-            st.session_state.selected_generated_topic = st.selectbox(
-                "생성된 주제 중 하나를 선택하세요:",
-                options=st.session_state.generated_topics,
-                index=st.session_state.generated_topics.index(st.session_state.selected_generated_topic) if st.session_state.selected_generated_topic in st.session_state.generated_topics else 0,
-                key="script_topic_select"
-            )
-        
-        # # 페르소나, 대상 시청자, 추가 조건 복사 (원래 위치에도 유지)
-        # script_expert_persona = st.text_input("페르소나", 
-        #                                        value=st.session_state.expert_persona, 
-        #                                        placeholder="예: 역사학자, 과학자", 
-        #                                        key="script_expert_persona_input")
-        # script_expert_audience = st.text_input("대상 시청자", 
-        #                                         value=st.session_state.expert_audience, 
-        #                                         placeholder="예: 고등학생, 일반인, 전문가", 
-        #                                         key="script_expert_audience_input")
-        # script_expert_tone = st.text_input("톤", 
-        #                              value=st.session_state.expert_tone, 
-        #                              placeholder="예: 유익함, 재미있음, 진지함", 
-        #                              key="script_tone_input") 
-        # script_expert_constraints = st.text_area("추가 조건 (JSON 형식 권장)", 
-        #                                          value=st.session_state.expert_constraints, 
-        #                                          placeholder="예: {\"length\": \"short\", \"keywords\": [\"파이썬\", \"데이터\"]}", 
-        #                                          key="script_expert_constraints_input")
-
-        # 1. 여러 개의 이전 응답 선택 가능하도록 수정
-        selected_prev_indices = st.multiselect(
-            "이전 페르소나 응답 이어받기",
-            options=[("persona", i) for i in range(len(st.session_state.persona_blocks))] + [("expert", -1)],
-            format_func=lambda x: (
-                f"{x[1]+1} - {st.session_state.persona_blocks[x[1]]['name']}" if x[0] == "persona" else "전문가 페르소나"
-            ),
-            key="script_use_prev_multi"
-        )
-
-        # 2. 지시문 입력 (실제 입력은 base_instruction으로 받음)
-        base_instruction = st.text_area(
-            "스크립트 지시 문장 (페르소나, 말투, 대상 등 자유롭게 기술)",
-            value=st.session_state.get("script_instruction_input_val", ""),
-            key="script_instruction_input"
-        )
-
-        prev_blocks = []
-        for block_type, idx in selected_prev_indices:
-            if block_type == "expert":
-                prev = st.session_state.virtual_personas.get("expert", {}).get("result", "")
-                prev_blocks.append(f"[전문가 응답]\n{prev}")
-            elif block_type == "persona":
-                prev = st.session_state.persona_blocks[idx]["result"]
-                prev_blocks.append(f"[페르소나 #{idx+1}]\n{prev}")
-
-        joined_prev_text = "\n\n".join(prev_blocks)
-        script_instruction = f"{joined_prev_text}\n\n지시:\n{base_instruction}" if joined_prev_text else base_instruction
-
-        if st.button("스크립트 생성", help="선택된 주제로 숏폼 영상 스크립트를 만들어 드립니다.", key="generate_script_button"):
-            if st.session_state.selected_generated_topic:
-                with st.spinner(f"'{st.session_state.selected_generated_topic}' 주제로 스크립트를 만드는 중입니다..."):
-                    # 콘텐츠 제작자 페르소나로 스크립트 생성
-                    # 스크립트 생성 프롬프트에 페르소나, 대상 시청자, 추가 조건 반영
-                    #script_prompt_content = f"주어진 주제: '{st.session_state.selected_generated_topic}'. 이 주제에 대해 다음 조건을 사용하여 숏폼 비디오 스크립트를 작성해 주세요. 페르소나: {script_expert_persona}, 대상 시청자: {script_expert_audience}, 톤 : {script_expert_tone}, 추가 조건: {script_expert_constraints}"
-                    prompt = f"""주어진 주제: \"{st.session_state.selected_generated_topic}\"\n\n스크립트 지시: {script_instruction}"""
-                    script_chain = get_default_chain(
-                    system_prompt="""당신은 TikTok, YouTube Shorts, Instagram Reels 등에서 **즉시 시선을 사로잡고 끝까지 시청하게 만드는 바이럴성 숏폼 비디오 스크립트**를 작성하는 전문 크리에이터입니다.
-
-                    **핵심 원칙:**
-                    1.  **강력한 오프닝 훅:** 첫 문장부터 시청자의 스크롤을 멈추게 할 질문, 충격적인 사실, 또는 궁금증 유발하는 문구로 시작하세요.
-                    2.  **초고속 전개:** 각 문장은 독립적인 하나의 아이디어 또는 짧은 구문으로 구성하고, 불필요한 서론이나 수식어는 제거하여 빠른 템포를 유지합니다. **한 줄에 한 문장/구만 배치하여 다음 장면으로의 빠른 전환을 유도하세요.**
-                    3.  **명확한 메시지:** 각 세그먼트(문장)는 마침표(.), 물음표(?), 느낌표(!)로 깔끔하게 끝나야 합니다.
-                    4.  **정보 밀도 & 재미:** 유익한 정보, 놀라운 사실, 혹은 재미있는 관점을 간결하게 전달하여 시청자에게 '아하!'하는 순간을 선사합니다.
-                    5.  **이모지 사용 금지.**
-                    6.  **마지막에 강력한 마무리:** 시청자가 공유, 좋아요, 팔로우하고 싶게 만드는 여운을 남기거나, 간단한 다음 행동을 유도할 수 있습니다.
-
-                    **출력 형식 (매우 중요!):**
-                    - 다른 어떠한 설명, 머리말, 꼬리말, 예시, 또는 추가 문구 없이, **오직 스크립트 대사 내용만 줄바꿈하여 나열해주세요.**
-                    - 스크립트 대사 시작 전에 "스크립트", "대사"와 같은 머리말도 붙이지 마세요.
-                    - 예시 스타일에서 제시된 것과 같이, 오직 대사 내용만 각 줄에 배치합니다.
-
-                    위 원칙에 따라 매력적이고 바이럴성 있는 숏폼 비디오 스크립트를 작성해주세요.
-                    """
-                    )           
-                    st.session_state.messages.append(HumanMessage(content=f"선택된 주제 '{st.session_state.selected_generated_topic}'에 대한 스크립트를 만들어 줘."))
-                    
-                    if use_script_rag and "script_retriever" in st.session_state:
-                        rag_context = rag_with_sources({
-                            "input": prompt,
-                            "chat_history": [],
-                        "retriever": st.session_state.script_retriever
-                        })
-
-                        # RAG 문서 context를 prompt에 포함시켜 직접 LLM 호출
-                        rag_augmented_prompt = f"""참고 문서:\n{rag_context.get('context', '')}\n\n질문:\n{prompt}"""
-                        
-                        generated_script = ""
-                        for token in script_chain.stream({"question": rag_augmented_prompt, "chat_history": []}):
-                            generated_script += token
-                    else:
-                        generated_script = ""
-                        for token in script_chain.stream({"question": prompt, "chat_history": []}):
-                            generated_script += token
-                    
-                    st.session_state.edited_script_content = generated_script.strip()
-                    with st.spinner("생성된 스크립트에서 영상 주제를 자동으로 추출하고 있습니다..."):
-                        topic_extraction_prompt = f"""다음 스크립트에서 이미지를 생성하기 위한 2-3개의 간결한 키워드 또는 아주 짧은 구문(최대 10단어)으로 메인 주제를 추출해주세요. 키워드/구문만 응답하세요.
-
-                        스크립트:
-                        {generated_script.strip()} 
-
-                        키워드/주제:"""
-                        topic_llm_chain = get_default_chain(system_prompt="당신은 주어진 텍스트에서 키워드를 추출하는 유용한 조수입니다.")
-                        extracted_topic_for_ui = topic_llm_chain.invoke({"question": topic_extraction_prompt, "chat_history": []}).strip()
-                        if extracted_topic_for_ui:
-                            st.session_state.video_topic = extracted_topic_for_ui
-                        else: # 추출에 실패한 경우 기존 선택 주제 유지 또는 기본값 설정
-                            st.session_state.video_topic = st.session_state.selected_generated_topic
-                    
-                    # 새롭게 추가된 부분: 스크립트에서 영상 제목 자동 추출
-                    with st.spinner("생성된 스크립트에서 영상 제목을 자동으로 추출하고 있습니다..."):
-                        title_extraction_prompt = f"""다음 스크립트에서 영상의 제목으로 사용할 수 있는 5~10단어 이내의 간결하고 매력적인 한국어 제목을 추출해주세요. 제목만 응답하세요.
-
-                        스크립트:
-                        {generated_script.strip()}
-
-                        영상 제목:"""
-                        title_llm_chain = get_default_chain(
-                        system_prompt="""당신은 TikTok, YouTube Shorts, Instagram Reels과 같은 **매력적이고 바이럴성 있는 숏폼 비디오 제목**을 작성하는 전문 크리에이터입니다.
-                        다음 스크립트에서 시청자의 스크롤을 멈추게 할 수 있는, **최대 5단어 이내의 간결하고 임팩트 있는 한국어 제목**을 생성해주세요.
-                        이 제목은 호기심을 유발하고, 핵심 내용을 빠르게 전달하며, 클릭을 유도하는 강력한 후크 역할을 해야 합니다.
-                        **예시: '체스 초고수 꿀팁!', '이거 알면 체스 끝!', '체스 천재되는 법?'**
-                        **제목만 응답하세요.**
-                        """
-                        )
-                        extracted_title_for_ui = title_llm_chain.invoke({"question": title_extraction_prompt, "chat_history": []}).strip()
-                        if extracted_title_for_ui:
-                            st.session_state.video_title = extracted_title_for_ui
-                        else:
-                            st.session_state.video_title = "제목 없음" # 추출 실패 시 기본값
-
-                    sources_for_message = rag_context.get("sources", []) if "rag_context" in locals() else []
-
-                    st.session_state.messages.append(
-                        AIMessage(content=f"**다음 스크립트가 생성되었습니다:**\n\n{generated_script.strip()}",
-                                additional_kwargs={"sources": sources_for_message})
-                    )
-                st.success("스크립트 생성이 완료되었습니다!")
-                st.session_state.virtual_personas["script"] = {
-                    "name": "스크립트 페르소나",
-                    "text": script_instruction,
-                    "result": generated_script.strip()
-                }
-                st.rerun() # 스크립트가 업데이트되도록 다시 로드
-            else:
-                st.warning("먼저 생성된 주제를 선택해 주세요.")
-
-        st.subheader("제작된 스크립트 미리보기 및 수정")
-        # 스크립트 내용 (수정 가능) 텍스트 영역
-        st.session_state.edited_script_content = st.text_area(
-            "영상 스크립트 (원하는 대로 수정 가능):",
-            value=st.session_state.edited_script_content, # 세션 상태에서 가져옴
-            height=200,
-            key="script_editor_final" # Changed key to avoid conflict if any
-        )
-    
-    st.markdown("---") # 스크립트 생성 expander와 영상 제작 설정 expander 사이에 구분선 추가
-
     with st.expander("영상 제작 설정", expanded=True): # 원래 있던 "영상 제작 설정" expander
+        
+        st.subheader("📜 사용할 스크립트 선택 (페르소나 응답 중)")
+        available_personas_with_results = [
+            (i, block["name"]) for i, block in enumerate(st.session_state.persona_blocks)
+            if block.get("result", "").strip()
+        ]
+
+        selected_script_persona_idx = st.selectbox(
+            "스크립트로 사용할 페르소나 선택:",
+            options=available_personas_with_results,
+            format_func=lambda x: f"{x[0]+1} - {x[1]}",
+            key="selected_script_persona_for_video"
+        )
+        # 선택된 페르소나 응답을 영상용 스크립트로 설정
+        st.session_state.edited_script_content = st.session_state.persona_blocks[selected_script_persona_idx[0]]["result"]
+        
         # 영상 주제 입력 필드 이름 변경 (Moved here)
         st.session_state.video_topic = st.text_input(
             "이미지 생성에 사용될 키워드", # 필드 이름 변경
