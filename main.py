@@ -197,8 +197,41 @@ with st.sidebar:
                 key="selected_script_persona_for_video",
                 index=0
             )
-            # 선택된 페르소나 응답을 영상 스크립트로 설정
-            st.session_state.edited_script_content = st.session_state.persona_blocks[selected_script_persona_idx[0]]["result"]
+
+            selected_idx = selected_script_persona_idx[0]
+            selected_script = st.session_state.persona_blocks[selected_idx]["result"]
+
+            # 🎬 사용자 수정 가능 스크립트
+            st.session_state.edited_script_content = st.text_area(
+                "🎬 스크립트 내용 수정",
+                value=selected_script,
+                key="script_editor_editable"
+            )
+
+            # 🔍 이미지 키워드 자동 추출
+            with st.spinner("스크립트에서 이미지 키워드를 추출하는 중..."):
+                topic_prompt = f"""다음 스크립트에서 이미지를 생성하기 위한 2~3개의 키워드 또는 간결한 구문(10단어 이하)을 추출하세요. 키워드만 응답하세요.
+
+    스크립트:
+    {selected_script}
+
+    키워드:"""
+                topic_llm_chain = get_default_chain(system_prompt="당신은 텍스트에서 핵심 키워드를 뽑아내는 전문가입니다.")
+                topic = topic_llm_chain.invoke({"question": topic_prompt, "chat_history": []}).strip()
+                st.session_state.video_topic = topic
+
+            # 🎯 영상 제목 자동 추출
+            with st.spinner("스크립트에서 영상 제목을 추출하는 중..."):
+                title_prompt = f"""다음 스크립트에 기반해 매력적이고 임팩트 있는 짧은 한국어 영상 제목을 생성하세요. 제목만 응답하세요.
+
+    스크립트:
+    {selected_script}
+
+    제목:"""
+                title_llm_chain = get_default_chain(system_prompt="당신은 숏폼 영상 제목을 짓는 전문가입니다.")
+                title = title_llm_chain.invoke({"question": title_prompt, "chat_history": []}).strip()
+                st.session_state.video_title = title
+
         else:
             st.warning("사용 가능한 페르소나 결과가 없습니다. 먼저 페르소나 실행을 통해 결과를 생성해 주세요.")
         
