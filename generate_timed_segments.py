@@ -82,39 +82,52 @@ SUBTITLE_TEMPLATES = {
     }
 }
 
-def split_script_to_lines(script_text, max_length=25):
+def split_script_to_lines(script_text, min_length=15, max_length=35):
+    import kss
+    import re
+
+    # 1차: KSS로 문장 분리
     kss_sentences = kss.split_sentences(script_text)
-    short_chunks = []
+    processed_lines = []
 
     for sent in kss_sentences:
-        # 쉼표 및 접속사 기준 1차 분할
+        sent = sent.strip()
+
+        # 아주 짧은 문장은 그대로 사용
+        if len(sent) <= max_length:
+            processed_lines.append(sent)
+            continue
+
+        # 2차: 쉼표나 접속사 기준으로 나눔
         temp_chunks = re.split(r"(,| 그리고 | 그래서 | 하지만 | 또한 )", sent)
-        temp = ''
+        temp = ""
         for part in temp_chunks:
             temp += part
             if len(temp.strip()) >= max_length or part in [",", " 그리고 ", " 그래서 ", " 하지만 ", " 또한 "]:
-                short_chunks.append(temp.strip())
-                temp = ''
+                processed_lines.append(temp.strip())
+                temp = ""
         if temp.strip():
-            short_chunks.append(temp.strip())
+            processed_lines.append(temp.strip())
 
-    # 너무 긴 문장은 조사 기준으로 2차 분할
-    final_chunks = []
-    for chunk in short_chunks:
-        if len(chunk) > max_length:
-            sub_chunks = re.split(r"(은 |는 |을 |를 |이 |가 )", chunk)
+    # 3차: 여전히 긴 문장이 있다면 조사 기준으로만 한 번 더 분할
+    final_lines = []
+    for line in processed_lines:
+        if len(line) <= max_length:
+            final_lines.append(line)
+        else:
+            # 조사 기준으로만 한 번 더 자르기
+            sub_chunks = re.split(r"(은 |는 |을 |를 |이 |가 |에 |도 |으로 |부터 |까지 |에서 )", line)
             temp = ''
             for part in sub_chunks:
                 temp += part
-                if len(temp) >= max_length:
-                    final_chunks.append(temp.strip())
+                if len(temp) >= min_length:
+                    final_lines.append(temp.strip())
                     temp = ''
             if temp.strip():
-                final_chunks.append(temp.strip())
-        else:
-            final_chunks.append(chunk)
+                final_lines.append(temp.strip())
 
-    return [line for line in final_chunks if line]
+    # 빈 줄 제거
+    return [l.strip() for l in final_lines if l.strip()]
 
 def generate_tts_per_line(script_lines, provider, template):
     audio_paths = []
