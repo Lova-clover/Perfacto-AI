@@ -82,52 +82,46 @@ SUBTITLE_TEMPLATES = {
     }
 }
 
-def split_script_to_lines(script_text, min_length=15, max_length=35):
-    import kss
-    import re
-
-    # 1차: KSS로 문장 분리
+def split_script_to_lines(script_text, max_length=18):
     kss_sentences = kss.split_sentences(script_text)
-    processed_lines = []
+    fine_chunks = []
 
     for sent in kss_sentences:
         sent = sent.strip()
 
-        # 아주 짧은 문장은 그대로 사용
+        # 너무 짧은 경우는 그대로 추가
         if len(sent) <= max_length:
-            processed_lines.append(sent)
+            fine_chunks.append(sent)
             continue
 
-        # 2차: 쉼표나 접속사 기준으로 나눔
-        temp_chunks = re.split(r"(,| 그리고 | 그래서 | 하지만 | 또한 )", sent)
+        # 쉼표, 접속사 기준 1차 분할
+        parts = re.split(r"(,| 그리고 | 그래서 | 하지만 | 또한 | 그러나 )", sent)
         temp = ""
-        for part in temp_chunks:
+        for part in parts:
             temp += part
-            if len(temp.strip()) >= max_length or part in [",", " 그리고 ", " 그래서 ", " 하지만 ", " 또한 "]:
-                processed_lines.append(temp.strip())
+            if len(temp.strip()) >= max_length:
+                fine_chunks.append(temp.strip())
                 temp = ""
         if temp.strip():
-            processed_lines.append(temp.strip())
+            fine_chunks.append(temp.strip())
 
-    # 3차: 여전히 긴 문장이 있다면 조사 기준으로만 한 번 더 분할
-    final_lines = []
-    for line in processed_lines:
-        if len(line) <= max_length:
-            final_lines.append(line)
-        else:
-            # 조사 기준으로만 한 번 더 자르기
-            sub_chunks = re.split(r"(은 |는 |을 |를 |이 |가 |에 |도 |으로 |부터 |까지 |에서 )", line)
-            temp = ''
-            for part in sub_chunks:
-                temp += part
-                if len(temp) >= min_length:
-                    final_lines.append(temp.strip())
-                    temp = ''
-            if temp.strip():
-                final_lines.append(temp.strip())
+        # 2차 분할: 조사 기준
+        refined_chunks = []
+        for chunk in fine_chunks:
+            if len(chunk) > max_length:
+                subs = re.split(r"(은 |는 |을 |를 |이 |가 |에 |도 |으로 |부터 |까지 |에서 )", chunk)
+                temp2 = ""
+                for sub in subs:
+                    temp2 += sub
+                    if len(temp2.strip()) >= max_length:
+                        refined_chunks.append(temp2.strip())
+                        temp2 = ""
+                if temp2.strip():
+                    refined_chunks.append(temp2.strip())
+            else:
+                refined_chunks.append(chunk)
 
-    # 빈 줄 제거
-    return [l.strip() for l in final_lines if l.strip()]
+    return [line for line in refined_chunks if line.strip()]
 
 def generate_tts_per_line(script_lines, provider, template):
     audio_paths = []
