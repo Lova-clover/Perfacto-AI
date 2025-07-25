@@ -29,3 +29,4 @@ llama-parse
 rank_bm25
 cohere
 kss
+torch
