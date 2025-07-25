@@ -5,6 +5,7 @@ from elevenlabs_tts import generate_tts
 from pydub import AudioSegment
 from moviepy import AudioFileClip
 import kss
+import re
 
 SUBTITLE_TEMPLATES = {
     "educational": {
@@ -81,8 +82,39 @@ SUBTITLE_TEMPLATES = {
     }
 }
 
-def split_script_to_lines(script_text):
-    return [sent.strip() for sent in kss.split_sentences(script_text) if sent.strip()]
+def split_script_to_lines(script_text, max_length=25):
+    kss_sentences = kss.split_sentences(script_text)
+    short_chunks = []
+
+    for sent in kss_sentences:
+        # 쉼표 및 접속사 기준 1차 분할
+        temp_chunks = re.split(r"(,| 그리고 | 그래서 | 하지만 | 또한 )", sent)
+        temp = ''
+        for part in temp_chunks:
+            temp += part
+            if len(temp.strip()) >= max_length or part in [",", " 그리고 ", " 그래서 ", " 하지만 ", " 또한 "]:
+                short_chunks.append(temp.strip())
+                temp = ''
+        if temp.strip():
+            short_chunks.append(temp.strip())
+
+    # 너무 긴 문장은 조사 기준으로 2차 분할
+    final_chunks = []
+    for chunk in short_chunks:
+        if len(chunk) > max_length:
+            sub_chunks = re.split(r"(은 |는 |을 |를 |이 |가 )", chunk)
+            temp = ''
+            for part in sub_chunks:
+                temp += part
+                if len(temp) >= max_length:
+                    final_chunks.append(temp.strip())
+                    temp = ''
+            if temp.strip():
+                final_chunks.append(temp.strip())
+        else:
+            final_chunks.append(chunk)
+
+    return [line for line in final_chunks if line]
 
 def generate_tts_per_line(script_lines, provider, template):
     audio_paths = []
