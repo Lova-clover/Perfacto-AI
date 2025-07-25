@@ -4,6 +4,7 @@ import re
 from elevenlabs_tts import generate_tts
 from pydub import AudioSegment
 from moviepy import AudioFileClip
+import kss
 
 SUBTITLE_TEMPLATES = {
     "educational": {
@@ -81,8 +82,7 @@ SUBTITLE_TEMPLATES = {
 }
 
 def split_script_to_lines(script_text):
-    lines = re.split(r'(?<=[.!?])\s+', script_text.strip())
-    return [line.strip() for line in lines if line.strip()]
+    return [sent.strip() for sent in kss.split_sentences(script_text) if sent.strip()]
 
 def generate_tts_per_line(script_lines, provider, template):
     audio_paths = []
