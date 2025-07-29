@@ -175,23 +175,23 @@ def load_best_subtitles_documents(channel_handle_or_url, max_results=10):
 
     try:
         # 채널 ID 추출
-        print(f"🔍 채널 정보 파싱 시작: {channel_handle_or_url}")
+        st.info(f"🔍 채널 정보 파싱 시작: {channel_handle_or_url}")
         channel_id = resolve_channel_id(channel_handle_or_url)
-        print(f"✅ 채널 ID 추출 성공: {channel_id}")
+        st.success(f"✅ 채널 ID 추출 성공: {channel_id}")
     except Exception as e:
-        print(f"❌ 채널 ID 추출 실패: {e}")
+        st.error(f"❌ 채널 ID 추출 실패: {e}")
         return []
 
     try:
         videos = get_videos_by_viewcount(channel_id, max_results)
-        print(f"📺 총 {len(videos)}개의 영상 가져옴")
+        st.info(f"📺 총 {len(videos)}개의 영상 가져옴")
     except Exception as e:
-        print(f"❌ 인기 영상 불러오기 실패: {e}")
+        st.error(f"❌ 인기 영상 불러오기 실패: {e}")
         return []
 
     for title, link in videos:
         try:
-            print(f"🎬 처리 중: {title} | {link}")
+            st.info(f"🎬 처리 중: {title} | {link}")
             audio_path, filename_base = download_audio(link, title)
             texts = transcribe_to_txt(audio_path, filename_base)
 
@@ -208,5 +208,5 @@ def load_best_subtitles_documents(channel_handle_or_url, max_results=10):
             print(f"❌ [{title}] 처리 중 오류 발생: {e}")
             continue
 
-    print(f"📦 총 {len(documents)}개의 자막 문서 생성 완료")
+    st.success(f"📦 총 {len(documents)}개의 자막 문서 생성 완료")
     return documents
