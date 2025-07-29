@@ -619,10 +619,24 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
         # RAG 사용 여부 결정 (URL 또는 파일이 처리된 경우)
         if st.session_state.retriever:
             rag_chain = get_conversational_rag_chain(st.session_state.retriever, st.session_state.system_prompt)
-            ai_answer = rag_chain.invoke(user_input)
+            rag_response = rag_chain.invoke({"question": user_input, "chat_history": []})
             
+            ai_answer = rag_response.get("answer", rag_response.get("result", rag_response.get("content", "")))
+            source_docs = rag_response.get("source_documents", [])
+
+            sources_list = []
+            for doc in source_docs:
+                sources_list.append({
+                    "content": doc.page_content[:200],
+                    "source": doc.metadata.get("source", "출처 없음")
+                })
+
             container.markdown(ai_answer)
 
+            # ✅ 출처까지 함께 저장
+            st.session_state.messages.append(
+                AIMessage(content=ai_answer, additional_kwargs={"sources": sources_list})
+            )
         else:
             # 일반 챗봇 모드 (RAG 비활성화)
             chain = get_default_chain(st.session_state.system_prompt)
@@ -631,8 +645,6 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
             for token in chain.stream({"question": user_input, "chat_history": st.session_state.messages}):
                 ai_answer += token
                 container.markdown(ai_answer)
-        
-        st.session_state.messages.append(AIMessage(content=ai_answer, sources=sources_list)) # sources도 함께 저장
         
         # RAG 기반 출처 표시 (이전 코드를 통합)
         if sources_list: # sources_list에 값이 있을 때만 표시

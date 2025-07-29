@@ -1,7 +1,7 @@
 from langchain_core.documents import Document as LangChainDocument
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnableLambda, RunnablePassthrough
+from langchain_core.runnables import RunnableMap, RunnableLambda, RunnablePassthrough
 from langchain_groq import ChatGroq  # ✅ Groq import
 
 def get_conversational_rag_chain(retriever, system_prompt):
@@ -47,13 +47,15 @@ Do not use any prior knowledge.
 
         return formatted_string.strip()
 
-    rag_chain = (
-        {"context": retriever | RunnableLambda(format_docs_with_metadata), "input": RunnablePassthrough()}
-        | rag_prompt
-        | llm
-        | StrOutputParser()
-    )
-    
+    rag_chain = RunnableMap({
+        "answer": (
+            {"context": retriever | RunnableLambda(format_docs_with_metadata), "input": RunnablePassthrough()}
+            | rag_prompt
+            | llm
+            | StrOutputParser()
+        ),
+        "source_documents": retriever  # 원본 문서를 그대로 반환
+    })
     return rag_chain
 
 def get_default_chain(system_prompt):
