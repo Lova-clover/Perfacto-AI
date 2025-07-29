@@ -144,12 +144,13 @@ with st.sidebar:
             key=f"rag_source_{i}"
         )
 
-        # ✅ 유튜브 자막 RAG 선택 시 즉시 입력창 보이기
+        youtube_channel_input = None  # 🔑 입력값 초기화
+
         if rag_source == "유튜브 자막 기반 RAG":
-            st.session_state[f"youtube_channel_{i}"] = st.text_input(
+            youtube_channel_input = st.text_input(
                 "유튜브 채널 핸들 또는 URL 입력:",
-                value=st.session_state.get(f"youtube_channel_{i}", "@역사이야기"),
-                key=f"youtube_channel_{i}"
+                value="@역사이야기",
+                key=f"youtube_channel_input_{i}"  # ❗️ 중복 피하기 위해 key 분리
             )
         # 실행 버튼
         if st.button(f"🧠 페르소나 실행", key=f"run_{i}"):
@@ -173,18 +174,15 @@ with st.sidebar:
                     st.warning(f"웹 문서 수집 실패: {error or '문서 없음'}")
 
             elif rag_source == "유튜브 자막 기반 RAG":
-                youtube_channel_input = st.text_input("유튜브 @아이디/채널ID/URL 입력: ", value="@역사이야기", key=f"youtube_channel_{i}")
-
-                if youtube_channel_input.strip():
+                if youtube_channel_input and youtube_channel_input.strip():
                     subtitle_docs = load_best_subtitles_documents(youtube_channel_input.strip())
+                    if subtitle_docs:
+                        retriever = get_retriever_from_source("docs", subtitle_docs)
+                        st.success(f"🎬 유튜브 자막 {len(subtitle_docs)}건 적용 완료")
+                    else:
+                        st.warning("유튜브 자막이 없습니다.")
                 else:
                     st.warning("유튜브 채널을 입력해 주세요.")
-                    subtitle_docs = []
-                if subtitle_docs:
-                    retriever = get_retriever_from_source("docs", subtitle_docs)
-                    st.success(f"🎬 유튜브 자막 {len(subtitle_docs)}건 적용 완료")
-                else:
-                    st.warning("유튜브 자막이 없습니다.")
 
             # 실행
             if retriever:
