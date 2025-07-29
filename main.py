@@ -564,10 +564,6 @@ with st.sidebar:
                             mime="video/mp4"
                         )
 
-                    # --- 3. 중간 파일 정리 (최종적으로 실행)
-                    if os.path.exists(temp_video_path):
-                        os.remove(temp_video_path)
-
                 except Exception as e:
                     st.error(f"❌ 영상 생성 중 오류가 발생했습니다: {e}")
                     st.exception(e)
