@@ -185,7 +185,6 @@ with st.sidebar:
                 else:
                     st.warning("유튜브 채널을 입력해 주세요.")
 
-            # 실행
             if retriever:
                 st.session_state.persona_rag_flags[i] = True
                 st.session_state.persona_rag_retrievers[i] = retriever
@@ -194,13 +193,32 @@ with st.sidebar:
                     retriever,
                     st.session_state.system_prompt
                 )
-                result_text = rag_chain.invoke(final_prompt)
+
+                rag_response = rag_chain.invoke({
+                    "question": final_prompt,
+                    "chat_history": []
+                })
+
+                content = rag_response.get("answer", rag_response.get("result", rag_response.get("content", "")))
+                source_docs = rag_response.get("source_documents", [])
+
+                sources = []
+                for doc in source_docs:
+                    sources.append({
+                        "content": doc.page_content[:100],  # 너무 길면 자르기
+                        "source": doc.metadata.get("source", "출처 없음")
+                    })
+
+                st.session_state.messages.append(
+                    AIMessage(content=content, additional_kwargs={"sources": sources})
+                )
+                st.session_state.persona_blocks[i]["result"] = content
+
             else:
                 st.session_state.persona_rag_flags[i] = False
                 result_text = generate_response_from_persona(final_prompt)
-
-            st.session_state.messages.append(AIMessage(content=result_text))
-            st.session_state.persona_blocks[i]["result"] = result_text
+                st.session_state.messages.append(AIMessage(content=result_text))
+                st.session_state.persona_blocks[i]["result"] = result_text
 
         if st.button(f"🗑️ 페르소나 삭제", key=f"delete_{i}"):
             delete_idx = i
