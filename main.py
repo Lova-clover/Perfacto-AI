@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, AIMessage
 from RAG.rag_pipeline import get_retriever_from_source
 from RAG.chain_builder import get_conversational_rag_chain, get_default_chain
+from persona import generate_response_from_persona
 from web_ingest import full_web_ingest # web_ingest는 별도로 정의되어 있어야 합니다.
 from image_generator import generate_images_for_topic
 from elevenlabs_tts import generate_tts, TTS_ELEVENLABS_TEMPLATES, TTS_POLLY_VOICES
@@ -500,7 +501,6 @@ with st.sidebar:
                     # --- 1. 업로드 버튼 ---
                     if st.button("YouTube에 자동 업로드"):
                         try:
-                            from upload import upload_to_youtube
                             youtube_link = upload_to_youtube(final_video_with_subs_path, title=final_title_for_video)
                             st.success("✅ YouTube 업로드 완료!")
                             st.markdown(f"[📺 영상 보러가기]({youtube_link})")
