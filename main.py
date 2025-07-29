@@ -4,7 +4,6 @@ from langchain_core.messages import HumanMessage, AIMessage
 from RAG.rag_pipeline import get_retriever_from_source
 from RAG.chain_builder import get_conversational_rag_chain, get_default_chain
 from persona import generate_response_from_persona
-from web_ingest import full_web_ingest # web_ingest는 별도로 정의되어 있어야 합니다.
 from image_generator import generate_images_for_topic
 from elevenlabs_tts import generate_tts, TTS_ELEVENLABS_TEMPLATES, TTS_POLLY_VOICES
 from generate_timed_segments import generate_subtitle_from_script, generate_ass_subtitle, SUBTITLE_TEMPLATES
@@ -12,6 +11,9 @@ from video_maker import create_video_with_segments, add_subtitles_to_video
 from deep_translator import GoogleTranslator
 from file_handler import get_documents_from_files
 from upload import upload_to_youtube
+from best_subtitle_extractor import load_best_subtitles_documents
+from text_scraper import get_links, clean_html_parallel, filter_noise
+from langchain_core.documents import Document
 import os
 import requests # 기본 이미지 다운로드를 위해 추가
 import re
@@ -25,6 +27,24 @@ nest_asyncio.apply()
 
 # API 키 불러오기
 load_dotenv()
+
+def get_web_documents_from_query(query: str):
+    try:
+        urls = get_links(query, num=40)
+        crawl_results = clean_html_parallel(urls)
+        docs = []
+        for result in crawl_results:
+            if result['success']:
+                clean_text = filter_noise(result['text'])
+                if len(clean_text.strip()) >= 300:
+                    doc = Document(
+                        page_content=clean_text.strip(),
+                        metadata={"source": result['url']}
+                    )
+                    docs.append(doc)
+        return docs, None
+    except Exception as e:
+        return [], str(e)
 
 # --- 앱 기본 설정 ---
 st.set_page_config(page_title="Perfacto AI", page_icon="🤖")
@@ -133,7 +153,7 @@ with st.sidebar:
                         st.success(f"{len(file_docs)}개의 파일 문서 로드 완료.")
 
                     if url_input:
-                        web_docs, error = full_web_ingest(url_input)
+                        web_docs, error = get_web_documents_from_query(url_input)
                         if not error:
                             all_documents.extend(web_docs)
                             st.success(f"{len(web_docs)}개의 웹 문서 로드 완료.")
@@ -155,7 +175,31 @@ with st.sidebar:
             joined_prev = "\n\n".join(prev_blocks)
             final_prompt = f"{joined_prev}\n\n지시:\n{block['text']}" if joined_prev else block["text"]
 
-            if use_rag and i in st.session_state.persona_rag_retrievers:
+            rag_mode = st.radio("🔎 이 페르소나에 사용할 RAG 유형을 선택하세요:", ["사용 안 함", "웹 기반 RAG", "유튜브 자막 RAG"], key=f"rag_mode_{i}")
+
+            if rag_mode == "웹 기반 RAG":
+                url_input = st.text_input("웹 키워드 입력", key=f"url_input_{i}")
+                if url_input:
+                    web_docs, error = get_web_documents_from_query(url_input)
+                    if not error:
+                        retriever = get_retriever_from_source("docs", web_docs)
+                        st.session_state.persona_rag_retrievers[i] = retriever
+                        st.session_state.persona_rag_flags[i] = True
+                        st.success(f"웹 문서 {len(web_docs)}건 로드 완료. RAG 사용됩니다.")
+                    else:
+                        st.error(f"웹 수집 실패: {error}")
+
+            elif rag_mode == "유튜브 자막 RAG":
+                subtitle_docs = load_best_subtitles_documents()
+                retriever = get_retriever_from_source("docs", subtitle_docs)
+                st.session_state.persona_rag_retrievers[i] = retriever
+                st.session_state.persona_rag_flags[i] = True
+                st.success(f"유튜브 자막 {len(subtitle_docs)}건 로드 완료. RAG 사용됩니다.")
+
+            else:
+                st.session_state.persona_rag_flags[i] = False
+
+            if st.session_state.persona_rag_flags.get(i, False):
                 rag_chain = get_conversational_rag_chain(
                     st.session_state.persona_rag_retrievers[i],
                     st.session_state.system_prompt
@@ -171,6 +215,7 @@ with st.sidebar:
                     AIMessage(content=result_text)
                 )
                 st.session_state.persona_blocks[i]["result"] = result_text
+
 
         if st.button(f"🗑️ 페르소나 삭제", key=f"delete_{i}"):
             delete_idx = i
