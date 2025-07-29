@@ -164,16 +164,10 @@ def query_vectorstore(vectorstore, query, k=5):
         print(f"\n--- {i+1} ---")
         print(doc.page_content)
 
-def load_best_subtitles_documents(max_results=10):
-    """
-    유튜브 자막 기반 문서 로딩 함수.
-    - 고정된 채널 ID 대신 resolve_channel_id로 채널 핸들 사용
-    - 응답에 'items' 키가 없을 경우 예외 처리
-    """
+def load_best_subtitles_documents(channel_handle_or_url: str, max_results=10):
     documents = []
     try:
-        # ✅ 안정적으로 채널 ID 추출 (핸들 또는 채널명 가능)
-        channel_id = resolve_channel_id("@역사이야기")  # ← 여기에 실제 유튜브 핸들이나 채널명 입력
+        channel_id = resolve_channel_id(channel_handle_or_url)
     except Exception as e:
         print(f"❌ 채널 ID 추출 실패: {e}")
         return []
@@ -190,7 +184,7 @@ def load_best_subtitles_documents(max_results=10):
             audio_path, filename_base = download_audio(link, title)
             texts = transcribe_to_txt(audio_path, filename_base)
             if not texts:
-                print(f"⚠️ {title} → 자막 없음 (text 길이 0)")
+                print(f"⚠️ {title} → 자막 없음")
                 continue
             for line in texts:
                 if line.strip():

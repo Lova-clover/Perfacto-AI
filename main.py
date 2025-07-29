@@ -166,7 +166,13 @@ with st.sidebar:
                     st.warning(f"웹 문서 수집 실패: {error or '문서 없음'}")
 
             elif rag_source == "유튜브 자막 기반 RAG":
-                subtitle_docs = load_best_subtitles_documents()
+                youtube_channel_input = st.text_input("유튜브 @아이디/채널ID/URL 입력: ", value="@역사이야기", key=f"youtube_channel_{i}")
+
+                if youtube_channel_input.strip():
+                    subtitle_docs = load_best_subtitles_documents(youtube_channel_input.strip())
+                else:
+                    st.warning("유튜브 채널을 입력해 주세요.")
+                    subtitle_docs = []
                 if subtitle_docs:
                     retriever = get_retriever_from_source("docs", subtitle_docs)
                     st.success(f"🎬 유튜브 자막 {len(subtitle_docs)}건 적용 완료")
