@@ -9,6 +9,7 @@ from generate_timed_segments import generate_subtitle_from_script, generate_ass_
 from video_maker import create_video_with_segments, add_subtitles_to_video
 from deep_translator import GoogleTranslator
 from file_handler import get_documents_from_files
+from upload import upload_to_youtube
 import os
 import requests # 기본 이미지 다운로드를 위해 추가
 import re
@@ -499,15 +500,26 @@ with st.sidebar:
 
                     # --- 6. 결과 표시 및 다운로드 링크 제공 ---
                     st.video(final_video_with_subs_path)
+                    # --- 1. 업로드 버튼 ---
+                    if st.button("YouTube에 자동 업로드"):
+                        try:
+                            from upload import upload_to_youtube
+                            youtube_link = upload_to_youtube(final_video_with_subs_path, title=final_title_for_video)
+                            st.success("✅ YouTube 업로드 완료!")
+                            st.markdown(f"[📺 영상 보러가기]({youtube_link})")
+                        except Exception as e:
+                            st.error(f"❌ YouTube 업로드 실패: {e}")
+
+                    # --- 2. 다운로드 버튼 ---
                     with open(final_video_with_subs_path, "rb") as file:
                         st.download_button(
-                            label="영상 다운로드",
+                            label="🎬 영상 다운로드",
                             data=file,
                             file_name="generated_multimodal_video.mp4",
                             mime="video/mp4"
                         )
-                    
-                    # Clean up temporary video file (optional)
+
+                    # --- 3. 중간 파일 정리 (최종적으로 실행)
                     if os.path.exists(temp_video_path):
                         os.remove(temp_video_path)
 
