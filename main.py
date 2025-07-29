@@ -140,10 +140,17 @@ with st.sidebar:
         rag_source = st.radio(
             "📡 사용할 RAG 유형:",
             options=["웹 기반 RAG", "유튜브 자막 기반 RAG"],
-            index=None,  # 선택하지 않으면 None → 기본값: 사용 안 함
+            index=None,
             key=f"rag_source_{i}"
         )
 
+        # ✅ 유튜브 자막 RAG 선택 시 즉시 입력창 보이기
+        if rag_source == "유튜브 자막 기반 RAG":
+            st.session_state[f"youtube_channel_{i}"] = st.text_input(
+                "유튜브 채널 핸들 또는 URL 입력:",
+                value=st.session_state.get(f"youtube_channel_{i}", "@역사이야기"),
+                key=f"youtube_channel_{i}"
+            )
         # 실행 버튼
         if st.button(f"🧠 페르소나 실행", key=f"run_{i}"):
             prev_blocks = []
