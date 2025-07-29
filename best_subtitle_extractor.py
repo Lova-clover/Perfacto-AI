@@ -49,7 +49,7 @@ def extract_channel_id(input_str):
     return 'username', input_str
 
 def resolve_channel_id(input_str):
-    yt = build("youtube", "v3", developerKey=GOOGLE_API_KEYS)
+    yt = build("youtube", "v3", developerKey=GOOGLE_API_KEY)
     mode, value = extract_channel_id(input_str)
     if mode == 'handle':
         req = yt.channels().list(part="id", forHandle=value)
@@ -164,36 +164,49 @@ def query_vectorstore(vectorstore, query, k=5):
         print(f"\n--- {i+1} ---")
         print(doc.page_content)
 
-def load_best_subtitles_documents(channel_handle_or_url: str, max_results=10):
+def load_best_subtitles_documents(channel_handle_or_url, max_results=10):
+    """
+    유튜브 자막 기반 문서 로딩 함수.
+    - 고정된 채널 ID 대신 핸들 또는 URL 입력을 받아 처리
+    - Whisper로 자막 추출 시 빈 텍스트 여부도 확인
+    """
+
     documents = []
+
     try:
+        # 채널 ID 추출
+        print(f"🔍 채널 정보 파싱 시작: {channel_handle_or_url}")
         channel_id = resolve_channel_id(channel_handle_or_url)
+        print(f"✅ 채널 ID 추출 성공: {channel_id}")
     except Exception as e:
         print(f"❌ 채널 ID 추출 실패: {e}")
         return []
 
     try:
         videos = get_videos_by_viewcount(channel_id, max_results)
+        print(f"📺 총 {len(videos)}개의 영상 가져옴")
     except Exception as e:
         print(f"❌ 인기 영상 불러오기 실패: {e}")
         return []
 
     for title, link in videos:
         try:
-            print(f"🎬 처리 중: {title}")
+            print(f"🎬 처리 중: {title} | {link}")
             audio_path, filename_base = download_audio(link, title)
             texts = transcribe_to_txt(audio_path, filename_base)
+
             if not texts:
-                print(f"⚠️ {title} → 자막 없음")
+                print(f"⚠️ 자막 없음 또는 Whisper 실패: {title}")
                 continue
+
             for line in texts:
                 if line.strip():
                     documents.append(
                         LangChainDocument(page_content=line.strip(), metadata={"source": link})
                     )
         except Exception as e:
-            print(f"⚠️ [{title}] 처리 실패: {e}")
+            print(f"❌ [{title}] 처리 중 오류 발생: {e}")
             continue
 
-    print(f"✅ 총 {len(documents)}개의 자막 문서 생성 완료")
+    print(f"📦 총 {len(documents)}개의 자막 문서 생성 완료")
     return documents
