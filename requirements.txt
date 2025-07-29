@@ -1,7 +1,7 @@
 groq
 streamlit
-langchain==0.1.14
-langchain-core==0.1.40
+langchain==0.1.16
+langchain-core==0.1.42
 langchain-community
 langchain-openai
 langchain-google-genai
