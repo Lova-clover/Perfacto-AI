@@ -164,35 +164,24 @@ def query_vectorstore(vectorstore, query, k=5):
         print(f"\n--- {i+1} ---")
         print(doc.page_content)
 
-# ===============================
-# 🚀 [메인]
-# ===============================
-def main():
-    user_input = input("유튜브 @아이디/채널ID/URL 입력: ").strip()
-    try:
-        channel_id = resolve_channel_id(user_input)
-    except Exception as e:
-        print(f"채널 인식 실패: {e}"); return
-    print(f"채널ID: {channel_id}")
+def load_best_subtitles_documents(max_results=10):
+    # 검색어를 기준으로 인기 영상 가져오기 (자유롭게 수정 가능)
+    keyword = "한국 역사"  # 또는 원하는 기본 키워드
+    videos = get_videos_by_viewcount("UC0A4FJqVt-6R31X1EcVaCzw", max_results)  # 또는 keyword로 검색 함수 추가해도 됨
+    documents = []
 
-    videos = get_videos_by_viewcount(channel_id, MAX_RESULTS)
-    for idx, (title, link) in enumerate(videos):
-        print(f"\n[{idx+1}/{len(videos)}] 🎬 {title}")
+    for title, link in videos:
         try:
             audio_path, filename_base = download_audio(link, title)
-            print("🧠 Whisper 텍스트 추출 중...")
             texts = transcribe_to_txt(audio_path, filename_base)
-            
-            # 텍스트 출력
-            print(f"\n[{idx+1}/{len(videos)}] 📄 자막 내용:")
-            print("=" * 80)
-            for text in texts:
-                print(text)
-            print("=" * 80)
-            print(f"✅ 텍스트 출력 완료")
-
+            for line in texts:
+                if line.strip():
+                    documents.append(
+                        LangChainDocument(page_content=line.strip(), metadata={"source": link})
+                    )
         except Exception as e:
-            print(f"❌ 오류: {e}"); continue
+            print(f"⚠️ [{title}] 처리 실패: {e}")
+            continue
 
-if __name__ == "__main__":
-    main()
+    print(f"✅ 총 {len(documents)}개의 자막 문서 생성 완료")
+    return documents
