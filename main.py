@@ -541,8 +541,10 @@ with st.sidebar:
                         ass_path=ass_path,
                         output_path=final_video_path
                     )
+                    st.session_state["final_video_path"] = final_video_with_subs_path
+                    
                     st.success(f"✅ 최종 영상 생성 완료: {final_video_with_subs_path}")
-
+                    
                     # --- 결과 영상 표시 ---
                     video_path = st.session_state.get("final_video_path", "")
                     if video_path and os.path.exists(video_path):
