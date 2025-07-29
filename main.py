@@ -1,7 +1,8 @@
 import streamlit as st
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, AIMessage
-from rag_pipeline import get_retriever_from_source, get_document_chain, get_default_chain, generate_topic_insights, rag_with_sources, generate_response_from_persona
+from RAG.rag_pipeline import get_retriever_from_source
+from RAG.chain_builder import get_conversational_rag_chain, get_default_chain
 from web_ingest import full_web_ingest # web_ingest는 별도로 정의되어 있어야 합니다.
 from image_generator import generate_images_for_topic
 from elevenlabs_tts import generate_tts, TTS_ELEVENLABS_TEMPLATES, TTS_POLLY_VOICES
@@ -139,14 +140,11 @@ with st.sidebar:
                             st.error(f"웹페이지 수집 오류: {error}")
 
                     if all_documents:
-                        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-                        split_docs = text_splitter.split_documents(all_documents)
-
-                        embedding = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-                        vectorstore = FAISS.from_documents(split_docs, embedding)
-                        st.session_state.persona_rag_retrievers[i] = vectorstore.as_retriever()
+                        retriever = get_retriever_from_source("docs", all_documents)
+                        st.session_state.persona_rag_retrievers[i] = retriever
                         st.success("이 페르소나에 대한 문서 분석이 완료되었습니다.")
 
+        # --- 페르소나 실행 ---
         if st.button(f"🧠 페르소나 실행", key=f"run_{i}"):
             prev_blocks = []
             for ptype, pidx in st.session_state.persona_blocks[i].get("use_prev_idx", []):
@@ -157,14 +155,13 @@ with st.sidebar:
             final_prompt = f"{joined_prev}\n\n지시:\n{block['text']}" if joined_prev else block["text"]
 
             if use_rag and i in st.session_state.persona_rag_retrievers:
-                rag_result = rag_with_sources({
-                    "input": final_prompt,
-                    "chat_history": [],
-                    "retriever": st.session_state.persona_rag_retrievers[i]
-                })
-                result_text = rag_result.get("answer", "")
+                rag_chain = get_conversational_rag_chain(
+                    st.session_state.persona_rag_retrievers[i],
+                    st.session_state.system_prompt
+                )
+                result_text = rag_chain.invoke(final_prompt)
                 st.session_state.messages.append(
-                    AIMessage(content=result_text, additional_kwargs={"sources": rag_result.get("sources", [])})
+                    AIMessage(content=result_text)
                 )
                 st.session_state.persona_blocks[i]["result"] = result_text
             else:
@@ -573,16 +570,9 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
         
         # RAG 사용 여부 결정 (URL 또는 파일이 처리된 경우)
         if st.session_state.retriever:
-            inputs_for_rag = {"input": user_input, "chat_history": st.session_state.messages}
-            rag_output = rag_with_sources(inputs_for_rag)
-            ai_answer = rag_output["answer"]
-            sources_list = rag_output["sources"]
-
-            #현재 문서에서 핵심 키워드를 입력하지 못하면 답변을 잘 못해서 추가함
-            if not sources_list:
-                ai_answer = "⚠️ **문서에서 관련 내용을 찾지 못해 AI의 일반적인 지식으로 답변합니다.**\n\n" + ai_answer
+            rag_chain = get_conversational_rag_chain(st.session_state.retriever, st.session_state.system_prompt)
+            ai_answer = rag_chain.invoke(user_input)
             
-
             container.markdown(ai_answer)
 
         else:

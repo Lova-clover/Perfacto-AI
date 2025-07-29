@@ -6,6 +6,8 @@ langchain-community
 langchain-openai
 langchain-google-genai
 langchain-experimental
+langchain-cohere==0.1.5
+cohere==5.5.8
 sentence-transformers
 faiss-cpu
 tiktoken
@@ -27,8 +29,16 @@ boto3
 pydub
 llama-parse
 rank_bm25
-cohere
 kss
 torch
 google-auth-oauthlib>=1.0.0
 google-api-python-client>=2.100.0
+docx2txt
+nest-asyncio
+lxml[html_clean]
+playwright
+redis
+spacy>=3.7.0
+# spaCy 모델 직접 설치
+https://github.com/explosion/spacy-models/releases/download/ko_core_news_sm-3.7.0/ko_core_news_sm-3.7.0-py3-none-any.whl#egg=ko_core_news_sm
+https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.0/en_core_web_sm-3.7.0-py3-none-any.whl#egg=en_core_web_sm
