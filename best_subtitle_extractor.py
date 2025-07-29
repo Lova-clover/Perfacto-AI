@@ -189,6 +189,9 @@ def load_best_subtitles_documents(max_results=10):
             print(f"🎬 처리 중: {title}")
             audio_path, filename_base = download_audio(link, title)
             texts = transcribe_to_txt(audio_path, filename_base)
+            if not texts:
+                print(f"⚠️ {title} → 자막 없음 (text 길이 0)")
+                continue
             for line in texts:
                 if line.strip():
                     documents.append(
