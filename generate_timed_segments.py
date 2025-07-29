@@ -81,8 +81,57 @@ SUBTITLE_TEMPLATES = {
     }
 }
 
+<<<<<<< HEAD
 def split_script_to_lines(script_text):
     return [sent.strip() for sent in kss.split_sentences(script_text) if sent.strip()]
+=======
+def split_script_to_lines(script_text, min_length=15, max_length=35):
+    import kss
+    import re
+
+    # 1차: KSS로 문장 분리
+    kss_sentences = kss.split_sentences(script_text)
+    processed_lines = []
+
+    for sent in kss_sentences:
+        sent = sent.strip()
+
+        # 아주 짧은 문장은 그대로 사용
+        if len(sent) <= max_length:
+            processed_lines.append(sent)
+            continue
+
+        # 2차: 쉼표나 접속사 기준으로 나눔
+        temp_chunks = re.split(r"(,| 그리고 | 그래서 | 하지만 | 또한 )", sent)
+        temp = ""
+        for part in temp_chunks:
+            temp += part
+            if len(temp.strip()) >= max_length or part in [",", " 그리고 ", " 그래서 ", " 하지만 ", " 또한 "]:
+                processed_lines.append(temp.strip())
+                temp = ""
+        if temp.strip():
+            processed_lines.append(temp.strip())
+
+    # 3차: 여전히 긴 문장이 있다면 조사 기준으로만 한 번 더 분할
+    final_lines = []
+    for line in processed_lines:
+        if len(line) <= max_length:
+            final_lines.append(line)
+        else:
+            # 조사 기준으로만 한 번 더 자르기
+            sub_chunks = re.split(r"(은 |는 |을 |를 |이 |가 |에 |도 |으로 |부터 |까지 |에서 )", line)
+            temp = ''
+            for part in sub_chunks:
+                temp += part
+                if len(temp) >= min_length:
+                    final_lines.append(temp.strip())
+                    temp = ''
+            if temp.strip():
+                final_lines.append(temp.strip())
+
+    # 빈 줄 제거
+    return [l.strip() for l in final_lines if l.strip()]
+>>>>>>> 87e8cb4 (대사분할증가)
 
 def generate_tts_per_line(script_lines, provider, template):
     audio_paths = []
