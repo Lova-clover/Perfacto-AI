@@ -3,6 +3,7 @@ import re
 import whisper
 import subprocess
 import unicodedata
+import streamlit as st
 from deep_translator import GoogleTranslator
 from googleapiclient.discovery import build
 
@@ -15,10 +16,10 @@ from langchain_community.vectorstores import FAISS
 # 🔑 [API KEY 설정 구역]
 # ===============================
 # 1. 유튜브 API키 (Youtube Data API v3 활성화 필요) # 유튜브 데이터 받아오기 api키
-GOOGLE_API_KEY = "GOOGLE_API_KEY_REDACTED" 
+GOOGLE_API_KEYS = st.secrets["GOOGLE_API_KEYS"]
 
 # 2. 오픈AI API키 (https://platform.openai.com/api-keys) #임베딩 및 랭체인 구현
-OPENAI_API_KEY = "OPENAI_API_KEY_REDACTED"
+OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 
 # ===============================
 # 🗂️ [디렉토리/환경 설정]
@@ -48,7 +49,7 @@ def extract_channel_id(input_str):
     return 'username', input_str
 
 def resolve_channel_id(input_str):
-    yt = build("youtube", "v3", developerKey=GOOGLE_API_KEY)
+    yt = build("youtube", "v3", developerKey=GOOGLE_API_KEYS)
     mode, value = extract_channel_id(input_str)
     if mode == 'handle':
         req = yt.channels().list(part="id", forHandle=value)
@@ -89,7 +90,7 @@ def safe_filename(title):
     return safe_title[:100] or "untitled"
 
 def get_videos_by_viewcount(channel_id, max_results):
-    yt = build("youtube", "v3", developerKey=GOOGLE_API_KEY)
+    yt = build("youtube", "v3", developerKey=GOOGLE_API_KEYS)
     uploads_pid = yt.channels().list(part="contentDetails", id=channel_id)\
         .execute()["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
     videos, next_page = [], None

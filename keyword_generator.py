@@ -5,14 +5,10 @@ from typing import List, Dict, Tuple
 import re
 import os
 from datetime import datetime
-
-# =============================================================================
-# API 키 설정 (여기에 실제 API 키를 입력하세요)
-# =============================================================================
+import streamlit as st
 
 # Groq API 설정 (질문 세분화용)
-GROQ_API_KEY = "GROQ_API_KEY_REDACTED"  # Groq API 키
-
+GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
 # =============================================================================
 
 class QuestionSegmentationSystem:
