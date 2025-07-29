@@ -543,9 +543,14 @@ with st.sidebar:
                     )
                     st.success(f"✅ 최종 영상 생성 완료: {final_video_with_subs_path}")
 
-                    # --- 6. 결과 표시 및 다운로드 링크 제공 ---
+                    # --- 영상 결과 표시 및 버튼 처리 ---
                     st.video(final_video_with_subs_path)
-                    # --- 1. 업로드 버튼 ---
+
+                    # ✅ 영상 파일 바이너리 데이터 미리 읽기
+                    with open(final_video_with_subs_path, "rb") as f:
+                        video_binary_data = f.read()
+
+                    # --- 1. YouTube 업로드 버튼 ---
                     if st.button("YouTube에 자동 업로드"):
                         try:
                             youtube_link = upload_to_youtube(final_video_with_subs_path, title=final_title_for_video)
@@ -555,14 +560,12 @@ with st.sidebar:
                             st.error(f"❌ YouTube 업로드 실패: {e}")
 
                     # --- 2. 다운로드 버튼 ---
-                    with open(final_video_with_subs_path, "rb") as file:
-                        st.download_button(
-                            label="🎬 영상 다운로드",
-                            data=file,
-                            file_name="generated_multimodal_video.mp4",
-                            mime="video/mp4"
-                        )
-
+                    st.download_button(
+                        label="🎬 영상 다운로드",
+                        data=video_binary_data,
+                        file_name="generated_multimodal_video.mp4",
+                        mime="video/mp4"
+                    )
                 except Exception as e:
                     st.error(f"❌ 영상 생성 중 오류가 발생했습니다: {e}")
                     st.exception(e)
