@@ -11,12 +11,10 @@ from video_maker import create_video_with_segments, add_subtitles_to_video
 from deep_translator import GoogleTranslator
 from file_handler import get_documents_from_files
 from upload import upload_to_youtube
-<<<<<<< HEAD
 from best_subtitle_extractor import load_best_subtitles_documents
 from text_scraper import get_links, clean_html_parallel, filter_noise
 from langchain_core.documents import Document
-=======
->>>>>>> a9fa9a2 (유튜브업로드추가)
+
 import os
 import requests # 기본 이미지 다운로드를 위해 추가
 import re
