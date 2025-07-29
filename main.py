@@ -543,36 +543,41 @@ with st.sidebar:
                     )
                     st.success(f"✅ 최종 영상 생성 완료: {final_video_with_subs_path}")
 
-                    # ✅ 세션 상태에 저장
+                    # ✅ 세션 상태에 영상 경로 및 바이너리 저장
                     st.session_state["final_video_path"] = final_video_with_subs_path
-
-                    # ✅ 영상 바이너리 저장
                     with open(final_video_with_subs_path, "rb") as f:
                         st.session_state["video_binary_data"] = f.read()
 
-                    # ✅ 표시
+                    # ✅ 영상 다시 표시
                     st.video(st.session_state["final_video_path"])
 
-                    # ✅ 업로드 버튼
+                    # ✅ YouTube 업로드 버튼 상태 관리
                     if st.button("YouTube에 자동 업로드"):
+                        st.session_state["upload_clicked"] = True
+
+                    if st.session_state.get("upload_clicked") and st.session_state.get("final_video_path"):
                         try:
                             youtube_link = upload_to_youtube(
                                 st.session_state["final_video_path"],
-                                title=final_title_for_video
+                                title=st.session_state["video_title"]
                             )
                             st.success("✅ YouTube 업로드 완료!")
                             st.markdown(f"[📺 영상 보러가기]({youtube_link})")
                         except Exception as e:
                             st.error(f"❌ YouTube 업로드 실패: {e}")
+                        finally:
+                            st.session_state["upload_clicked"] = False  # ✅ 버튼 1회만 작동
 
-                    # ✅ 다운로드 버튼
-                    if "video_binary_data" in st.session_state:
-                        st.download_button(
-                            label="🎬 영상 다운로드",
-                            data=st.session_state["video_binary_data"],
-                            file_name="generated_multimodal_video.mp4",
-                            mime="video/mp4"
-                        )
+                    # ✅ 다운로드 버튼 상태 관리
+                    download_clicked = st.download_button(
+                        label="🎬 영상 다운로드",
+                        data=st.session_state["video_binary_data"],
+                        file_name="generated_multimodal_video.mp4",
+                        mime="video/mp4"
+                    )
+
+                    if download_clicked:
+                        st.success("✅ 다운로드가 시작되었습니다.")
                 except Exception as e:
                     st.error(f"❌ 영상 생성 중 오류가 발생했습니다: {e}")
                     st.exception(e)
