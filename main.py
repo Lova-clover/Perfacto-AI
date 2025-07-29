@@ -144,38 +144,6 @@ with st.sidebar:
             key=f"rag_source_{i}"
         )
 
-        rag_docs = None
-
-        # 웹 기반 RAG 적용
-        if rag_source == "웹 기반 RAG":
-            st.info("🔍 웹 문서를 자동 수집 중입니다...")
-            rag_docs, error = get_web_documents_from_query(block["text"])
-            if not error and rag_docs:
-                retriever = get_retriever_from_source("docs", rag_docs)
-                st.session_state.persona_rag_flags[i] = True
-                st.session_state.persona_rag_retrievers[i] = retriever
-                st.success(f"✅ {len(rag_docs)}개 문서 로드 완료")
-            else:
-                st.session_state.persona_rag_flags[i] = False
-                st.warning(f"❌ 웹 문서 수집 실패: {error or '문서 없음'}")
-
-        # 유튜브 자막 RAG 적용
-        elif rag_source == "유튜브 자막 기반 RAG":
-            st.info("🎬 유튜브 자막을 불러오는 중입니다...")
-            subtitle_docs = load_best_subtitles_documents()
-            if subtitle_docs:
-                retriever = get_retriever_from_source("docs", subtitle_docs)
-                st.session_state.persona_rag_flags[i] = True
-                st.session_state.persona_rag_retrievers[i] = retriever
-                st.success(f"✅ {len(subtitle_docs)}개 자막 문서 로드 완료")
-            else:
-                st.session_state.persona_rag_flags[i] = False
-                st.warning("❌ 자막 문서가 없습니다.")
-
-        # 아무것도 선택하지 않은 경우 = 사용 안 함
-        else:
-            st.session_state.persona_rag_flags[i] = False
-
         # 실행 버튼
         if st.button(f"🧠 페르소나 실행", key=f"run_{i}"):
             prev_blocks = []
@@ -186,17 +154,40 @@ with st.sidebar:
             joined_prev = "\n\n".join(prev_blocks)
             final_prompt = f"{joined_prev}\n\n지시:\n{block['text']}" if joined_prev else block["text"]
 
-            if st.session_state.persona_rag_flags.get(i, False):
+            rag_source = st.session_state.get(f"rag_source_{i}", None)
+            retriever = None
+
+            if rag_source == "웹 기반 RAG":
+                docs, error = get_web_documents_from_query(block["text"])
+                if not error and docs:
+                    retriever = get_retriever_from_source("docs", docs)
+                    st.success(f"📄 웹 문서 {len(docs)}건 적용 완료")
+                else:
+                    st.warning(f"웹 문서 수집 실패: {error or '문서 없음'}")
+
+            elif rag_source == "유튜브 자막 기반 RAG":
+                subtitle_docs = load_best_subtitles_documents()
+                if subtitle_docs:
+                    retriever = get_retriever_from_source("docs", subtitle_docs)
+                    st.success(f"🎬 유튜브 자막 {len(subtitle_docs)}건 적용 완료")
+                else:
+                    st.warning("유튜브 자막이 없습니다.")
+
+            # 실행
+            if retriever:
+                st.session_state.persona_rag_flags[i] = True
+                st.session_state.persona_rag_retrievers[i] = retriever
+
                 rag_chain = get_conversational_rag_chain(
-                    st.session_state.persona_rag_retrievers[i],
+                    retriever,
                     st.session_state.system_prompt
                 )
                 result_text = rag_chain.invoke(final_prompt)
-                st.session_state.messages.append(AIMessage(content=result_text))
             else:
+                st.session_state.persona_rag_flags[i] = False
                 result_text = generate_response_from_persona(final_prompt)
-                st.session_state.messages.append(AIMessage(content=result_text))
 
+            st.session_state.messages.append(AIMessage(content=result_text))
             st.session_state.persona_blocks[i]["result"] = result_text
 
         if st.button(f"🗑️ 페르소나 삭제", key=f"delete_{i}"):
