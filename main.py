@@ -195,8 +195,7 @@ with st.sidebar:
                 )
 
                 rag_response = rag_chain.invoke({
-                    "question": final_prompt,
-                    "chat_history": []
+                    "input": final_prompt
                 })
 
                 content = rag_response.get("answer", rag_response.get("result", rag_response.get("content", "")))
@@ -615,7 +614,7 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
         # RAG 사용 여부 결정 (URL 또는 파일이 처리된 경우)
         if st.session_state.retriever:
             rag_chain = get_conversational_rag_chain(st.session_state.retriever, st.session_state.system_prompt)
-            rag_response = rag_chain.invoke({"question": user_input, "chat_history": []})
+            rag_response = rag_chain.invoke({"input": user_input})
             
             ai_answer = rag_response.get("answer", rag_response.get("result", rag_response.get("content", "")))
             source_docs = rag_response.get("source_documents", [])
