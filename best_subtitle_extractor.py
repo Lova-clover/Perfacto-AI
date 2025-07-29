@@ -164,25 +164,29 @@ def query_vectorstore(vectorstore, query, k=5):
         print(f"\n--- {i+1} ---")
         print(doc.page_content)
 
-def load_best_subtitles_documents(max_results=10, fallback_keyword="한국 역사"):
+def load_best_subtitles_documents(max_results=10):
     """
-    유튜브 자막 기반 문서들을 불러오는 함수. 
-    고정 채널 ID 대신 핸들을 사용하고, 예외 발생 시 fallback 키워드로 검색할 수 있도록 구성.
+    유튜브 자막 기반 문서 로딩 함수.
+    - 고정된 채널 ID 대신 resolve_channel_id로 채널 핸들 사용
+    - 응답에 'items' 키가 없을 경우 예외 처리
     """
     documents = []
+    try:
+        # ✅ 안정적으로 채널 ID 추출 (핸들 또는 채널명 가능)
+        channel_id = resolve_channel_id("@역사이야기")  # ← 여기에 실제 유튜브 핸들이나 채널명 입력
+    except Exception as e:
+        print(f"❌ 채널 ID 추출 실패: {e}")
+        return []
 
     try:
-        # ✅ 안정적으로 채널 ID 해석 (핸들 기반)
-        channel_id = resolve_channel_id("@역사채널")  # 👉 여기 원하는 유튜브 핸들로 변경 가능
         videos = get_videos_by_viewcount(channel_id, max_results)
     except Exception as e:
-        print(f"❌ 유튜브 채널 ID로 영상 불러오기 실패: {e}")
-        print(f"🔁 '{fallback_keyword}' 키워드로 대체 검색을 시도합니다.")
-        return []  # 키워드 기반 검색 함수로 대체 가능하면 여기에 삽입
+        print(f"❌ 인기 영상 불러오기 실패: {e}")
+        return []
 
     for title, link in videos:
         try:
-            print(f"🎬 영상 처리 중: {title}")
+            print(f"🎬 처리 중: {title}")
             audio_path, filename_base = download_audio(link, title)
             texts = transcribe_to_txt(audio_path, filename_base)
             for line in texts:
