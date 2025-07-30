@@ -181,6 +181,13 @@ with st.sidebar:
                 if not error and docs:
                     retriever = get_retriever_from_source("docs", docs)
                     st.success(f"📄 웹 문서 {len(docs)}건 적용 완료")
+                    with st.expander("🔗 적용된 웹 문서 출처 보기"):
+                        for idx, doc in enumerate(docs, start=1):
+                            url = doc.metadata.get("source", "출처 없음")
+                            if url.startswith("http"):
+                                st.markdown(f"- [문서 {idx}]({url})")
+                            else:
+                                st.markdown(f"- 문서 {idx}: {url}")
                 else:
                     st.warning(f"웹 문서 수집 실패: {error or '문서 없음'}")
 
