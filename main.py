@@ -37,7 +37,7 @@ def get_web_documents_from_query(query: str):
         for result in crawl_results:
             if result['success']:
                 clean_text = filter_noise(result['text'])
-                if len(clean_text.strip()) >= 300:
+                if len(clean_text.strip()) >= 100:
                     doc = Document(
                         page_content=clean_text.strip(),
                         metadata={"source": result['url']}
