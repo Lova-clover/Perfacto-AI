@@ -6,8 +6,10 @@ import os
 
 def upload_to_youtube(video_path, title="AI 자동 생성 영상", description="AI로 생성된 숏폼입니다."):
     SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
-
-    with open("token.json", "r") as f:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    TOKEN_PATH = os.path.join(BASE_DIR, "token.json")
+    
+    with open(TOKEN_PATH, "r") as f:
         token_data = json.load(f)
     credentials = Credentials.from_authorized_user_info(token_data, SCOPES)
 
