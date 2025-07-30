@@ -204,16 +204,9 @@ with st.sidebar:
                     st.session_state.system_prompt
                 )
 
-                try:
-                    st.write("🚀 rag_chain 호출 전")
-                    rag_response = rag_chain.invoke({"input": final_prompt})
-                    st.write("✅ rag_chain 호출 후")
-                    st.write("✅ RAG 응답 전체:", rag_response)
-                except Exception as e:
-                    st.error(f"❌ rag_chain.invoke 중 오류 발생: {e}")
-                    import traceback
-                    st.text("🔍 traceback:")
-                    st.text(traceback.format_exc())
+                rag_response = rag_chain.invoke({
+                    "input": final_prompt
+                })
 
                 content = rag_response.get("answer", rag_response.get("result", rag_response.get("content", "")))
                 source_docs = rag_response.get("source_documents", [])
