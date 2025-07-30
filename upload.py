@@ -4,7 +4,6 @@ from googleapiclient.http import MediaFileUpload
 import json
 import os
 import streamlit as st
-token_path = os.path.join(os.path.dirname(__file__), "token.json")
 
 
 def upload_to_youtube(video_path, title="AI 자동 생성 영상", description="AI로 생성된 숏폼입니다."):
