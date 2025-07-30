@@ -203,17 +203,17 @@ with st.sidebar:
                     retriever,
                     st.session_state.system_prompt
                 )
-                st.write("🚀 rag_chain 호출 전")
-                rag_response = rag_chain.invoke({
-                    "input": final_prompt
-                })
-                st.write("✅ rag_chain 호출 후")
-                st.write("✅ RAG 응답 전체:", rag_response)
-                st.write("✅ 답변:", rag_response.get("answer"))
-                st.write("✅ source_documents 개수:", len(rag_response.get("source_documents", [])))
-                for i, doc in enumerate(rag_response.get("source_documents", [])):
-                    st.markdown(f"**출처 {i+1}:** {doc.metadata.get('source', 'N/A')}")
-                    st.markdown(f"> {doc.page_content[:100]}...")
+
+                try:
+                    st.write("🚀 rag_chain 호출 전")
+                    rag_response = rag_chain.invoke({"input": final_prompt})
+                    st.write("✅ rag_chain 호출 후")
+                    st.write("✅ RAG 응답 전체:", rag_response)
+                except Exception as e:
+                    st.error(f"❌ rag_chain.invoke 중 오류 발생: {e}")
+                    import traceback
+                    st.text("🔍 traceback:")
+                    st.text(traceback.format_exc())
 
                 content = rag_response.get("answer", rag_response.get("result", rag_response.get("content", "")))
                 source_docs = rag_response.get("source_documents", [])
