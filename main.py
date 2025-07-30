@@ -233,20 +233,6 @@ with st.sidebar:
                 )
                 st.session_state.persona_blocks[i]["result"] = content
                 
-                with st.chat_message("ai"):
-                    st.markdown(rag_response["answer"])
-                    sources = rag_response.get("source_documents", [])
-                    if sources:
-                        st.markdown("### 📚 참고 문단 (RAG 기반)")
-                        for i, source_item in enumerate(sources, start=1):
-                            source_url = source_item.get("source", "출처 없음")
-                            content_snippet = source_item.get("content", "")[:300] + "..." if len(source_item.get("content", "")) > 300 else source_item.get("content", "")
-                            
-                            if source_url.startswith("http"):
-                                st.markdown(f"**출처 {i}:** [{source_url}]({source_url})\n> {content_snippet}")
-                            else:
-                                st.markdown(f"**출처 {i}:** {source_url}\n> {content_snippet}")
-
             else:
                 st.session_state.persona_rag_flags[i] = False
                 result_text = generate_response_from_persona(final_prompt)
