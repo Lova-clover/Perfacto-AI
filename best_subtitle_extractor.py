@@ -135,28 +135,32 @@ def download_audio(link, title):
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
-        'quiet': False,  # <- 디버그를 위해 quiet 꺼도 OK
-        'noplaylist': True
+        'quiet': False,
+        'noplaylist': True,
+        'verbose': True
     }
 
-    print(f"\n🌀 [DEBUG] yt-dlp 다운로드 시작: {link}")
-    print(f"   🔽 저장 위치: {output_path}")
+    st.info(f"🌀 [DEBUG] yt-dlp 다운로드 시작:\n🔗 {link}\n📁 저장 위치: `{output_path}`")
 
     try:
         with YoutubeDL(ydl_opts) as ydl:
             ydl.download([link])
     except Exception as e:
-        print(f"❌ [DEBUG] yt-dlp 다운로드 실패: {e}")
+        st.error(f"❌ [DEBUG] yt-dlp 다운로드 실패:\n```\n{e}\n```")
         raise RuntimeError(f"❌ yt-dlp 오류 발생: {e}")
 
-    # 생성된 파일 목록 확인
-    print(f"📂 [DEBUG] AUDIO_DIR 목록: {os.listdir(AUDIO_DIR)}")
+    # 디렉토리 내부 파일 목록 확인
+    try:
+        file_list = os.listdir(AUDIO_DIR)
+        st.info(f"📂 [DEBUG] AUDIO_DIR 내부 파일:\n{file_list}")
+    except Exception as e:
+        st.warning(f"⚠️ AUDIO_DIR 목록 확인 실패: {e}")
 
     if not os.path.exists(output_path):
-        print(f"❗ [DEBUG] mp3 파일 존재하지 않음: {output_path}")
+        st.warning(f"❗ [DEBUG] mp3 파일이 존재하지 않음: `{output_path}`")
         raise FileNotFoundError(f"❌ mp3 생성 실패: {output_path}")
 
-    print(f"✅ [DEBUG] mp3 생성 성공: {output_path}")
+    st.success(f"✅ [DEBUG] mp3 생성 성공: `{output_path}`")
     return output_path, safe_title
 
 def transcribe_to_txt(audio_path, filename_base):
