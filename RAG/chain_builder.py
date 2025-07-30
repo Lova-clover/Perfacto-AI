@@ -4,11 +4,15 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableMap, RunnableLambda, RunnablePassthrough
 from langchain_groq import ChatGroq  # ✅ Groq import
 
+
+
+
 def get_conversational_rag_chain(retriever, system_prompt):
     """
     최종적으로 생성된 문장 단위의 출처를 사용하여 답변을 생성하는 RAG 체인을 구성합니다.
     """
     llm = ChatGroq(model_name="llama3-70b-8192", temperature=0.1)  # ✅ Groq LLM 설정
+
     
     rag_prompt_template = f"""{system_prompt}
 
@@ -56,6 +60,7 @@ Do not use any prior knowledge.
         ),
         "source_documents": retriever  # 원본 문서를 그대로 반환
     })
+
     return rag_chain
 
 def get_default_chain(system_prompt):

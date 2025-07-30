@@ -33,6 +33,7 @@ rank_bm25
 kss
 torch
 google-auth-oauthlib>=1.0.0
+google-api-python-client>=2.100.0
 docx2txt
 nest-asyncio
 lxml[html_clean]
