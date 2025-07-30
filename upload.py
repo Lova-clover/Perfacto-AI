@@ -4,15 +4,16 @@ from googleapiclient.http import MediaFileUpload
 import json
 import os
 
+token_path = os.path.join(os.path.dirname(__file__), "token.json")
+
 def upload_to_youtube(video_path, title="AI 자동 생성 영상", description="AI로 생성된 숏폼입니다."):
     SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    TOKEN_PATH = os.path.join(BASE_DIR, "token.json")
-    
-    with open(TOKEN_PATH, "r") as f:
-        token_data = json.load(f)
-    credentials = Credentials.from_authorized_user_info(token_data, SCOPES)
 
+    # token.json 파일 읽기
+    with open(token_path, "r") as f:
+        token_data = json.load(f)
+    
+    credentials = Credentials.from_authorized_user_info(token_data, SCOPES)
     youtube = build("youtube", "v3", credentials=credentials)
 
     request_body = {
