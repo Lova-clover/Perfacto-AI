@@ -224,18 +224,16 @@ with st.sidebar:
                 st.session_state.persona_blocks[i]["result"] = content
                 
                 with st.chat_message("ai"):
-                    st.markdown(content)
+                    st.markdown(rag_response["answer"])
+                    sources = rag_response.get("source_documents", [])
                     if sources:
                         st.markdown("### 📚 참고 문단 (RAG 기반)")
-                        for idx, source_item in enumerate(sources, start=1):
-                            content_display = source_item["content"]
-                            source_url_display = source_item.get("source", "N/A")
-                            if len(content_display) > 200:
-                                content_display = content_display[:200] + "..."
-                            if source_url_display != "N/A":
-                                st.markdown(f"**출처 {idx}:** [{source_url_display}]({source_url_display})\n> {content_display}")
-                            else:
-                                st.markdown(f"**출처 {idx}:**\n> {content_display}")
+                        for i, doc in enumerate(sources, start=1):
+                            src = doc.metadata.get("source", "출처 없음")
+                            snippet = doc.page_content.strip()
+                            if len(snippet) > 200:
+                                snippet = snippet[:200] + "..."
+                            st.markdown(f"**출처 {i}:** [{src}]({src})\n> {snippet}")
 
             else:
                 st.session_state.persona_rag_flags[i] = False
