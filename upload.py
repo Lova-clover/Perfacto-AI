@@ -1,12 +1,16 @@
-# upload.py
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+import json
+import os
 
 def upload_to_youtube(video_path, title="AI 자동 생성 영상", description="AI로 생성된 숏폼입니다."):
     SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
-    flow = InstalledAppFlow.from_client_secrets_file("client_secret.json", SCOPES)
-    credentials = flow.run_local_server(port=0)
+
+    with open("token.json", "r") as f:
+        token_data = json.load(f)
+    credentials = Credentials.from_authorized_user_info(token_data, SCOPES)
+
     youtube = build("youtube", "v3", credentials=credentials)
 
     request_body = {
