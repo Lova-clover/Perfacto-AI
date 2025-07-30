@@ -94,7 +94,17 @@ if "persona_rag_flags" not in st.session_state:
     st.session_state.persona_rag_flags = {}  # 각 페르소나가 RAG 사용할지 여부
 if "persona_rag_retrievers" not in st.session_state:
     st.session_state.persona_rag_retrievers = {}  # 각 페르소나 전용 retriever
-
+# 업로드/다운로드 버튼을 항상 표시하고 세션 상태 유지
+# --- 초기화 (맨 위에서 설정) ---
+if "upload_clicked" not in st.session_state:
+    st.session_state.upload_clicked = False
+if "youtube_link" not in st.session_state:
+    st.session_state.youtube_link = ""
+if "video_binary_data" not in st.session_state:
+    final_path = st.session_state.get("final_video_path", "")
+    if final_path and os.path.exists(final_path):
+        with open(final_path, "rb") as f:
+            st.session_state.video_binary_data = f.read()
 
 # --- 사이드바: AI 페르소나 설정 및 RAG 설정 ---
 with st.sidebar:
@@ -545,30 +555,34 @@ with st.sidebar:
                     
                     st.success(f"✅ 최종 영상 생성 완료: {final_video_with_subs_path}")
                     
-                    # ✅ 2. 영상과 버튼은 항상 별도 블럭에서 조건 없이 표시
                     video_path = st.session_state.get("final_video_path", "")
                     if video_path and os.path.exists(video_path):
                         st.video(video_path)
 
-                        with open(video_path, "rb") as f:
-                            video_binary_data = f.read()
-                        st.download_button(
-                            label="🎬 영상 다운로드",
-                            data=video_binary_data,
-                            file_name="generated_multimodal_video.mp4",
-                            mime="video/mp4"
-                        )
+                        if st.session_state.video_binary_data:
+                            st.download_button(
+                                label="🎬 영상 다운로드",
+                                data=st.session_state.video_binary_data,
+                                file_name="generated_multimodal_video.mp4",
+                                mime="video/mp4"
+                            )
 
-                        if st.button("YouTube에 자동 업로드"):
-                            try:
-                                youtube_link = upload_to_youtube(
-                                    video_path,
-                                    title=st.session_state.get("video_title", "제목 없음")
-                                )
-                                st.success("✅ YouTube 업로드 완료!")
-                                st.markdown(f"[📺 영상 보러가기]({youtube_link})")
-                            except Exception as e:
-                                st.error(f"❌ 업로드 실패: {e}")
+                        if not st.session_state.upload_clicked:
+                            if st.button("YouTube에 자동 업로드"):
+                                try:
+                                    youtube_link = upload_to_youtube(
+                                        video_path,
+                                        title=st.session_state.get("video_title", "제목 없음")
+                                    )
+                                    st.session_state.upload_clicked = True
+                                    st.session_state.youtube_link = youtube_link
+                                    st.success("✅ YouTube 업로드 완료!")
+                                    st.markdown(f"[📺 영상 보러가기]({youtube_link})")
+                                except Exception as e:
+                                    st.error(f"❌ 업로드 실패: {e}")
+                        else:
+                            st.success("✅ YouTube 업로드 완료됨")
+                            st.markdown(f"[📺 영상 보러가기]({st.session_state.youtube_link})")
 
                 except Exception as e:
                     st.error(f"❌ 영상 생성 중 오류가 발생했습니다: {e}")
