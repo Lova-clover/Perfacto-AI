@@ -125,7 +125,7 @@ def get_videos_by_viewcount(channel_id, max_results):
 
 def download_audio(link, title):
     safe_title = safe_filename(title)
-    output_path = os.path.join(AUDIO_DIR, safe_title)  # 👈 확장자 제거
+    output_path = os.path.join(AUDIO_DIR, safe_title)  # 확장자 제거
 
     ydl_opts = {
         'format': 'bestaudio/best',
@@ -135,30 +135,18 @@ def download_audio(link, title):
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
-        'quiet': False,
-        'noplaylist': True,
-        'verbose': True
+        'quiet': True,
+        'noplaylist': True
     }
 
-    st.info(f"🌀 [DEBUG] yt-dlp 다운로드 시작:\n🔗 {link}\n📁 저장 위치: `{output_path}`")
+    with YoutubeDL(ydl_opts) as ydl:
+        ydl.download([link])
 
-    try:
-        with YoutubeDL(ydl_opts) as ydl:
-            ydl.download([link])
-    except Exception as e:
-        st.error(f"❌ yt-dlp 오류 발생: {e}")
-        raise RuntimeError(f"❌ yt-dlp 오류 발생: {e}")
-
-    # 최종 실제 저장 경로
     final_path = os.path.join(AUDIO_DIR, f"{safe_title}.mp3")
 
-    st.info(f"📂 [DEBUG] AUDIO_DIR 목록: {os.listdir(AUDIO_DIR)}")
-
     if not os.path.exists(final_path):
-        st.warning(f"❗ [DEBUG] mp3 파일이 존재하지 않음: `{final_path}`")
         raise FileNotFoundError(f"❌ mp3 생성 실패: {final_path}")
 
-    st.success(f"✅ [DEBUG] mp3 생성 성공: `{final_path}`")
     return final_path, safe_title
 
 def transcribe_to_txt(audio_path, filename_base):
