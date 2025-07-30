@@ -6,7 +6,7 @@ import unicodedata
 import streamlit as st
 from deep_translator import GoogleTranslator
 from googleapiclient.discovery import build
-
+from yt_dlp import YoutubeDL
 from langchain_core.documents import Document as LangChainDocument
 from langchain_openai import OpenAIEmbeddings
 from langchain_experimental.text_splitter import SemanticChunker
@@ -27,7 +27,6 @@ OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 MAX_RESULTS = 50
 AUDIO_DIR = os.path.join("output", "youtube_subtitle", "audio")
 TXT_DIR = os.path.join("output", "youtube_subtitle", "texts")
-YT_DLP_PATH = r"C:\Users\jaemd\Downloads\yt-dlp.exe"
 
 os.makedirs(AUDIO_DIR, exist_ok=True)
 os.makedirs(TXT_DIR, exist_ok=True)
@@ -126,16 +125,30 @@ def get_videos_by_viewcount(channel_id, max_results):
 
 def download_audio(link, title):
     safe_title = safe_filename(title)
-    output_path = os.path.join(AUDIO_DIR, f"{safe_title}.%(ext)s")
-    cmd = [
-        YT_DLP_PATH, "-f", "bestaudio", "-o", output_path,
-        "--extract-audio", "--audio-format", "mp3", link
-    ]
-    subprocess.run(cmd, check=True, capture_output=True, text=True)
-    final_path = os.path.join(AUDIO_DIR, f"{safe_title}.mp3")
-    if not os.path.exists(final_path):
-        raise FileNotFoundError(f"mp3 생성 실패: {final_path}")
-    return final_path, safe_title
+    output_path = os.path.join(AUDIO_DIR, f"{safe_title}.mp3")
+
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': output_path,
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+        'quiet': True,
+        'noplaylist': True
+    }
+
+    try:
+        with YoutubeDL(ydl_opts) as ydl:
+            ydl.download([link])
+    except Exception as e:
+        raise RuntimeError(f"❌ yt-dlp 오류 발생: {e}")
+
+    if not os.path.exists(output_path):
+        raise FileNotFoundError(f"❌ mp3 생성 실패: {output_path}")
+
+    return output_path, safe_title
 
 def transcribe_to_txt(audio_path, filename_base):
     result = model.transcribe(audio_path, task="transcribe", verbose=True)
