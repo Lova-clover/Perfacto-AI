@@ -6,14 +6,19 @@ import os
 
 token_path = os.path.join(os.path.dirname(__file__), "token.json")
 
+
 def upload_to_youtube(video_path, title="AI 자동 생성 영상", description="AI로 생성된 숏폼입니다."):
     SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 
-    # token.json 파일 읽기
-    with open(token_path, "r") as f:
-        token_data = json.load(f)
-    
+    # ✅ secrets.toml에서 문자열로 받아오기
+    token_json_str = st.secrets["YT_TOKEN_JSON"]
+
+    # ✅ 문자열을 파싱해서 dict로 변환
+    token_data = json.loads(token_json_str)
+
+    # ✅ token dict로 자격 증명 생성
     credentials = Credentials.from_authorized_user_info(token_data, SCOPES)
+
     youtube = build("youtube", "v3", credentials=credentials)
 
     request_body = {
