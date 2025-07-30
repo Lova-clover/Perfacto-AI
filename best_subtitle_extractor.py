@@ -125,7 +125,7 @@ def get_videos_by_viewcount(channel_id, max_results):
 
 def download_audio(link, title):
     safe_title = safe_filename(title)
-    output_path = os.path.join(AUDIO_DIR, f"{safe_title}.mp3")
+    output_path = os.path.join(AUDIO_DIR, safe_title)  # 👈 확장자 제거
 
     ydl_opts = {
         'format': 'bestaudio/best',
@@ -146,22 +146,20 @@ def download_audio(link, title):
         with YoutubeDL(ydl_opts) as ydl:
             ydl.download([link])
     except Exception as e:
-        st.error(f"❌ [DEBUG] yt-dlp 다운로드 실패:\n```\n{e}\n```")
+        st.error(f"❌ yt-dlp 오류 발생: {e}")
         raise RuntimeError(f"❌ yt-dlp 오류 발생: {e}")
 
-    # 디렉토리 내부 파일 목록 확인
-    try:
-        file_list = os.listdir(AUDIO_DIR)
-        st.info(f"📂 [DEBUG] AUDIO_DIR 내부 파일:\n{file_list}")
-    except Exception as e:
-        st.warning(f"⚠️ AUDIO_DIR 목록 확인 실패: {e}")
+    # 최종 실제 저장 경로
+    final_path = os.path.join(AUDIO_DIR, f"{safe_title}.mp3")
 
-    if not os.path.exists(output_path):
-        st.warning(f"❗ [DEBUG] mp3 파일이 존재하지 않음: `{output_path}`")
-        raise FileNotFoundError(f"❌ mp3 생성 실패: {output_path}")
+    st.info(f"📂 [DEBUG] AUDIO_DIR 목록: {os.listdir(AUDIO_DIR)}")
 
-    st.success(f"✅ [DEBUG] mp3 생성 성공: `{output_path}`")
-    return output_path, safe_title
+    if not os.path.exists(final_path):
+        st.warning(f"❗ [DEBUG] mp3 파일이 존재하지 않음: `{final_path}`")
+        raise FileNotFoundError(f"❌ mp3 생성 실패: {final_path}")
+
+    st.success(f"✅ [DEBUG] mp3 생성 성공: `{final_path}`")
+    return final_path, safe_title
 
 def transcribe_to_txt(audio_path, filename_base):
     result = model.transcribe(audio_path, task="transcribe", verbose=True)
