@@ -203,10 +203,11 @@ with st.sidebar:
                     retriever,
                     st.session_state.system_prompt
                 )
-
+                st.write("🚀 rag_chain 호출 전")
                 rag_response = rag_chain.invoke({
                     "input": final_prompt
                 })
+                st.write("✅ rag_chain 호출 후")
                 st.write("✅ RAG 응답 전체:", rag_response)
                 st.write("✅ 답변:", rag_response.get("answer"))
                 st.write("✅ source_documents 개수:", len(rag_response.get("source_documents", [])))
