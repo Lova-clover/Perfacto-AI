@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import streamlit as st
 from deep_translator import GoogleTranslator
 from googleapiclient.discovery import build
+from yt_dlp import YoutubeDL
 
 # ========== 설정 ==========
 API_KEY = st.secrets["API_KEY"] #유튜브 데이터 받아오기 api키
@@ -92,24 +93,30 @@ def get_videos_by_query(keyword, max_results):
 # yt-dlp로 오디오 다운로드
 def download_audio(link, title):
     safe_title = safe_filename(title)
-    output_path = os.path.join(AUDIO_DIR, f"{safe_title}.%(ext)s")
-    cmd = [
-        YT_DLP_PATH,
-        "-f", "bestaudio",
-        "-o", output_path,
-        "--extract-audio",
-        "--audio-format", "mp3",
-        link
-    ]
+    output_path = os.path.join(AUDIO_DIR, f"{safe_title}.mp3")
+
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': output_path,
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+        'quiet': True,
+        'noplaylist': True
+    }
+
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
-    except subprocess.CalledProcessError as e:
-        print(f"❌ yt-dlp 오류: {e.stderr.strip()}")
-        raise
-    final_path = os.path.join(AUDIO_DIR, f"{safe_title}.mp3")
-    if not os.path.exists(final_path):
-        raise FileNotFoundError(f"mp3 파일이 생성되지 않았습니다: {final_path}")
-    return final_path, safe_title
+        with YoutubeDL(ydl_opts) as ydl:
+            ydl.download([link])
+    except Exception as e:
+        raise RuntimeError(f"❌ yt-dlp 라이브러리 오류 발생: {e}")
+
+    if not os.path.exists(output_path):
+        raise FileNotFoundError(f"❌ mp3 생성 실패: {output_path}")
+    
+    return output_path, safe_title
 
 # Whisper로 자막 추출 후 print 출력
 def transcribe_to_txt(audio_path, filename_base):
