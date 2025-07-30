@@ -554,41 +554,53 @@ with st.sidebar:
                     st.session_state["final_video_path"] = final_video_with_subs_path
                     
                     st.success(f"✅ 최종 영상 생성 완료: {final_video_with_subs_path}")
-                    
-                    video_path = st.session_state.get("final_video_path", "")
-                    if video_path and os.path.exists(video_path):
-                        st.video(video_path)
-
-                        if st.session_state.video_binary_data:
-                            st.download_button(
-                                label="🎬 영상 다운로드",
-                                data=st.session_state.video_binary_data,
-                                file_name="generated_multimodal_video.mp4",
-                                mime="video/mp4"
-                            )
-
-                        if not st.session_state.upload_clicked:
-                            if st.button("YouTube에 자동 업로드"):
-                                try:
-                                    youtube_link = upload_to_youtube(
-                                        video_path,
-                                        title=st.session_state.get("video_title", "제목 없음")
-                                    )
-                                    st.session_state.upload_clicked = True
-                                    st.session_state.youtube_link = youtube_link
-                                    st.success("✅ YouTube 업로드 완료!")
-                                    st.markdown(f"[📺 영상 보러가기]({youtube_link})")
-                                except Exception as e:
-                                    st.error(f"❌ 업로드 실패: {e}")
-                        else:
-                            st.success("✅ YouTube 업로드 완료됨")
-                            st.markdown(f"[📺 영상 보러가기]({st.session_state.youtube_link})")
 
                 except Exception as e:
                     st.error(f"❌ 영상 생성 중 오류가 발생했습니다: {e}")
                     st.exception(e)
-
+        
     st.divider()
+    # 🎬 다운로드 및 업로드 섹션
+    with st.expander("📤 다운로드 및 업로드", expanded=True):
+        final_path = st.session_state.get("final_video_path", "")
+            
+        if final_path and os.path.exists(final_path):
+            st.video(final_path)
+
+            # binary data가 없으면 로드
+            if "video_binary_data" not in st.session_state:
+                with open(final_path, "rb") as f:
+                    st.session_state.video_binary_data = f.read()
+
+            # 🎬 다운로드 버튼
+            st.download_button(
+                label="🎬 영상 다운로드",
+                data=st.session_state.video_binary_data,
+                file_name="generated_multimodal_video.mp4",
+                mime="video/mp4"
+            )
+
+            # 📤 업로드 버튼
+            if not st.session_state.upload_clicked:
+                if st.button("YouTube에 자동 업로드"):
+                    try:
+                        youtube_link = upload_to_youtube(
+                            final_path,
+                            title=st.session_state.get("video_title", "제목 없음")
+                        )
+                        st.session_state.upload_clicked = True
+                        st.session_state.youtube_link = youtube_link
+                        st.success("✅ YouTube 업로드 완료!")
+                        st.markdown(f"[📺 영상 보러가기]({youtube_link})")
+                    except Exception as e:
+                        st.error(f"❌ 업로드 실패: {e}")
+            else:
+                st.success("✅ YouTube 업로드 완료됨")
+                st.markdown(f"[📺 영상 보러가기]({st.session_state.youtube_link})")
+            
+        else:
+            st.info("📌 먼저 영상을 만들어 주세요. '영상 만들기' 버튼을 눌러야 이 영역이 활성화됩니다.")    
+            
     if st.button("대화 초기화"):
         st.session_state.clear()
         st.rerun()
