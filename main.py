@@ -203,40 +203,31 @@ with st.sidebar:
                     retriever,
                     st.session_state.system_prompt
                 )
-                
-                # ✅ invoke 결과 추출
-                rag_response = rag_chain.invoke({"input": final_prompt})
+
+                rag_response = rag_chain.invoke({
+                    "input": final_prompt
+                })
+                st.write("✅ RAG 응답 전체:", rag_response)
+                st.write("✅ 답변:", rag_response.get("answer"))
+                st.write("✅ source_documents 개수:", len(rag_response.get("source_documents", [])))
+                for i, doc in enumerate(rag_response.get("source_documents", [])):
+                    st.markdown(f"**출처 {i+1}:** {doc.metadata.get('source', 'N/A')}")
+                    st.markdown(f"> {doc.page_content[:100]}...")
 
                 content = rag_response.get("answer", rag_response.get("result", rag_response.get("content", "")))
                 source_docs = rag_response.get("source_documents", [])
 
-                # ✅ 디버깅 출력: Streamlit 화면에 출력
-                st.write(f"📄 [DEBUG] source_documents 개수: {len(source_docs)}")
-
-                # source_documents 내용 확인
-                for i, doc in enumerate(source_docs):
-                    meta_source = doc.metadata.get("source", "출처 없음")
-                    content_preview = doc.page_content[:100]
-                    st.write(f"🔹 출처 {i+1}: {meta_source}")
-                    st.write(f"🔸 내용 {i+1}: {content_preview}")
-
-                # ✅ 출처 리스트 생성
                 sources = []
                 for doc in source_docs:
                     sources.append({
-                        "content": doc.page_content[:100],
+                        "content": doc.page_content[:100],  # 너무 길면 자르기
                         "source": doc.metadata.get("source", "출처 없음")
                     })
 
-                # 디버깅: sources 리스트 확인
-                st.write("📑 [DEBUG] sources 리스트:", sources)
-
-                # ✅ 메시지 저장
                 st.session_state.messages.append(
                     AIMessage(content=content, additional_kwargs={"sources": sources})
                 )
                 st.session_state.persona_blocks[i]["result"] = content
-                
                 
                 with st.chat_message("ai"):
                     st.markdown(content)
