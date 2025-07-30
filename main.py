@@ -47,6 +47,10 @@ def get_web_documents_from_query(query: str):
     except Exception as e:
         return [], str(e)
 
+st.warning(f"📁 현재 working directory: {os.getcwd()}")
+st.warning(f"📄 upload.py 위치: {os.path.dirname(__file__)}")
+st.warning(f"🔍 token.json 존재 여부: {os.path.exists('token.json')}")
+
 # --- 앱 기본 설정 ---
 st.set_page_config(page_title="Perfacto AI", page_icon="🤖")
 st.title("PerfactoAI")
