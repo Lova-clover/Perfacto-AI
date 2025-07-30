@@ -1,5 +1,6 @@
 # 🔐 인증 및 보안 파일
 client_secret.json
+token.json
 
 # 🧪 임시/캐시 파일
 __pycache__/
@@ -13,4 +14,4 @@ venv/
 .env
 
 # 🔊 생성된 에셋
-assets/
+assets/ 
