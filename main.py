@@ -213,8 +213,11 @@ with st.sidebar:
 
                 sources = []
                 for doc in source_docs:
+                    snippet = doc.page_content.strip()
+                    if len(snippet) > 300:
+                        snippet = snippet[:300] + "..."
                     sources.append({
-                        "content": doc.page_content[:100],  # 너무 길면 자르기
+                        "content": snippet,
                         "source": doc.metadata.get("source", "출처 없음")
                     })
 
@@ -229,11 +232,12 @@ with st.sidebar:
                     if sources:
                         st.markdown("### 📚 참고 문단 (RAG 기반)")
                         for i, doc in enumerate(sources, start=1):
-                            src = doc.metadata.get("source", "출처 없음")
-                            snippet = doc.page_content.strip()
-                            if len(snippet) > 200:
-                                snippet = snippet[:200] + "..."
-                            st.markdown(f"**출처 {i}:** [{src}]({src})\n> {snippet}")
+                            src = doc["source"]
+                            snippet = doc["content"]
+                            if src.startswith("http"):
+                                st.markdown(f"**출처 {i}:** [{src}]({src})\n> {snippet}")
+                            else:
+                                st.markdown(f"**출처 {i}:** {src}\n> {snippet}")
 
             else:
                 st.session_state.persona_rag_flags[i] = False
