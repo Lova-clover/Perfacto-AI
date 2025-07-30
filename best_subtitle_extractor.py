@@ -138,7 +138,7 @@ def download_audio(link, title):
     return final_path, safe_title
 
 def transcribe_to_txt(audio_path, filename_base):
-    result = model.transcribe(audio_path, task="transcribe", verbose=False)
+    result = model.transcribe(audio_path, task="transcribe", verbose=True)
     segments = result.get("segments", [])
     texts = [seg["text"].strip() for seg in segments if seg["text"].strip()]
     return texts
@@ -205,7 +205,7 @@ def load_best_subtitles_documents(channel_handle_or_url, max_results=10):
                         LangChainDocument(page_content=line.strip(), metadata={"source": link})
                     )
         except Exception as e:
-            print(f"❌ [{title}] 처리 중 오류 발생: {e}")
+            st.error(f"❌ [{title}] 처리 중 오류 발생: {e}")
             continue
 
     st.success(f"📦 총 {len(documents)}개의 자막 문서 생성 완료")

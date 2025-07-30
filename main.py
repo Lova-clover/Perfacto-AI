@@ -545,12 +545,11 @@ with st.sidebar:
                     
                     st.success(f"✅ 최종 영상 생성 완료: {final_video_with_subs_path}")
                     
-                    # --- 결과 영상 표시 ---
+                    # ✅ 2. 영상과 버튼은 항상 별도 블럭에서 조건 없이 표시
                     video_path = st.session_state.get("final_video_path", "")
                     if video_path and os.path.exists(video_path):
                         st.video(video_path)
 
-                        # 다운로드 버튼
                         with open(video_path, "rb") as f:
                             video_binary_data = f.read()
                         st.download_button(
@@ -560,7 +559,6 @@ with st.sidebar:
                             mime="video/mp4"
                         )
 
-                        # 업로드 버튼
                         if st.button("YouTube에 자동 업로드"):
                             try:
                                 youtube_link = upload_to_youtube(
