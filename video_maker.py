@@ -131,6 +131,17 @@ def create_motion_clip(img_path, duration, width, height):
         # round()를 사용하여 소수점 처리 오류 방지
         return base_clip.with_position((center_x, center_y))
     
+def auto_split_title(text: str, max_first_line_chars=18):
+    words = text.split()
+    total_chars = sum(len(w) for w in words)
+    target = total_chars // 2
+
+    char_count = 0
+    for i, word in enumerate(words):
+        char_count += len(word)
+        if char_count >= target or char_count >= max_first_line_chars:
+            return " ".join(words[:i+1]) + "\n" + " ".join(words[i+1:])
+    return text
 
 # ✅ 영상 생성 메인 함수
 def create_video_with_segments(image_paths, segments, audio_path, topic_title,
@@ -179,19 +190,11 @@ def create_video_with_segments(image_paths, segments, audio_path, topic_title,
             black_bar = ColorClip(size=(video_width, title_bar_height), color=(0, 0, 0)).with_duration(duration)
             black_bar = black_bar.with_position(("center", "top"))
 
-            # 🔧 자동 글자 수 대응 로직
-            max_chars_one_line = 14  # 한 줄에 안정적으로 들어갈 글자 수
-            base_font_size = 48
-
-            # 너무 긴 제목이면 글자 수에 비례해서 축소
-            font_size = (
-                base_font_size if len(topic_title) <= max_chars_one_line
-                else max(28, int(base_font_size * max_chars_one_line / len(topic_title)))
-            )
+            formatted_title = auto_split_title(topic_title)
 
             title_text_clip = TextClip(
-                text=topic_title,
-                font_size=font_size,
+                text=formatted_title,
+                font_size=48,
                 color="white",
                 font=os.path.join("assets", "fonts", "NanumGothic.ttf"),
                 stroke_color="skyblue",
