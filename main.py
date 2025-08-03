@@ -100,11 +100,6 @@ if "upload_clicked" not in st.session_state:
     st.session_state.upload_clicked = False
 if "youtube_link" not in st.session_state:
     st.session_state.youtube_link = ""
-if "video_binary_data" not in st.session_state:
-    final_path = st.session_state.get("final_video_path", "")
-    if final_path and os.path.exists(final_path):
-        with open(final_path, "rb") as f:
-            st.session_state.video_binary_data = f.read()
 
 # --- 사이드바: AI 페르소나 설정 및 RAG 설정 ---
 with st.sidebar:
@@ -561,7 +556,12 @@ with st.sidebar:
                         ass_path=ass_path,
                         output_path=final_video_path
                     )
+                    # ✅ 최종 영상 경로 저장
                     st.session_state["final_video_path"] = final_video_with_subs_path
+
+                    # ✅ 다운로드용 binary data도 매번 새로 저장 (중요!)
+                    with open(final_video_with_subs_path, "rb") as f:
+                        st.session_state.video_binary_data = f.read()
                     
                     st.success(f"✅ 최종 영상 생성 완료: {final_video_with_subs_path}")
 
@@ -576,11 +576,6 @@ with st.sidebar:
             
         if final_path and os.path.exists(final_path):
             st.video(final_path)
-
-            # binary data가 없으면 로드
-            if "video_binary_data" not in st.session_state:
-                with open(final_path, "rb") as f:
-                    st.session_state.video_binary_data = f.read()
 
             # 🎬 다운로드 버튼
             st.download_button(
