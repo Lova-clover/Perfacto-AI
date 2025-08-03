@@ -201,7 +201,6 @@ def create_video_with_segments(image_paths, segments, audio_path, topic_title,
                 stroke_width=1,
                 size=(video_width - 40, None),
                 method="caption",
-                align="center"
             ).with_duration(duration).with_position(("center", 70))
 
             current_segment_clips.append(black_bar)
