@@ -141,7 +141,7 @@ def auto_split_title(text: str, max_first_line_chars=18):
         char_count += len(word)
         if char_count >= target or char_count >= max_first_line_chars:
             return " ".join(words[:i+1]) + "\n" + " ".join(words[i+1:])
-    return text
+    return text + "\n"
 
 # ✅ 영상 생성 메인 함수
 def create_video_with_segments(image_paths, segments, audio_path, topic_title,
