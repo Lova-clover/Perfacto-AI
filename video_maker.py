@@ -141,7 +141,7 @@ def auto_split_title(text: str, max_first_line_chars=18):
         char_count += len(word)
         if char_count >= target or char_count >= max_first_line_chars:
             return " ".join(words[:i+1]) + "\n" + " ".join(words[i+1:])
-    return text + "\n"
+    return text
 
 # ✅ 영상 생성 메인 함수
 def create_video_with_segments(image_paths, segments, audio_path, topic_title,
@@ -193,7 +193,7 @@ def create_video_with_segments(image_paths, segments, audio_path, topic_title,
             formatted_title = auto_split_title(topic_title)
 
             title_text_clip = TextClip(
-                text=formatted_title,
+                text=formatted_title + "\n",
                 font_size=48,
                 color="white",
                 font=os.path.join("assets", "fonts", "NanumGothic.ttf"),
