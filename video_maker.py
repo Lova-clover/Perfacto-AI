@@ -137,11 +137,16 @@ def auto_split_title(text: str, max_first_line_chars=18):
     target = total_chars // 2
 
     char_count = 0
+    split_idx = None
     for i, word in enumerate(words):
         char_count += len(word)
-        if char_count >= target or char_count >= max_first_line_chars:
-            return " ".join(words[:i+1]) + "\n" + " ".join(words[i+1:])
-    return text
+        if (char_count >= target or char_count >= max_first_line_chars) and i < len(words) - 1:
+            split_idx = i + 1
+            break
+
+    if split_idx is None:
+        return text, ""  # 한 줄
+    return " ".join(words[:split_idx]), " ".join(words[split_idx:])
 
 # ✅ 영상 생성 메인 함수
 def create_video_with_segments(image_paths, segments, audio_path, topic_title,
