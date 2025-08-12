@@ -217,7 +217,7 @@ def create_video_with_segments(image_paths, segments, audio_path, topic_title,
                 title_clip = None  # 폴백 진행
 
             # 2) 폴백: label 한 개로 만들되 '시각적 가운데' 구현
-            wrapped_lines = None
+            wrapped_lines = None  # dummy 생성 시 재사용
             if title_clip is None:
                 def line_width(s: str) -> int:
                     if not s:
@@ -248,6 +248,7 @@ def create_video_with_segments(image_paths, segments, audio_path, topic_title,
                 if not wrapped_lines:
                     wrapped_lines = [""]
 
+                # 각 줄 폭을 맞춰 '가운데처럼' 보이게 NBSP 패딩
                 maxw = max(line_width(l) for l in wrapped_lines)
                 spacew = max(line_width("\u00A0"), 1)
                 centered_lines = []
@@ -256,7 +257,7 @@ def create_video_with_segments(image_paths, segments, audio_path, topic_title,
                     pad = int(round((maxw - lw) / (2 * spacew))) if maxw > lw else 0
                     centered_lines.append("\u00A0" * pad + l)
 
-                final_text = "\n".join(centered_lines) + "\n"
+                final_text = "\n".join(centered_lines) + "\n"  # 하단 잘림 방지용 개행
                 title_clip = TextClip(
                     text=final_text,
                     font_size=48,
@@ -268,7 +269,7 @@ def create_video_with_segments(image_paths, segments, audio_path, topic_title,
                 ).with_duration(duration)
                 used_caption = False
 
-            # 3) 동적 타이틀바 높이 계산
+            # 3) 동적 타이틀바 높이 계산 (그대로)
             pad_y = 16
             if used_caption:
                 dummy = TextClip(
@@ -290,14 +291,20 @@ def create_video_with_segments(image_paths, segments, audio_path, topic_title,
             title_bar_height = dummy.h + pad_y * 2
             dummy.close()
 
-            # ✅ 수정: 바를 화면 위에서 조금 내리기
-            title_margin_top = 60  # px, 원하는 만큼 조절
+            # 바는 화면 맨 위에 그대로 둡니다.
             black_bar = ColorClip(size=(video_width, title_bar_height), color=(0, 0, 0)).with_duration(duration)
-            black_bar = black_bar.with_position(("center", title_margin_top))
+            black_bar = black_bar.with_position(("center", "top"))
 
-            # ✅ 수정: 텍스트 y 위치도 margin만큼 내려줌
+            # 4) 텍스트만 아래로 살짝 내리기
             x = round((video_width - title_clip.w) / 2)
-            y = title_margin_top + round((title_bar_height - title_clip.h) / 2)
+
+            text_offset_y = 10  # ↓ 원하는 만큼 조절 (양수면 아래로, 음수면 위로)
+            base_y = round((title_bar_height - title_clip.h) / 2)
+            y = base_y + text_offset_y
+
+            # 바 밖으로 나가지 않도록 클램프
+            y = max(0, min(y, title_bar_height - title_clip.h))
+
             title_clip = title_clip.with_position((x, y))
 
             current_segment_clips.append(black_bar)
