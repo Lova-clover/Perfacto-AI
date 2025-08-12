@@ -730,6 +730,8 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
 )
         extracted_title_for_ui = title_llm_chain.invoke({"question": title_extraction_prompt, "chat_history": []}).strip()
         if extracted_title_for_ui:
+            # 🔹 이모지 제거
+            extracted_title_for_ui = re.sub(r'[\U00010000-\U0010ffff]', '', extracted_title_for_ui).strip()
             st.session_state.video_title = extracted_title_for_ui
         else:
-            st.session_state.video_title = "제목 없음" # 추출 실패 시 기본값
+            st.session_state.video_title = "제목 없음"  # 추출 실패 시 기본값
