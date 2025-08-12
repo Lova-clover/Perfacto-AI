@@ -195,21 +195,62 @@ def create_video_with_segments(image_paths, segments, audio_path, topic_title,
             black_bar = ColorClip(size=(video_width, title_bar_height), color=(0, 0, 0)).with_duration(duration)
             black_bar = black_bar.with_position(("center", "top"))
 
-            formatted_title = auto_split_title(topic_title)
+            line1, line2 = auto_split_title(topic_title)
+            line_gap = 10
 
-            title_text_clip = TextClip(
-                text=formatted_title + "\n",
+            # 각 줄을 독립 TextClip으로 생성
+            line1_clip = TextClip(
+                text=line1,
                 font_size=48,
                 color="white",
                 font=os.path.join("assets", "fonts", "NanumGothic.ttf"),
                 stroke_color="skyblue",
                 stroke_width=1,
-                size=(video_width - 40, None),
-                method="caption",
-            ).with_duration(duration).with_position(("center", 70))
+                method="label"
+            ).with_duration(duration)
+
+            line2_clip = None
+            if line2:
+                line2_clip = TextClip(
+                    text=line2,
+                    font_size=48,
+                    color="white",
+                    font=os.path.join("assets", "fonts", "NanumGothic.ttf"),
+                    stroke_color="skyblue",
+                    stroke_width=1,
+                    method="label"
+                ).with_duration(duration)
+
+            # (선택) 너무 길면 자동 축소
+            max_title_width = video_width - 40
+            max_w = max(line1_clip.w, (line2_clip.w if line2_clip else 0))
+            if max_w > max_title_width:
+                scale = max_title_width / max_w
+                line1_clip = line1_clip.resize(scale)
+                if line2_clip:
+                    line2_clip = line2_clip.resize(scale)
+
+            # 수직 중앙 계산 (정확 중앙: base_y=0)
+            base_y = 0  # 디자인에 따라 0~70 조정
+            if line2_clip:
+                total_h = line1_clip.h + line_gap + line2_clip.h
+            else:
+                total_h = line1_clip.h
+            y1 = base_y + round((title_bar_height - total_h) / 2)
+
+            # 가로 중앙 배치
+            x1 = round((video_width - line1_clip.w) / 2)
+            line1_clip = line1_clip.with_position((x1, y1))
+
+            if line2_clip:
+                x2 = round((video_width - line2_clip.w) / 2)
+                y2 = y1 + line1_clip.h + line_gap
+                line2_clip = line2_clip.with_position((x2, y2))
 
             current_segment_clips.append(black_bar)
-            current_segment_clips.append(title_text_clip)
+            current_segment_clips.append(line1_clip)
+            if line2_clip:
+                current_segment_clips.append(line2_clip)
 
         segment_clip = CompositeVideoClip(current_segment_clips, size=(video_width, video_height)).with_duration(duration)
 
