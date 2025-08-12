@@ -191,16 +191,13 @@ def create_video_with_segments(image_paths, segments, audio_path, topic_title,
         current_segment_clips = [image_clip]
 
         if include_topic_title:
-            title_bar_height = 180
-            black_bar = ColorClip(size=(video_width, title_bar_height), color=(0, 0, 0)).with_duration(duration)
-            black_bar = black_bar.with_position(("center", "top"))
-
+            # 1) 제목을 두 줄로 나누되, 하나의 문자열로 합치기
             line1, line2 = auto_split_title(topic_title)
-            line_gap = 10
+            formatted_title = line1 + ("\n" + line2 if line2 else "")
 
-            # 각 줄을 독립 TextClip으로 생성
-            line1_clip = TextClip(
-                text=line1,
+            # 2) 하나의 TextClip으로 생성 (label은 \n 포함 멀티라인 자연 크기)
+            title_clip = TextClip(
+                text=formatted_title + "\n",
                 font_size=48,
                 color="white",
                 font=os.path.join("assets", "fonts", "NanumGothic.ttf"),
@@ -209,48 +206,26 @@ def create_video_with_segments(image_paths, segments, audio_path, topic_title,
                 method="label"
             ).with_duration(duration)
 
-            line2_clip = None
-            if line2:
-                line2_clip = TextClip(
-                    text=line2,
-                    font_size=48,
-                    color="white",
-                    font=os.path.join("assets", "fonts", "NanumGothic.ttf"),
-                    stroke_color="skyblue",
-                    stroke_width=1,
-                    method="label"
-                ).with_duration(duration)
-
-            # (선택) 너무 길면 자동 축소
+            # 3) 너무 넓으면 자동 축소 (좌우 여백 20px씩)
             max_title_width = video_width - 40
-            max_w = max(line1_clip.w, (line2_clip.w if line2_clip else 0))
-            if max_w > max_title_width:
-                scale = max_title_width / max_w
-                line1_clip = line1_clip.resize(scale)
-                if line2_clip:
-                    line2_clip = line2_clip.resize(scale)
+            if title_clip.w > max_title_width:
+                scale = max_title_width / title_clip.w
+                title_clip = title_clip.resize(scale)
 
-            # 수직 중앙 계산 (정확 중앙: base_y=0)
-            base_y = 0  # 디자인에 따라 0~70 조정
-            if line2_clip:
-                total_h = line1_clip.h + line_gap + line2_clip.h
-            else:
-                total_h = line1_clip.h
-            y1 = base_y + round((title_bar_height - total_h) / 2)
+            # 4) 타이틀바를 텍스트 높이에 맞춰 동적으로 생성 (위/아래 패딩)
+            pad_y = 16  # 위/아래 여백
+            title_bar_height = title_clip.h + pad_y * 2
 
-            # 가로 중앙 배치
-            x1 = round((video_width - line1_clip.w) / 2)
-            line1_clip = line1_clip.with_position((x1, y1))
+            black_bar = ColorClip(size=(video_width, title_bar_height), color=(0, 0, 0)).with_duration(duration)
+            black_bar = black_bar.with_position(("center", "top"))
 
-            if line2_clip:
-                x2 = round((video_width - line2_clip.w) / 2)
-                y2 = y1 + line1_clip.h + line_gap
-                line2_clip = line2_clip.with_position((x2, y2))
+            # 5) 가로·세로 중앙 배치 (타이틀바 내부)
+            x = round((video_width - title_clip.w) / 2)
+            y = round((title_bar_height - title_clip.h) / 2)  # bar 내부 수직 중앙
+            title_clip = title_clip.with_position((x, y))
 
             current_segment_clips.append(black_bar)
-            current_segment_clips.append(line1_clip)
-            if line2_clip:
-                current_segment_clips.append(line2_clip)
+            current_segment_clips.append(title_clip)
 
         segment_clip = CompositeVideoClip(current_segment_clips, size=(video_width, video_height)).with_duration(duration)
 
