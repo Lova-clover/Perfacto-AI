@@ -202,7 +202,7 @@ def create_video_with_segments(image_paths, segments, audio_path, topic_title,
             # 1) 가능하면 caption + align="center" 사용
             try:
                 title_clip = TextClip(
-                    text=formatted_title + "\n",  # 하단 잘림 방지용 개행
+                    text= "\n" + formatted_title + "\n",  # 하단 잘림 방지용 개행
                     font_size=48,
                     color="white",
                     font=font_path,
