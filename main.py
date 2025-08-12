@@ -447,6 +447,8 @@ with st.sidebar:
                         provider="elevenlabs" if st.session_state.selected_tts_provider == "ElevenLabs" else "polly",
                         template=st.session_state.selected_tts_template if st.session_state.selected_tts_provider == "ElevenLabs"
                                 else st.session_state.selected_polly_voice_key
+                        subtitle_lang="ko",  # ✅ 한국어 자막 강제
+                        translate_only_if_english=False  # ✅ 항상 번역
                     )
                         st.success(f"자막 파일 생성 완료: {ass_path}")
                     else: # 음성이 없는 경우
