@@ -446,7 +446,7 @@ with st.sidebar:
                         full_audio_file_path=full_audio_path, 
                         provider="elevenlabs" if st.session_state.selected_tts_provider == "ElevenLabs" else "polly",
                         template=st.session_state.selected_tts_template if st.session_state.selected_tts_provider == "ElevenLabs"
-                                else st.session_state.selected_polly_voice_key
+                                else st.session_state.selected_polly_voice_key,
                         subtitle_lang="ko",  # ✅ 한국어 자막 강제
                         translate_only_if_english=False  # ✅ 항상 번역
                     )
