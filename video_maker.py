@@ -197,7 +197,7 @@ def create_video_with_segments(image_paths, segments, audio_path, topic_title,
 
             # 2) 하나의 TextClip으로 생성 (label은 \n 포함 멀티라인 자연 크기)
             title_clip = TextClip(
-                text=formatted_title + "\n",
+                text=formatted_title,
                 font_size=48,
                 color="white",
                 font=os.path.join("assets", "fonts", "NanumGothic.ttf"),
