@@ -191,37 +191,101 @@ def create_video_with_segments(image_paths, segments, audio_path, topic_title,
         current_segment_clips = [image_clip]
 
         if include_topic_title:
-            # 1) 제목을 두 줄로 나누되, 하나의 문자열로 합치기
+            # 0) 준비
+            font_path = os.path.join("assets", "fonts", "NanumGothic.ttf")
             line1, line2 = auto_split_title(topic_title)
             formatted_title = line1 + ("\n" + line2 if line2 else "")
+            max_title_width = video_width - 40  # 좌우 여백
 
-            # 2) 하나의 TextClip으로 생성 (label은 \n 포함 멀티라인 자연 크기)
-            title_clip = TextClip(
+            # 1) 가능한 경우: caption + align="center" (v2에서 지원)
+            title_clip = None
+            try:
+                title_clip = TextClip(
+                    text=formatted_title + "\n",  # 하단 잘림 방지용 개행
+                    font_size=48,
+                    color="white",
+                    font=font_path,
+                    stroke_color="skyblue",
+                    stroke_width=1,
+                    method="caption",
+                    size=(max_title_width, None),
+                    align="center",               # ← 핵심
+                ).with_duration(duration)
+            except TypeError:
+                title_clip = None  # 폴백으로 진행
+
+            # 2) 폴백: label 한 개로 만들되, 줄폭을 맞춰 '시각적' 가운데 정렬
+            if title_clip is None:
+                # 단어 단위로 폭을 넘지 않게 줄바꿈
+                def line_width(s):
+                    if not s: return 0
+                    c = TextClip(text=s, font=font_path, font_size=48, method="label")
+                    w = c.w
+                    c.close()
+                    return w
+
+                def wrap_to_width(text, max_w):
+                    words = text.split()
+                    lines, cur = [], ""
+                    for w in words:
+                        test = (cur + " " + w).strip()
+                        if not cur or line_width(test) <= max_w:
+                            cur = test
+                        else:
+                            lines.append(cur)
+                            cur = w
+                    if cur: lines.append(cur)
+                    return lines
+
+                # 기존 줄 단위로 감싸기 후 합치기
+                wrapped_lines = []
+                for block in formatted_title.split("\n"):
+                    if block.strip():
+                        wrapped_lines += wrap_to_width(block, max_title_width)
+
+                if not wrapped_lines:
+                    wrapped_lines = [""]  # 안전장치
+
+                # 각 줄 폭 측정 → 가장 긴 줄 폭 기준으로 왼쪽에 NBSP 패딩해서 '중앙처럼' 보이게
+                maxw = max(line_width(l) for l in wrapped_lines)
+                spacew = max(line_width("\u00A0"), 1)  # NBSP 폭 (0 방지)
+                centered_lines = []
+                for l in wrapped_lines:
+                    lw = line_width(l)
+                    pad = int(round((maxw - lw) / (2 * spacew))) if maxw > lw else 0
+                    centered_lines.append("\u00A0" * pad + l)
+
+                final_text = "\n".join(centered_lines) + "\n"  # 하단 잘림 방지 개행
+                title_clip = TextClip(
+                    text=final_text,
+                    font_size=48,
+                    color="white",
+                    font=font_path,
+                    stroke_color="skyblue",
+                    stroke_width=1,
+                    method="label"
+                ).with_duration(duration)
+
+            # 3) 동적 타이틀바(패딩 포함)
+            pad_y = 16
+            # 개행 없이 높이만 측정해 과도한 바증가 방지
+            dummy = TextClip(
                 text=formatted_title,
                 font_size=48,
-                color="white",
-                font=os.path.join("assets", "fonts", "NanumGothic.ttf"),
-                stroke_color="skyblue",
-                stroke_width=1,
-                method="label"
-            ).with_duration(duration)
-
-            # 3) 너무 넓으면 자동 축소 (좌우 여백 20px씩)
-            max_title_width = video_width - 40
-            if title_clip.w > max_title_width:
-                scale = max_title_width / title_clip.w
-                title_clip = title_clip.resize(scale)
-
-            # 4) 타이틀바를 텍스트 높이에 맞춰 동적으로 생성 (위/아래 패딩)
-            pad_y = 16  # 위/아래 여백
-            title_bar_height = title_clip.h + pad_y * 2
+                font=font_path,
+                method=("caption" if "caption" in title_clip.method else "label"),
+                size=((max_title_width, None) if "caption" in title_clip.method else None),
+                align=("center" if "caption" in title_clip.method else None)
+            )
+            title_bar_height = dummy.h + pad_y * 2
+            dummy.close()
 
             black_bar = ColorClip(size=(video_width, title_bar_height), color=(0, 0, 0)).with_duration(duration)
             black_bar = black_bar.with_position(("center", "top"))
 
-            # 5) 가로·세로 중앙 배치 (타이틀바 내부)
+            # 4) 타이틀클립 가로·세로 중앙 배치
             x = round((video_width - title_clip.w) / 2)
-            y = round((title_bar_height - title_clip.h) / 2)  # bar 내부 수직 중앙
+            y = round((title_bar_height - title_clip.h) / 2)
             title_clip = title_clip.with_position((x, y))
 
             current_segment_clips.append(black_bar)
