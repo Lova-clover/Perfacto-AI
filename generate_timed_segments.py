@@ -1,3 +1,6 @@
+from deep_translator import GoogleTranslator
+import re
+
 # generate_timed_segments.py
 import os
 import re
@@ -80,6 +83,33 @@ SUBTITLE_TEMPLATES = {
         "MarginV": 40
     }
 }
+
+def _looks_english(text: str) -> bool:
+    # 매우 단순한 휴리스틱: 알파벳이 한글보다 확실히 많으면 영어로 간주
+    letters = len(re.findall(r'[A-Za-z]', text))
+    hangul = len(re.findall(r'[\uac00-\ud7a3]', text))
+    return letters >= max(3, hangul * 2)
+
+def _detect_script_language(lines):
+    eng = sum(_looks_english(x) for x in lines)
+    kor = sum(bool(re.search(r'[\uac00-\ud7a3]', x)) for x in lines)
+    return 'en' if eng > kor else 'ko'
+
+def _maybe_translate_lines(lines, target='ko', only_if_src_is_english=True):
+    if not lines:
+        return lines
+    try:
+        src = _detect_script_language(lines)
+        if only_if_src_is_english and src != 'en':
+            # 원문이 영어가 아닐 때는 건드리지 않음
+            return lines
+        if target is None or target == src:
+            return lines
+        tr = GoogleTranslator(source='auto', target=target)
+        return [tr.translate(l) if l.strip() else l for l in lines]
+    except Exception:
+        # 번역 실패 시 원문 유지 (크래시 방지)
+        return lines
 
 def split_script_to_lines(script_text):
     return [sent.strip() for sent in kss.split_sentences(script_text) if sent.strip()]
@@ -188,10 +218,14 @@ def format_ass_timestamp(seconds):
 def generate_subtitle_from_script(
     script_text: str,
     ass_path: str,
-    full_audio_file_path: str, # <-- 새로 추가된 인자
+    full_audio_file_path: str,
     provider: str = "elevenlabs",
     template: str = "default",
-    polly_voice_key: str = "korean_female"
+    polly_voice_key: str = "korean_female",
+    # ▼ 새로 추가: 자막 언어 컨트롤
+    subtitle_lang: str = "ko",             # "auto" | "ko" | "en"
+    translate_only_if_english: bool = False   # True면 "원문이 영어일 때만 ko로 번역"
+    # 현재는 한국어자막만 사용할 것이기 때문에 False
 ):
     print(f"디버그: 자막 생성을 위한 스크립트 라인 분리 중...")
     script_lines = split_script_to_lines(script_text)
@@ -199,45 +233,57 @@ def generate_subtitle_from_script(
 
     if not script_lines:
         print("경고: 스크립트 라인이 생성되지 않았습니다. 빈 segments 반환.")
-        return [], None, ass_path # audio_clips가 None인 경우를 명시적으로 반환
+        return [], None, ass_path
 
-    audio_paths = generate_tts_per_line(script_lines, provider=provider, template=template)
+    # 1) TTS는 항상 원문으로 (영어 음성 유지 목적)
+    tts_lines = script_lines[:]
 
+    # 2) 자막 텍스트만 선택적으로 번역
+    target = None
+    if subtitle_lang == "ko":
+        target = "ko"
+    elif subtitle_lang == "en":
+        target = "en"
+    # "auto"면 target=None → 번역 안함 (원문 그대로)
+
+    subtitle_lines = (
+        _maybe_translate_lines(
+            script_lines,
+            target=target,
+            only_if_src_is_english=translate_only_if_english
+        )
+        if target is not None else script_lines
+    )
+
+    # 3) 라인별 TTS (원문 기준)
+    audio_paths = generate_tts_per_line(tts_lines, provider=provider, template=template)
     if not audio_paths:
         print("오류: 라인별 오디오 파일이 생성되지 않았습니다. 빈 segments 반환.")
-        return [], None, ass_path # audio_clips가 None인 경우를 명시적으로 반환
+        return [], None, ass_path
 
+    # 4) 병합 및 타이밍
     segments_raw = merge_audio_files(audio_paths, full_audio_file_path)
     segments = []
     for i, s in enumerate(segments_raw):
-        segments.append({
-            "start": s["start"],
-            "end": s["end"],
-            "text": script_lines[i]  # 기존대로 자막 문장 포함
-        })
-
-    print(f"디버그: get_segments_from_audio 후 최종 segments의 길이: {len(segments)}")
+        # 자막 문장은 번역된 문장(또는 원문) 사용
+        line_text = subtitle_lines[i] if i < len(subtitle_lines) else tts_lines[i]
+        segments.append({"start": s["start"], "end": s["end"], "text": line_text})
 
     if not segments:
         print("오류: 세그먼트 생성에 실패했습니다. 빈 segments 반환.")
-        return [], None, ass_path # audio_clips가 None인 경우를 명시적으로 반환
+        return [], None, ass_path
 
-    # === 새로 추가되거나 수정된 부분: MoviePy AudioFileClip 생성 ===
-    audio_clips = None # 일단 None으로 초기화
+    # 5) MoviePy 전체 오디오 로드(변경 없음)
+    audio_clips = None
     if os.path.exists(full_audio_file_path):
         try:
-            # main.py에서 생성된 전체 오디오 파일을 MoviePy AudioFileClip으로 로드
             audio_clips = AudioFileClip(full_audio_file_path)
-            print(f"디버그: 전체 오디오 파일 '{full_audio_file_path}' MoviePy AudioFileClip으로 로드 성공.")
+            print(f"디버그: 전체 오디오 파일 '{full_audio_file_path}' 로드 성공.")
         except Exception as e:
-            print(f"오류: 전체 오디오 파일 '{full_audio_file_path}' 로드 실패: {e}")
-            # 로드 실패 시 audio_clips는 None으로 유지됨
+            print(f"오류: 전체 오디오 파일 로드 실패: {e}")
     else:
-        print(f"경고: 전체 오디오 파일 '{full_audio_file_path}'을 찾을 수 없습니다. audio_clips는 None입니다.")
+        print(f"경고: 전체 오디오 파일 '{full_audio_file_path}' 없음.")
 
-
-    # ASS 파일 생성
+    # 6) ASS 생성 (변경 없음)
     generate_ass_subtitle(segments, ass_path, template_name=template)
-    
-    # 세그먼트, 오디오 클립, ASS 경로를 모두 반환
     return segments, audio_clips, ass_path
