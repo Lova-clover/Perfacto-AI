@@ -12,7 +12,7 @@ __pycache__/
 venv/
 .env
 
-# 🔊 생성된 에셋
-assets/ 
+# 🔊 생성된 에셋 (폰트만 예외)
+assets/*
 !assets/fonts/
 !assets/fonts/*
