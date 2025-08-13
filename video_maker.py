@@ -352,3 +352,43 @@ def add_subtitles_to_video(input_video_path, ass_path, output_path="assets/video
     except subprocess.CalledProcessError as e:
         print("❌ FFmpeg 실행 실패:", e)
     return output_path
+
+def create_dark_text_video(script_text, segments, audio_path, bgm_path="", save_path="assets/dark_text_video.mp4"):
+    video_width = 720
+    video_height = 1080
+    font_path = os.path.join("assets", "fonts", "Pretendard-Bold.ttf")  # 존재하는 폰트 경로로 변경
+    clips = []
+
+    if audio_path and os.path.exists(audio_path):
+        audio = AudioFileClip(audio_path)
+    else:
+        audio = AudioArrayClip(np.array([[0.0, 0.0]]), fps=44100).with_duration( sum(seg['end'] - seg['start'] for seg in segments) )
+
+    for seg in segments:
+        duration = seg['end'] - seg['start']
+
+        # 검은 배경
+        bg_clip = ColorClip(size=(video_width, video_height), color=(0, 0, 0)).with_duration(duration)
+
+        # 흰색 글씨
+        text_clip = TextClip(
+            text=seg['text'],
+            font=font_path,
+            fontsize=48,
+            color="white",
+            method="caption",
+            size=(int(video_width*0.9), None),
+            align="center"
+        ).with_duration(duration).with_position("center")
+
+        clips.append(CompositeVideoClip([bg_clip, text_clip], size=(video_width, video_height)).with_duration(duration))
+
+    final_audio = audio
+    if bgm_path and os.path.exists(bgm_path):
+        bgm = AudioFileClip(bgm_path).volumex(0.2)
+        final_audio = CompositeAudioClip([audio, bgm])
+
+    final = concatenate_videoclips(clips, method="chain").with_audio(final_audio).with_fps(24)
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    final.write_videofile(save_path, codec="libx264", audio_codec="aac")
+    return save_path
