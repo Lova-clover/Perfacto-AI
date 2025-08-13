@@ -8,6 +8,7 @@ import subprocess
 import numpy as np
 from moviepy.audio.AudioClip import AudioArrayClip
 import imageio_ffmpeg
+from PIL import ImageFont
 
 def create_motion_clip(img_path, duration, width, height):
     base_clip_original_size = ImageClip(img_path)
@@ -356,9 +357,22 @@ def add_subtitles_to_video(input_video_path, ass_path, output_path="assets/video
 def create_dark_text_video(script_text, segments, audio_path, bgm_path="", save_path="assets/dark_text_video.mp4"):
     video_width = 720
     video_height = 1080
-    font_path = os.path.abspath(os.path.join("assets", "fonts", "Pretendard-Bold.otf"))
-    if not os.path.exists(font_path):
-        raise FileNotFoundError(f"폰트가 없습니다: {font_path}")
+    # 1) Pretendard 우선 후보(otf/ttf)와 fallback(NanumGothic) 경로
+    pretendard_ttf = os.path.join("assets", "fonts", "Pretendard-Bold.ttf")
+    pretendard_otf = os.path.join("assets", "fonts", "Pretendard-Bold.otf")
+    nanum_ttf      = os.path.join("assets", "fonts", "NanumGothic.ttf")
+
+    # 2) 실제 존재하는 Pretendard 경로 고르기
+    preferred = pretendard_ttf if os.path.exists(pretendard_ttf) else pretendard_otf
+
+    if not os.path.exists(preferred):
+        # 그래도 Pretendard가 없으면 메시지 후 Nanum으로 진행
+        print(f"[WARN] Pretendard not found at {pretendard_ttf} / {pretendard_otf}. Falling back to NanumGothic.")
+        preferred = nanum_ttf
+        
+    # 3) Pillow로 검증 후 최종 선택
+    font_path = resolve_font() 
+    
     clips = []
 
     if audio_path and os.path.exists(audio_path):
@@ -393,3 +407,37 @@ def create_dark_text_video(script_text, segments, audio_path, bgm_path="", save_
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     final.write_videofile(save_path, codec="libx264", audio_codec="aac")
     return save_path
+
+def resolve_font():
+    # 우선순위 후보들
+    candidates = [
+        os.environ.get("PREF_FONT_PATH"),                         # 환경변수로 지정 시 최우선
+        os.path.join("assets","fonts","Pretendard-Bold.ttf"),
+        os.path.join("assets","fonts","Pretendard-Bold.otf"),
+        "/mnt/data/Pretendard-Bold.ttf",
+        "/mnt/data/Pretendard-Bold.otf",
+        os.path.join("assets","fonts","NanumGothic.ttf"),         # 최후의 보루
+    ]
+    tried = []
+    for p in candidates:
+        if not p:
+            continue
+        if os.path.exists(p):
+            try:
+                ImageFont.truetype(p, 48)  # Pillow로 실제 열어보기
+                print(f"[font] Using: {p}")
+                return p
+            except Exception as e:
+                tried.append((p, str(e)))
+        else:
+            tried.append((p, "not exists"))
+
+    # 디버깅 도움용으로 후보 디렉토리 내용 찍어주기 (선택)
+    for d in {"assets/fonts", "/mnt/data"}:
+        if os.path.isdir(d):
+            print(f"[font] ls {d} ->", os.listdir(d))
+
+    raise FileNotFoundError(
+        "Pretendard-Bold 폰트를 찾거나 열 수 없습니다.\n"
+        + "\n".join([f"- {p}: {why}" for p, why in tried])
+    )
