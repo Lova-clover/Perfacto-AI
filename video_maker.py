@@ -372,14 +372,13 @@ def create_dark_text_video(script_text, segments, audio_path, bgm_path="", save_
 
         # 흰색 글씨
         text_clip = TextClip(
-            text=seg['text'],
-            font=font_path,
-            font_size=48,
-            color="white",
-            method="caption",
-            size=(int(video_width*0.9), None),
-            align="center"
-        ).with_duration(duration).with_position("center")
+        text=seg['text'],
+        font=font_path,
+        font_size=48,
+        color="white",
+        method="caption",
+        size=(int(video_width*0.9), None)
+    ).with_duration(duration).with_position("center")
 
         clips.append(CompositeVideoClip([bg_clip, text_clip], size=(video_width, video_height)).with_duration(duration))
 
