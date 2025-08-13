@@ -356,7 +356,9 @@ def add_subtitles_to_video(input_video_path, ass_path, output_path="assets/video
 def create_dark_text_video(script_text, segments, audio_path, bgm_path="", save_path="assets/dark_text_video.mp4"):
     video_width = 720
     video_height = 1080
-    font_path = os.path.abspath(os.path.join("assets", "fonts", "Pretendard-Bold.ttf"))
+    font_path = os.path.abspath(os.path.join("assets", "fonts", "Pretendard-Bold.otf"))
+    if not os.path.exists(font_path):
+        raise FileNotFoundError(f"폰트가 없습니다: {font_path}")
     clips = []
 
     if audio_path and os.path.exists(audio_path):
