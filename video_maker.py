@@ -372,7 +372,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     # 안전 여백 & 간격
     top_margin    = 80
     bottom_margin = 80
-    SAFE_BOTTOM_PAD = 24   # ← 하단 안전 패드(투명 여백)
+    SAFE_BOTTOM_PAD = 24   # 하단 안전 패드(투명 여백)
     side_ratio    = 0.80
     max_width_px  = int(video_width * side_ratio)
 
@@ -384,7 +384,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         return TextClip(
             text=text,
             font=font_path,
-            font_size=fontsize,     # ← moviepy 최신/구버전 혼용 대비: font_size 대신 font_size로 유지
+            font_size=fontsize,   # moviepy 구버전 호환
             color="white",
             method="caption",
             size=(width_px, None),
@@ -392,7 +392,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         )
 
     # --- 제목 ---
-    title_text_safe = (title_text or "").rstrip() + "\n\u200A"   # ← 하단 여유 확보
+    title_text_safe = (title_text or "").rstrip() + "\n\u200A"   # 하단 여유 확보
     title_clip_tmp = make_caption(title_text_safe, title_fontsize, title_interline, max_width_px)
     title_h = title_clip_tmp.h
     title_y = top_margin
@@ -427,15 +427,25 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         body_clip_final = make_caption(body_text_safe, body_fontsize, body_interline, body_width_px)
         body_y = title_y + title_h + gap_between_title_and_body
 
-        # ↓ 투명 하단 여백을 추가해 안전 확보
-        body_clip = (
-            body_clip_final
-            .with_position(("center", body_y))
-            .with_duration(duration)
-            .margin(bottom=SAFE_BOTTOM_PAD, opacity=0)   # ← 핵심
-        )
+        # ✅ 여기서 body_clip을 만들어주세요
+        body_clip = body_clip_final.with_position(("center", body_y)).with_duration(duration)
 
-        video = CompositeVideoClip([bg_clip, title_clip, body_clip], size=(video_width, video_height)).with_duration(duration)
+        # 하단 안전패드용 투명 클립
+        if SAFE_BOTTOM_PAD > 0:
+            pad_clip = ColorClip(
+                size=(video_width, SAFE_BOTTOM_PAD),
+                color=(0, 0, 0)
+            ).with_opacity(0).with_duration(duration).with_position(("center", video_height - SAFE_BOTTOM_PAD))
+
+            video = CompositeVideoClip(
+                [bg_clip, title_clip, body_clip, pad_clip],
+                size=(video_width, video_height)
+            ).with_duration(duration)
+        else:
+            video = CompositeVideoClip(
+                [bg_clip, title_clip, body_clip],
+                size=(video_width, video_height)
+            ).with_duration(duration)
 
     # 오디오 & 저장
     final_audio = audio
