@@ -319,7 +319,7 @@ with st.sidebar:
                 title = title_llm_chain.invoke({"question": title_prompt, "chat_history": []}).strip()
                 st.session_state.auto_video_title = title  # 자동 제목은 따로 저장
                 # 아직 사용자가 제목을 만지지 않았거나(=잠금 아님) 현재 제목이 비어있다면만 반영
-                if not st.session_state.get("title_locked", False) or not st.session_state.get("video_title"):
+                if not st.session_state.get("title_locked", False):
                     st.session_state.video_title = title
 
         else:
@@ -794,7 +794,7 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
         if extracted_title_for_ui:
             extracted_title_for_ui = re.sub(r'[\U00010000-\U0010ffff]', '', extracted_title_for_ui).strip()
             st.session_state.auto_video_title = extracted_title_for_ui
-            if not st.session_state.get("title_locked", False) or not st.session_state.get("video_title"):
+            if not st.session_state.get("title_locked", False):
                 st.session_state.video_title = extracted_title_for_ui
         else:
             # 자동제목이 없을 때만 기본값 세팅 (사용자 입력은 건드리지 않음)

@@ -408,26 +408,55 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         body_interline = 20
         body_width_px  = max_width_px
 
+        # ▼ 최소 한계치(필요시 더 낮춰도 됨)
+        MIN_FONT_SIZE   = 14   # 22 → 14 로 낮춤
+        MIN_INTERLINE   = 6    # 10 → 6 로 낮춤
+        MIN_WIDTH_RATIO = 0.60 # 0.70 → 0.60 (가로폭 더 줄이기 허용)
+
         # 하단 잘림 방지용 개행 + 헤어스페이스
         body_text_safe = (script_text or "").rstrip() + "\n\u200A"
 
-        for _ in range(60):
+        fit_ok = False
+        for _ in range(80):  # 여유있게 반복 횟수 확대(60→80)
             tmp = make_caption(body_text_safe, body_fontsize, body_interline, body_width_px)
             if tmp.h <= allowed_body_height:
-                break
-            if body_fontsize > 22:
-                body_fontsize -= 2
-            elif body_interline > 10:
-                body_interline = max(10, int(body_interline * 0.9))
-            elif body_width_px > int(video_width * 0.7):
-                body_width_px -= 10
-            else:
+                fit_ok = True
                 break
 
-        body_clip_final = make_caption(body_text_safe, body_fontsize, body_interline, body_width_px)
+            # 1) 폰트 크기 더 줄이기
+            if body_fontsize > MIN_FONT_SIZE:
+                body_fontsize = max(MIN_FONT_SIZE, body_fontsize - 2)
+                continue
+            # 2) 줄 간격 더 줄이기
+            if body_interline > MIN_INTERLINE:
+                # 점진적으로 10% 감소(최소치 보장)
+                next_inter = int(max(MIN_INTERLINE, round(body_interline * 0.9)))
+                body_interline = next_inter if next_inter < body_interline else body_interline - 1
+                continue
+            # 3) 너비 더 줄여서 줄바꿈 유도
+            min_width_px = int(video_width * MIN_WIDTH_RATIO)
+            if body_width_px > min_width_px:
+                body_width_px = max(min_width_px, body_width_px - 10)
+                continue
+
+            # 4) 위 모든 수단으로도 안 맞으면 최후의 안전장치:
+            #    현재 렌더 결과를 비율 축소해 allowed_body_height에 강제 맞춤
+            scale = allowed_body_height / float(tmp.h)
+            tmp_scaled = tmp.resized(scale)
+            body_clip_final = tmp_scaled
+            fit_ok = True
+            break
+
+        if not fit_ok:
+            # 루프 종료 시점에 tmp가 있음. 그래도 혹시 모르면 마지막으로 강제 축소
+            scale = allowed_body_height / float(tmp.h)
+            body_clip_final = tmp.resized(scale)
+        else:
+            # 루프에서 폰트/줄간격/너비로 맞춘 경우 최종 본문 다시 생성
+            if 'body_clip_final' not in locals():
+                body_clip_final = make_caption(body_text_safe, body_fontsize, body_interline, body_width_px)
+
         body_y = title_y + title_h + gap_between_title_and_body
-
-        # ✅ 여기서 body_clip을 만들어주세요
         body_clip = body_clip_final.with_position(("center", body_y)).with_duration(duration)
 
         # 하단 안전패드용 투명 클립
