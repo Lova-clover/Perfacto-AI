@@ -375,20 +375,24 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     title_clip = TextClip(
         text=title_text,
         font=font_path,
-        font_size=24,
+        font_size=56,  # 크기 키움
         color="white",
         method="caption",
-        size=(int(video_width * 0.9), None)
-    ).with_position(("center", 100)).with_duration(duration)
+        size=(int(video_width * 0.85), None),  # 좌우 여백
+        align="center",       # 중앙 정렬
+        interline=10          # 줄간격
+    ).with_position(("center", 140)).with_duration(duration)  # 본문과의 간격 좁힘
 
     # 본문 텍스트 (중앙)
     body_clip = TextClip(
         text=script_text,
         font=font_path,
-        font_size=20,
+        font_size=44,  # 크기 키움
         color="white",
         method="caption",
-        size=(int(video_width * 0.9), None)
+        size=(int(video_width * 0.85), None),  # 좌우 여백
+        align="center",       # 중앙 정렬
+        interline=8           # 줄간격
     ).with_position(("center", "center")).with_duration(duration)
 
     # 합성
