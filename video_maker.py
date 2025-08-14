@@ -191,7 +191,7 @@ def create_video_with_segments(image_paths, segments, audio_path, topic_title,
         current_segment_clips = [image_clip]
 
         if include_topic_title:
-            font_path = os.path.join("assets", "fonts", "NanumGothic.ttf")
+            font_path = os.path.join("assets", "fonts", "Pretendard-Bold.ttf")
             line1, line2 = auto_split_title(topic_title)
             formatted_title = line1 + ("\n" + line2 if line2 else "")
             max_title_width = video_width - 40  # 좌우 여백

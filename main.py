@@ -68,6 +68,10 @@ if "video_topic" not in st.session_state:
     st.session_state.video_topic = ""
 if "video_title" not in st.session_state: # 새롭게 추가된 부분: 영상 제목 세션 상태
     st.session_state.video_title = ""
+if "auto_video_title" not in st.session_state:
+    st.session_state.auto_video_title = ""   # LLM이 뽑은 최신 자동제목 저장
+if "title_locked" not in st.session_state:
+    st.session_state.title_locked = False    # 사용자가 제목을 손대면 True로 잠금
 if "edited_script_content" not in st.session_state:
     st.session_state.edited_script_content = ""
 if "selected_tts_provider" not in st.session_state: # 새로운 TTS 공급자 세션 상태
@@ -102,6 +106,18 @@ if "youtube_link" not in st.session_state:
     st.session_state.youtube_link = ""
 if "video_binary_data" not in st.session_state:
     st.session_state.video_binary_data = None
+
+# === 제목 잠금/해제 헬퍼 ===
+def _lock_title():
+    # 사용자가 입력창을 수정하면 호출 → 자동 덮어쓰기 금지
+    st.session_state.title_locked = True
+
+def _use_auto_title():
+    # 자동 제목으로 되돌리고 잠금 해제
+    st.session_state.title_locked = False
+    auto = st.session_state.get("auto_video_title", "")
+    if auto:
+        st.session_state.video_title = auto
 
 # --- 사이드바: AI 페르소나 설정 및 RAG 설정 ---
 with st.sidebar:
@@ -301,7 +317,10 @@ with st.sidebar:
     제목:"""
                 title_llm_chain = get_default_chain(system_prompt="당신은 숏폼 영상 제목을 짓는 전문가입니다.")
                 title = title_llm_chain.invoke({"question": title_prompt, "chat_history": []}).strip()
-                st.session_state.video_title = title
+                st.session_state.auto_video_title = title  # 자동 제목은 따로 저장
+                # 아직 사용자가 제목을 만지지 않았거나(=잠금 아님) 현재 제목이 비어있다면만 반영
+                if not st.session_state.get("title_locked", False) or not st.session_state.get("video_title"):
+                    st.session_state.video_title = title
 
         else:
             st.warning("사용 가능한 페르소나 결과가 없습니다. 먼저 페르소나 실행을 통해 결과를 생성해 주세요.")
@@ -315,9 +334,10 @@ with st.sidebar:
 
         # 새롭게 추가된 부분: 영상 제목 입력 필드
         st.session_state.video_title = st.text_input(
-            "영상 제목 (영상 위에 표시될 제목)", # 필드 이름
-            value=st.session_state.video_title, # 세션 상태에서 가져옴
-            key="video_title_input_final" # 새로운 키
+            "영상 제목 (영상 위에 표시될 제목)",
+            value=st.session_state.video_title,
+            key="video_title_input_final",
+            on_change=_lock_title  # 사용자가 수정하면 잠금!
         )
 
         if is_emotional:
@@ -772,8 +792,11 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
 )
         extracted_title_for_ui = title_llm_chain.invoke({"question": title_extraction_prompt, "chat_history": []}).strip()
         if extracted_title_for_ui:
-            # 🔹 이모지 제거
             extracted_title_for_ui = re.sub(r'[\U00010000-\U0010ffff]', '', extracted_title_for_ui).strip()
-            st.session_state.video_title = extracted_title_for_ui
+            st.session_state.auto_video_title = extracted_title_for_ui
+            if not st.session_state.get("title_locked", False) or not st.session_state.get("video_title"):
+                st.session_state.video_title = extracted_title_for_ui
         else:
-            st.session_state.video_title = "제목 없음"  # 추출 실패 시 기본값
+            # 자동제목이 없을 때만 기본값 세팅 (사용자 입력은 건드리지 않음)
+            if not st.session_state.get("video_title"):
+                st.session_state.video_title = "제목 없음"
