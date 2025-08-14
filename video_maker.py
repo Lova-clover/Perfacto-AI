@@ -360,7 +360,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     if not os.path.exists(font_path):
         raise FileNotFoundError(f"폰트가 없습니다: {font_path}")
 
-    # 길이 계산 (오디오가 있으면 오디오 길이, 없으면 기본 10초)
+    # 길이 계산
     if audio_path and os.path.exists(audio_path):
         audio = AudioFileClip(audio_path)
         duration = audio.duration
@@ -371,28 +371,28 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     # 검은 배경
     bg_clip = ColorClip(size=(video_width, video_height), color=(0, 0, 0)).with_duration(duration)
 
-    # 제목 텍스트 (상단)
+    # 제목 텍스트
     title_clip = TextClip(
         text=title_text,
         font=font_path,
-        font_size=56,  # 크기 키움
+        font_size=56,
         color="white",
         method="caption",
         size=(int(video_width * 0.85), None),  # 좌우 여백
-        align="center",       # 중앙 정렬
-        interline=10          # 줄간격
-    ).with_position(("center", 140)).with_duration(duration)  # 본문과의 간격 좁힘
+        txt_align="center",    # 정렬 옵션 수정
+        interline=10
+    ).with_position(("center", 140)).with_duration(duration)
 
-    # 본문 텍스트 (중앙)
+    # 본문 텍스트
     body_clip = TextClip(
         text=script_text,
         font=font_path,
-        font_size=44,  # 크기 키움
+        font_size=44,
         color="white",
         method="caption",
-        size=(int(video_width * 0.85), None),  # 좌우 여백
-        align="center",       # 중앙 정렬
-        interline=8           # 줄간격
+        size=(int(video_width * 0.85), None),
+        txt_align="center",    # 정렬 옵션 수정
+        interline=8
     ).with_position(("center", "center")).with_duration(duration)
 
     # 합성
