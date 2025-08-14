@@ -114,7 +114,7 @@ def _maybe_translate_lines(lines, target='ko', only_if_src_is_english=True):
 def split_script_to_lines(script_text):
     return [sent.strip() for sent in kss.split_sentences(script_text) if sent.strip()]
 
-def generate_tts_per_line(script_lines, provider, template):
+def generate_tts_per_line(script_lines, provider, template, polly_voice_key="korean_female1"):
     audio_paths = []
     temp_audio_dir = "temp_line_audios"
     os.makedirs(temp_audio_dir, exist_ok=True)
