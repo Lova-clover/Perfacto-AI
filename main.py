@@ -567,7 +567,7 @@ with st.sidebar:
                     if is_emotional:
                         created_video_path = create_dark_text_video(
                             script_text=final_script_for_video,
-                            segments=segments,
+                            title_text=final_title_for_video,
                             audio_path=None,
                             bgm_path=st.session_state.bgm_path,
                             save_path=temp_video_path
