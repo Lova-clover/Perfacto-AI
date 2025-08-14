@@ -354,13 +354,13 @@ def add_subtitles_to_video(input_video_path, ass_path, output_path="assets/video
     return output_path
 
 def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path="", save_path="assets/dark_text_video.mp4"):
-    video_width = 720
-    video_height = 1080
+    # 기본 캔버스
+    video_width, video_height = 720, 1080
     font_path = os.path.abspath(os.path.join("assets", "fonts", "Pretendard-Bold.ttf"))
     if not os.path.exists(font_path):
         raise FileNotFoundError(f"폰트가 없습니다: {font_path}")
 
-    # 길이 계산
+    # 길이 계산 (오디오 길이 우선, 없으면 10초 무음)
     if audio_path and os.path.exists(audio_path):
         audio = AudioFileClip(audio_path)
         duration = audio.duration
@@ -368,36 +368,77 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         duration = 10
         audio = AudioArrayClip(np.array([[0.0, 0.0]]), fps=44100).with_duration(duration)
 
-    # 검은 배경
+    # 배경
     bg_clip = ColorClip(size=(video_width, video_height), color=(0, 0, 0)).with_duration(duration)
 
-    # 제목 텍스트 (상단 여백 100px)
-    title_clip = TextClip(
-        text=title_text + "\n",
-        font=font_path,
-        font_size=40,
-        color="white",
-        method="caption",
-        size=(int(video_width * 0.8), None),  # 좌우 여백 20%
-        interline=30
-    ).with_position(("center", 100)).with_duration(duration)
+    # 안전 여백 (Safe Area)
+    top_margin    = 80
+    bottom_margin = 80
+    side_ratio    = 0.80  # 텍스트 박스 최대 폭(좌우 여백 20%)
+    max_width_px  = int(video_width * side_ratio)
 
-    # 본문 텍스트 (제목 아래 여백 40px)
-    body_clip = TextClip(
-        text=script_text + "\n",
-        font=font_path,
-        font_size=32,
-        color="white",
-        method="caption",
-        size=(int(video_width * 0.8), None),  # 좌우 여백 20%
-        interline=20
-    ).with_position(("center", 200)).with_duration(duration)  # 제목보다 아래 배치
+    # 제목 기본 스타일
+    title_fontsize = 40
+    title_interline = 16
+    gap_between_title_and_body = 24  # 제목-본문 사이 간격
 
-    # 합성
-    clips = [bg_clip, title_clip, body_clip]
-    video = CompositeVideoClip(clips, size=(video_width, video_height)).with_duration(duration)
+    # 캡션 생성 헬퍼
+    def make_caption(text, fontsize, interline, width_px):
+        # method="caption"은 width_px만 맞춰주면 자동 줄바꿈
+        return TextClip(
+            text=text,
+            font=font_path,
+            font_size=fontsize,
+            color="white",
+            method="caption",
+            size=(width_px, None),
+            interline=interline
+        )
 
-    # 배경음악 합성
+    # 1) 제목 먼저 렌더해서 실제 높이 측정
+    title_clip_tmp = make_caption(title_text, title_fontsize, title_interline, max_width_px)
+    title_h = title_clip_tmp.h
+    title_y = top_margin
+    title_clip = title_clip_tmp.with_position(("center", title_y)).with_duration(duration)
+
+    # 2) 본문이 들어갈 수 있는 최대 높이 계산
+    allowed_body_height = video_height - bottom_margin - (title_y + title_h + gap_between_title_and_body)
+    if allowed_body_height <= 0:
+        # 화면에 제목만으로 꽉 차는 특수 케이스: 제목만 표시
+        video = CompositeVideoClip([bg_clip, title_clip], size=(video_width, video_height)).with_duration(duration)
+    else:
+        # 3) 본문 자동 맞춤(autoshrink) 루프
+        body_fontsize  = 34
+        body_interline = 20
+        body_width_px  = max_width_px
+
+        for _ in range(60):  # 수렴 보장용 최대 시도 횟수
+            body_clip_tmp = make_caption(script_text, body_fontsize, body_interline, body_width_px)
+            if body_clip_tmp.h <= allowed_body_height:
+                break
+            # 크기 조정 우선순위: (1) 폰트 ↓ (2) 줄간격 ↓ (3) 폭 ↓
+            if body_fontsize > 22:
+                body_fontsize -= 2
+            elif body_interline > 10:
+                body_interline = max(10, int(body_interline * 0.9))
+            elif body_width_px > int(video_width * 0.7):
+                body_width_px -= 10
+            else:
+                # 더 줄일 수 없으면 그대로 사용(하단 약간 잘릴 수 있지만 최대한 근접)
+                break
+
+        # 본문 최종 클립 생성
+        body_clip_final = make_caption(script_text, body_fontsize, body_interline, body_width_px)
+        body_y = title_y + title_h + gap_between_title_and_body
+        # 하단 잘림 안전패드: 아래 여유 4~8px 추가를 위해 본문에 개행 1줄 더해도 됨 (옵션)
+        # body_clip_final = make_caption(script_text + "\n", body_fontsize, body_interline, body_width_px)
+
+        body_clip = body_clip_final.with_position(("center", body_y)).with_duration(duration)
+
+        # 4) 합성
+        video = CompositeVideoClip([bg_clip, title_clip, body_clip], size=(video_width, video_height)).with_duration(duration)
+
+    # 5) 오디오 합성
     final_audio = audio
     if bgm_path and os.path.exists(bgm_path):
         bgm = AudioFileClip(bgm_path).volumex(0.2).with_duration(duration)
