@@ -75,7 +75,7 @@ if "selected_tts_provider" not in st.session_state: # 새로운 TTS 공급자 �
 if "selected_tts_template" not in st.session_state:
     st.session_state.selected_tts_template = "educational" # ElevenLabs 템플릿
 if "selected_polly_voice_key" not in st.session_state: # Amazon Polly 음성 세션 상태
-    st.session_state.selected_polly_voice_key = "korean_female" # 기본값 설정
+    st.session_state.selected_polly_voice_key = "korean_female1" # 기본값 설정
 if "selected_subtitle_template" not in st.session_state:
     st.session_state.selected_subtitle_template = "educational"
 if "bgm_path" not in st.session_state:
@@ -100,6 +100,8 @@ if "upload_clicked" not in st.session_state:
     st.session_state.upload_clicked = False
 if "youtube_link" not in st.session_state:
     st.session_state.youtube_link = ""
+if "video_binary_data" not in st.session_state:
+    st.session_state.video_binary_data = None
 
 # --- 사이드바: AI 페르소나 설정 및 RAG 설정 ---
 with st.sidebar:
@@ -607,14 +609,24 @@ with st.sidebar:
     # 🎬 다운로드 및 업로드 섹션
     with st.expander("📤 다운로드 및 업로드", expanded=True):
         final_path = st.session_state.get("final_video_path", "")
-            
+
         if final_path and os.path.exists(final_path):
             st.video(final_path)
 
-            # 🎬 다운로드 버튼
+            # ✅ 세션에 바이너리가 없으면 파일에서 읽어 즉시 보정
+            data_for_download = st.session_state.get("video_binary_data", None)
+            if data_for_download is None:
+                try:
+                    with open(final_path, "rb") as f:
+                        data_for_download = f.read()
+                    st.session_state.video_binary_data = data_for_download
+                except Exception as e:
+                    st.error(f"영상 파일을 읽는 중 오류가 발생했습니다: {e}")
+                    data_for_download = b""  # 안전 가드
+
             st.download_button(
                 label="🎬 영상 다운로드",
-                data=st.session_state.video_binary_data,
+                data=data_for_download,
                 file_name="generated_multimodal_video.mp4",
                 mime="video/mp4"
             )
