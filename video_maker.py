@@ -375,7 +375,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     title_clip = TextClip(
         text=title_text,
         font=font_path,
-        fontsize=56,
+        font_size=40,
         color="white",
         method="caption",
         size=(int(video_width * 0.85), None),  # 좌우 여백
@@ -386,7 +386,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     body_clip = TextClip(
         text=script_text,
         font=font_path,
-        fontsize=44,
+        font_size=32,
         color="white",
         method="caption",
         size=(int(video_width * 0.85), None),
