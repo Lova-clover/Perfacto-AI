@@ -353,43 +353,55 @@ def add_subtitles_to_video(input_video_path, ass_path, output_path="assets/video
         print("❌ FFmpeg 실행 실패:", e)
     return output_path
 
-def create_dark_text_video(script_text, segments, audio_path, bgm_path="", save_path="assets/dark_text_video.mp4"):
+def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path="", save_path="assets/dark_text_video.mp4"):
     video_width = 720
     video_height = 1080
     font_path = os.path.abspath(os.path.join("assets", "fonts", "Pretendard-Bold.ttf"))
     if not os.path.exists(font_path):
         raise FileNotFoundError(f"폰트가 없습니다: {font_path}")
-    clips = []
 
+    # 길이 계산 (오디오가 있으면 오디오 길이, 없으면 기본 10초)
     if audio_path and os.path.exists(audio_path):
         audio = AudioFileClip(audio_path)
+        duration = audio.duration
     else:
-        audio = AudioArrayClip(np.array([[0.0, 0.0]]), fps=44100).with_duration( sum(seg['end'] - seg['start'] for seg in segments) )
+        duration = 10
+        audio = AudioArrayClip(np.array([[0.0, 0.0]]), fps=44100).with_duration(duration)
 
-    for seg in segments:
-        duration = seg['end'] - seg['start']
+    # 검은 배경
+    bg_clip = ColorClip(size=(video_width, video_height), color=(0, 0, 0)).with_duration(duration)
 
-        # 검은 배경
-        bg_clip = ColorClip(size=(video_width, video_height), color=(0, 0, 0)).with_duration(duration)
+    # 제목 텍스트 (상단)
+    title_clip = TextClip(
+        text=title_text,
+        font=font_path,
+        font_size=64,
+        color="white",
+        method="caption",
+        size=(int(video_width * 0.9), None)
+    ).with_position(("center", 100)).with_duration(duration)
 
-        # 흰색 글씨
-        text_clip = TextClip(
-        text=seg['text'],
+    # 본문 텍스트 (중앙)
+    body_clip = TextClip(
+        text=script_text,
         font=font_path,
         font_size=48,
         color="white",
         method="caption",
-        size=(int(video_width*0.9), None)
-    ).with_duration(duration).with_position("center")
+        size=(int(video_width * 0.9), None)
+    ).with_position(("center", "center")).with_duration(duration)
 
-        clips.append(CompositeVideoClip([bg_clip, text_clip], size=(video_width, video_height)).with_duration(duration))
+    # 합성
+    clips = [bg_clip, title_clip, body_clip]
+    video = CompositeVideoClip(clips, size=(video_width, video_height)).with_duration(duration)
 
+    # 배경음악 합성
     final_audio = audio
     if bgm_path and os.path.exists(bgm_path):
-        bgm = AudioFileClip(bgm_path).volumex(0.2)
+        bgm = AudioFileClip(bgm_path).volumex(0.2).with_duration(duration)
         final_audio = CompositeAudioClip([audio, bgm])
 
-    final = concatenate_videoclips(clips, method="chain").with_audio(final_audio).with_fps(24)
+    final_video = video.with_audio(final_audio).with_fps(24)
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    final.write_videofile(save_path, codec="libx264", audio_codec="aac")
+    final_video.write_videofile(save_path, codec="libx264", audio_codec="aac")
     return save_path
