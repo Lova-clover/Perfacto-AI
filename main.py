@@ -381,6 +381,11 @@ with st.sidebar:
 
         st.subheader("영상 제작")
         if st.button("영상 만들기"):
+            # 이전 내용 초기화
+            st.session_state.video_binary_data = None
+            st.session_state.final_video_path = None
+            st.session_state.youtube_link = ""
+            st.session_state.upload_clicked = False
             # 사용자가 수정한 스크립트 내용과 주제를 사용
             final_script_for_video = st.session_state.edited_script_content
             final_topic_for_video = st.session_state.video_topic
