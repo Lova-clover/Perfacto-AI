@@ -589,15 +589,6 @@ with st.sidebar:
 
                     # ✅ 최종 영상 경로 저장
                     st.session_state["final_video_path"] = final_video_with_subs_path
-
-                    # 다운로드 버튼도 파일 핸들로 직접 연결 (세션에 복사본 안 만들기)
-                    with open(final_video_with_subs_path, "rb") as f:
-                        st.download_button(
-                            label="🎬 영상 다운로드",
-                            data=f,                       # ✅ 파일 핸들을 바로 넘김
-                            file_name="generated_multimodal_video.mp4",
-                            mime="video/mp4"
-                        )
                     
                     st.success(f"✅ 최종 영상 생성 완료: {final_video_with_subs_path}")
 
