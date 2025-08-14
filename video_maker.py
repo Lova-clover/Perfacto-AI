@@ -370,7 +370,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     bg_clip = ColorClip(size=(video_width, video_height), color=(0, 0, 0)).with_duration(duration)
 
     # 안전 여백 & 간격
-    top_margin    = 80
+    top_margin    = 150
     bottom_margin = 80
     SAFE_BOTTOM_PAD = 24   # 하단 안전 패드(투명 여백)
     side_ratio    = 0.80
