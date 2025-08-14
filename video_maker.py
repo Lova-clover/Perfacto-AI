@@ -373,24 +373,24 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
 
     # 제목 텍스트 (상단 여백 100px)
     title_clip = TextClip(
-        text=title_text,
+        text=title_text + "\n",
         font=font_path,
         font_size=40,
         color="white",
         method="caption",
         size=(int(video_width * 0.8), None),  # 좌우 여백 20%
-        interline=10
+        interline=30
     ).with_position(("center", 100)).with_duration(duration)
 
     # 본문 텍스트 (제목 아래 여백 40px)
     body_clip = TextClip(
-        text=script_text,
+        text=script_text + "\n",
         font=font_path,
         font_size=32,
         color="white",
         method="caption",
         size=(int(video_width * 0.8), None),  # 좌우 여백 20%
-        interline=8
+        interline=20
     ).with_position(("center", 200)).with_duration(duration)  # 제목보다 아래 배치
 
     # 합성
