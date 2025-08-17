@@ -439,7 +439,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         fit_ok = False
         tmp = None
         for _ in range(80):
-            tmp = make_caption(body_text_safe, body_fontsize, body_interline, body_width_px, align="left")
+            tmp = make_caption(body_text_safe, body_fontsize, body_interline, body_width_px)
             if tmp.h <= allowed_body_height:
                 fit_ok = True
                 break
