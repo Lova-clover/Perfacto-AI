@@ -354,12 +354,6 @@ def add_subtitles_to_video(input_video_path, ass_path, output_path="assets/video
     return output_path
 
 def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path="", save_path="assets/dark_text_video.mp4"):
-    from moviepy import (AudioFileClip, CompositeAudioClip, CompositeVideoClip,
-                         TextClip, ColorClip)
-    import os, numpy as np
-    from moviepy.audio.AudioClip import AudioArrayClip
-
-    # ===== 기본 설정 =====
     video_width, video_height = 720, 1080
     font_path = os.path.abspath(os.path.join("assets", "fonts", "Pretendard-Bold.ttf"))
     if not os.path.exists(font_path):
@@ -448,96 +442,102 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
 
     # ===== 제목 =====
     title_fontsize = 34
+    title_interline = 16
     max_title_width = CONTENT_WIDTH - 2 * LEFT_BLEED_PAD
     centered_title_text = center_label_multiline(title_text, max_title_width, title_fontsize)
+
     title_clip_tmp = TextClip(
         text=centered_title_text,
         font=font_path,
         font_size=title_fontsize,
         color="white",
-        method="label",
+        method="label"
     )
     title_h = title_clip_tmp.h
     title_y = TOP_MARGIN
     title_x = int(SAFE_SIDE_PAD + LEFT_BLEED_PAD + ((CONTENT_WIDTH - 2 * LEFT_BLEED_PAD) - title_clip_tmp.w) / 2)
     title_clip = title_clip_tmp.with_position((title_x, int(title_y))).with_duration(duration)
 
-    # ===== 본문(줄간격 수동 제어) =====
+    # ===== 본문 =====
     GAP_TITLE_BODY = 32
     allowed_body_height = video_height - BOTTOM_MARGIN - (title_y + title_h + GAP_TITLE_BODY) - SAFE_BOTTOM_PAD
 
     if allowed_body_height <= 0:
         video = CompositeVideoClip([bg_clip, title_clip], size=(video_width, video_height)).with_duration(duration)
     else:
-        body_fontsize  = 24   # <- 원하시는 값으로 조정 가능
+        body_fontsize  = 24
+        body_interline = 36 
         body_width_px  = CONTENT_WIDTH
-        LINE_GAP       = 12   # <- 줄과 줄 사이 간격(px), 여기만 조정하면 확실히 늘어납니다
 
         MIN_FONT_SIZE   = 14
+        MIN_INTERLINE   = 6
         MIN_WIDTH_RATIO = 0.60
         min_width_px    = int(CONTENT_WIDTH * MIN_WIDTH_RATIO)
 
         # 좌우 1.5 글자 내부 패딩
-        base_char_w = max(8, line_width("가", body_fontsize), line_width("M", body_fontsize))
+        base_char_w = max(8, line_width("가", body_fontsize), line_width("M", body_fontsize))  # 한글/라틴 혼용 대비
         INNER_PAD = int(round(base_char_w * 1.5))
 
-        def render_body(fs: int, width_px: int, line_gap: int):
-            """줄바꿈 보존 + 수동 줄간격으로 본문을 합성해서 반환"""
-            eff_wrap_w = max(20, width_px - 2 * INNER_PAD - 2 * LEFT_BLEED_PAD)
-            lines = wrap_preserving_newlines((script_text or "").rstrip(), eff_wrap_w, fs)
+        # (핵심) 입력 줄바꿈을 보존하며 단락별로 래핑
+        effective_wrap_width = max(20, body_width_px - 2 * INNER_PAD - 2 * LEFT_BLEED_PAD)
+        raw_body = (script_text or "").rstrip()
+        wrapped_lines = wrap_preserving_newlines(raw_body, effective_wrap_width, body_fontsize)
+        body_text_wrapped = "\n".join(wrapped_lines) + "\n\u200A"  # 하단 잘림 방지 미세 공백
 
-            clips = []
-            y = 0
-            maxw = 1
-            for i, line in enumerate(lines):
-                if line.strip() == "":
-                    # 완전 빈 줄: 줄간격만큼만 넘기기(여백 유지)
-                    y += line_gap + int(fs * 0.35)  # 빈 줄은 살짝 더 높게
-                    continue
-                c = TextClip(text=line, font=font_path, font_size=fs, color="white", method="label")
-                clips.append(c.with_position((0, y)))
-                y += c.h + line_gap
-                if c.w > maxw:
-                    maxw = c.w
-            if clips:
-                total_h = y - line_gap  # 마지막 줄 뒤 gap 제거
-                body_label = CompositeVideoClip(clips, size=(maxw, total_h))
-            else:
-                # 내용이 전혀 없을 때의 안전 처리
-                spacer_h = int(fs * 1.2)
-                body_label = ColorClip(size=(1, spacer_h), color=(0, 0, 0)).with_opacity(0)
-
-            return body_label
-
-        # 폰트 크기/폭을 조절하며 allowed_body_height에 맞추기
-        fit_clip = None
+        fit_ok = False
+        body_clip_label = None
         for _ in range(80):
-            body_label = render_body(body_fontsize, body_width_px, LINE_GAP)
-            if body_label.h <= allowed_body_height:
-                fit_clip = body_label
+            body_clip_label = TextClip(
+                text=body_text_wrapped,
+                font=font_path,
+                font_size=body_fontsize,
+                color="white",
+                method="label"  # caption 사용시 베어링 잘림 가능성 ↑
+            )
+            if body_clip_label.h <= allowed_body_height:
+                fit_ok = True
                 break
-            # 줄바꿈 보존 상태에서 키우기 어렵다면 글자 크기↓ → 가용폭↓ 순으로 시도
+
+            # 높이 초과 시: 글자크기 ↓ → (필요 시) 가용폭 재계산 → 다시 래핑
             if body_fontsize > MIN_FONT_SIZE:
                 body_fontsize = max(MIN_FONT_SIZE, body_fontsize - 2)
                 base_char_w = max(8, line_width("가", body_fontsize), line_width("M", body_fontsize))
                 INNER_PAD = int(round(base_char_w * 1.5))
+                effective_wrap_width = max(20, body_width_px - 2 * INNER_PAD - 2 * LEFT_BLEED_PAD)
+                wrapped_lines = wrap_preserving_newlines(raw_body, effective_wrap_width, body_fontsize)
+                body_text_wrapped = "\n".join(wrapped_lines) + "\n\u200A"
                 continue
+
+            if body_interline > MIN_INTERLINE:
+                # method="label"에서는 interline이 적용되지 않을 수 있음(필요 시 caption 전환 고려)
+                next_inter = int(max(MIN_INTERLINE, round(body_interline * 0.9)))
+                if next_inter < body_interline:
+                    body_interline = next_inter
+                    # label 유지: 효과 미미, caption 전환시만 실제 행간 반영
+                    continue
+
             if body_width_px > min_width_px:
                 body_width_px = max(min_width_px, body_width_px - 10)
+                effective_wrap_width = max(20, body_width_px - 2 * INNER_PAD - 2 * LEFT_BLEED_PAD)
+                wrapped_lines = wrap_preserving_newlines(raw_body, effective_wrap_width, body_fontsize)
+                body_text_wrapped = "\n".join(wrapped_lines) + "\n\u200A"
                 continue
+
             # 최후: 비율 축소
-            scale = allowed_body_height / float(body_label.h)
-            fit_clip = body_label.resized(scale)
+            scale = allowed_body_height / float(body_clip_label.h)
+            body_clip_label = body_clip_label.resized(scale)
+            fit_ok = True
             break
 
-        if fit_clip is None:
-            fit_clip = render_body(body_fontsize, body_width_px, LINE_GAP)
+        if not fit_ok and body_clip_label is not None:
+            scale = allowed_body_height / float(body_clip_label.h)
+            body_clip_label = body_clip_label.resized(scale)
 
         # 좌우 1.5자 패딩 래퍼
-        body_wrapper_w = fit_clip.w + 2 * INNER_PAD
-        body_wrapper_h = fit_clip.h
+        body_wrapper_w = body_clip_label.w + 2 * INNER_PAD
+        body_wrapper_h = body_clip_label.h
         body_wrapper = CompositeVideoClip(
-            [fit_clip.with_position((INNER_PAD, 0))],
+            [body_clip_label.with_position((INNER_PAD, 0))],
             size=(body_wrapper_w, body_wrapper_h)
         ).with_duration(duration)
 
