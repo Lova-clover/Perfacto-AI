@@ -395,8 +395,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     title_text = ellipsize_two_lines(title_text or "", max_chars_per_line=18)
 
     # 공용 caption 생성자 (정렬 옵션 추가)
-    def make_caption(text, fontsize, interline, width_px, align="left"):
-        # 좌우 보이지 않는 패딩을 캔버스 내부에 포함시키기 위해 실제 생성 폭을 줄임
+    def make_caption(text, fontsize, interline, width_px):
         avail_w = max(10, int(width_px) - 2 * LEFT_BLEED_PAD)
         return TextClip(
             text=text,
@@ -405,14 +404,13 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
             color="white",
             method="caption",
             size=(avail_w, None),
-            interline=interline,
-            align=align
+            interline=interline
         )
 
     # ===== 제목 =====
     title_fontsize = 46
     title_interline = 16
-    title_clip_tmp = make_caption(title_text + "\n\u200A", title_fontsize, title_interline, CONTENT_WIDTH, align="center")
+    title_clip_tmp = make_caption(title_text + "\n\u200A", title_fontsize, title_interline, CONTENT_WIDTH)
     title_h = title_clip_tmp.h
     title_y = TOP_MARGIN
     # 패딩 제외 가용폭 기준 중앙 + 왼쪽 bleed 패딩만큼 우측으로 밀기 (정수 좌표 고정)
