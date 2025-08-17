@@ -354,12 +354,6 @@ def add_subtitles_to_video(input_video_path, ass_path, output_path="assets/video
     return output_path
 
 def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path="", save_path="assets/dark_text_video.mp4"):
-    from moviepy import (AudioFileClip, CompositeAudioClip, CompositeVideoClip,
-                         TextClip, ColorClip)
-    import os, numpy as np
-    from moviepy.audio.AudioClip import AudioArrayClip
-
-    # ===== 기본 설정 =====
     video_width, video_height = 720, 1080
     font_path = os.path.abspath(os.path.join("assets", "fonts", "Pretendard-Bold.ttf"))
     if not os.path.exists(font_path):
@@ -469,11 +463,13 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     if allowed_body_height <= 0:
         video = CompositeVideoClip([bg_clip, title_clip], size=(video_width, video_height)).with_duration(duration)
     else:
-        body_fontsize  = 24          # ← 원하시는 폰트 크기
+        body_fontsize  = 24          # ← 필요시 조정
         body_width_px  = CONTENT_WIDTH
-        LINE_GAP       = 16          # ← 줄과 줄 사이 ‘추가’ 간격(px)
+        LINE_GAP       = 16          # ← 줄 사이 ‘추가’ 간격(px)
         TOP_PAD_PX     = 4           # ← 첫 줄 위 여유
         BOTTOM_PAD_PX  = 4           # ← 마지막 줄 아래 여유
+        PER_LINE_TOP   = max(0, int(round(body_fontsize * 0.10)))  # 각 줄 위 여유
+        PER_LINE_BOT   = max(0, int(round(body_fontsize * 0.10)))  # 각 줄 아래 여유
 
         MIN_FONT_SIZE   = 14
         MIN_WIDTH_RATIO = 0.60
@@ -483,8 +479,8 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         base_char_w = max(8, line_width("가", body_fontsize), line_width("M", body_fontsize))
         INNER_PAD = int(round(base_char_w * 1.5))
 
-        def render_body(fs: int, width_px: int, line_gap: int):
-            """줄바꿈 보존 + 각 줄 투명 마진으로 안정적인 줄간격 구현"""
+        def render_body(fs: int, width_px: int) -> CompositeVideoClip:
+            """줄바꿈 보존 + 투명 스페이서로 줄간격 구현"""
             eff_wrap_w = max(20, width_px - 2 * INNER_PAD - 2 * LEFT_BLEED_PAD)
             lines = wrap_preserving_newlines((script_text or "").rstrip(), eff_wrap_w, fs)
 
@@ -492,36 +488,56 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
             y = TOP_PAD_PX
             maxw = 1
 
-            per_line_top = max(0, int(round(fs * 0.10)))   # 글리프 상단 여유
-            per_line_bot = max(0, int(round(fs * 0.10)))   # 글리프 하단 여유
+            def spacer(h):
+                # 투명 스페이서 (줄간격/마진용)
+                return ColorClip(size=(1, max(1, int(h))), color=(0, 0, 0)).with_opacity(0)
 
-            for line in lines:
+            for i, line in enumerate(lines):
                 if line.strip() == "":
-                    # 빈 줄: 한 줄 높이 + 추가 간격만큼 띄워 빈 단락 유지
-                    y += fs + line_gap
+                    # 완전 빈 줄: 글자 높이만큼 + 추가 간격
+                    s = spacer(fs + LINE_GAP)
+                    clips.append(s.with_position((0, y)))
+                    y += s.h
                     continue
 
+                # 각 줄 위 여유
+                if PER_LINE_TOP:
+                    s_top = spacer(PER_LINE_TOP)
+                    clips.append(s_top.with_position((0, y)))
+                    y += s_top.h
+
+                # 실제 텍스트 줄
                 c = TextClip(text=line, font=font_path, font_size=fs, color="white", method="label")
-                # ★ moviepy 2.x: with_margin 사용 (opacity=0로 투명 마진)
-                c = c.with_margin(top=per_line_top, bottom=per_line_bot, opacity=0)
-
                 clips.append(c.with_position((0, y)))
-                y += c.h + line_gap
-                if c.w > maxw:
-                    maxw = c.w
+                y += c.h
+                maxw = max(maxw, c.w)
 
-            total_h = max(1, y - line_gap + BOTTOM_PAD_PX)  # 마지막 줄 뒤 gap 제거 + 바닥 여유
-            if clips:
-                body_label = CompositeVideoClip(clips, size=(maxw, total_h))
-            else:
-                body_label = ColorClip(size=(1, int(fs * 1.2)), color=(0, 0, 0)).with_opacity(0)
+                # 각 줄 아래 여유
+                if PER_LINE_BOT:
+                    s_bot = spacer(PER_LINE_BOT)
+                    clips.append(s_bot.with_position((0, y)))
+                    y += s_bot.h
 
-            return body_label
+                # 줄 사이 추가 간격
+                if i < len(lines) - 1:
+                    s_gap = spacer(LINE_GAP)
+                    clips.append(s_gap.with_position((0, y)))
+                    y += s_gap.h
+
+            total_h = y + BOTTOM_PAD_PX
+            if not clips:
+                # 내용이 전혀 없을 때의 안전 처리
+                return CompositeVideoClip(
+                    [spacer(int(fs * 1.2)).with_position((0, 0))],
+                    size=(1, int(fs * 1.2))
+                ).with_duration(duration)
+
+            return CompositeVideoClip(clips, size=(maxw, total_h)).with_duration(duration)
 
         # allowed_body_height에 맞게 조정
         fit_clip = None
         for _ in range(80):
-            body_label = render_body(body_fontsize, body_width_px, LINE_GAP)
+            body_label = render_body(body_fontsize, body_width_px)
             if body_label.h <= allowed_body_height:
                 fit_clip = body_label
                 break
@@ -539,7 +555,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
             break
 
         if fit_clip is None:
-            fit_clip = render_body(body_fontsize, body_width_px, LINE_GAP)
+            fit_clip = render_body(body_fontsize, body_width_px)
 
         # 좌우 1.5자 패딩 래퍼
         body_wrapper_w = fit_clip.w + 2 * INNER_PAD
