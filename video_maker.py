@@ -503,7 +503,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
                     font=font_path,
                     font_size=fs,
                     color="white",
-                    method="caption",
+                    method="label",
                     size=(cap_w, None),   # 줄 길이만큼만 박스 생성 → 시각적 왼쪽정렬
                     interline=0
                 )
