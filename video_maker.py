@@ -369,114 +369,117 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
 
     bg_clip = ColorClip(size=(video_width, video_height), color=(0, 0, 0)).with_duration(duration)
 
-    # 안전 여백 & 간격
-    top_margin    = 150
-    bottom_margin = 80
-    SAFE_BOTTOM_PAD = 24   # 하단 안전 패드(투명 여백)
-    side_ratio    = 0.80
-    max_width_px  = int(video_width * side_ratio)
+    # ===== 안전 여백 & 레이아웃 =====
+    TOP_MARGIN = 150
+    BOTTOM_MARGIN = 80
+    SAFE_BOTTOM_PAD = 24
+    SAFE_SIDE_PAD = 24          # 좌우 패딩(← 좌측 잘림 방지 핵심)
+    CONTENT_WIDTH = video_width - SAFE_SIDE_PAD * 2
 
-    title_fontsize = 40
-    title_interline = 16
-    gap_between_title_and_body = 32
+    # ===== 제목 제한(중앙정렬 + 2줄 + …) =====
+    def ellipsize_two_lines(text, max_chars_per_line=20):
+        if not text: 
+            return ""
+        # 아주 간단한 문자폭 근사치 기반 래핑
+        import textwrap
+        wrapped = textwrap.wrap(text.strip(), width=max_chars_per_line, break_long_words=True, break_on_hyphens=False)
+        if len(wrapped) <= 2:
+            return "\n".join(wrapped)
+        out = wrapped[:2]
+        # 두 번째 줄 끝에 … 붙이기
+        if len(out[1]) >= 1:
+            out[1] = out[1].rstrip()
+            if not out[1].endswith("…"):
+                out[1] = (out[1][:-1] + "…") if len(out[1]) > 0 else "…"
+        return "\n".join(out)
 
-    def make_caption(text, fontsize, interline, width_px):
+    title_text = ellipsize_two_lines(title_text or "", max_chars_per_line=18)
+
+    # 공용 caption 생성자 (정렬 옵션 추가)
+    def make_caption(text, fontsize, interline, width_px, align="left"):
+        # 좌우 잘림 방지를 위해 clip 폭을 살짝 줄여 여유 공간 확보
+        width_px = max(10, int(width_px) - 2)  # 1~2px 여유
         return TextClip(
             text=text,
             font=font_path,
-            font_size=fontsize,   # moviepy 구버전 호환
+            font_size=fontsize,
             color="white",
             method="caption",
             size=(width_px, None),
-            interline=interline
+            interline=interline,
+            align=align
         )
 
-    # --- 제목 ---
-    title_text_safe = (title_text or "").rstrip() + "\n\u200A"   # 하단 여유 확보
-    title_clip_tmp = make_caption(title_text_safe, title_fontsize, title_interline, max_width_px)
+    # ===== 제목 =====
+    title_fontsize = 46
+    title_interline = 16
+    title_clip_tmp = make_caption(title_text + "\n\u200A", title_fontsize, title_interline, CONTENT_WIDTH, align="center")
     title_h = title_clip_tmp.h
-    title_y = top_margin
-    title_clip = title_clip_tmp.with_position(("center", title_y)).with_duration(duration)
+    title_y = TOP_MARGIN
+    # 정중앙 정렬(가로) — 좌표를 정수로 고정
+    title_x = int((video_width - title_clip_tmp.w) / 2)
+    title_clip = title_clip_tmp.with_position((title_x, int(title_y))).with_duration(duration)
 
-    # --- 본문 영역 높이 계산 ---
-    allowed_body_height = video_height - bottom_margin - (title_y + title_h + gap_between_title_and_body) - SAFE_BOTTOM_PAD
+    # ===== 본문 영역 =====
+    GAP_TITLE_BODY = 32
+    allowed_body_height = video_height - BOTTOM_MARGIN - (title_y + title_h + GAP_TITLE_BODY) - SAFE_BOTTOM_PAD
+
     if allowed_body_height <= 0:
         video = CompositeVideoClip([bg_clip, title_clip], size=(video_width, video_height)).with_duration(duration)
     else:
-        # 자동 맞춤 루프
         body_fontsize  = 34
         body_interline = 20
-        body_width_px  = max_width_px
+        body_width_px  = CONTENT_WIDTH   # 좌우 패딩 안쪽으로만 그리기
 
-        # ▼ 최소 한계치(필요시 더 낮춰도 됨)
-        MIN_FONT_SIZE   = 14   # 22 → 14 로 낮춤
-        MIN_INTERLINE   = 6    # 10 → 6 로 낮춤
-        MIN_WIDTH_RATIO = 0.60 # 0.70 → 0.60 (가로폭 더 줄이기 허용)
+        MIN_FONT_SIZE   = 14
+        MIN_INTERLINE   = 6
+        MIN_WIDTH_RATIO = 0.60  # CONTENT_WIDTH 기준
+        min_width_px    = int(CONTENT_WIDTH * MIN_WIDTH_RATIO)
 
-        # 하단 잘림 방지용 개행 + 헤어스페이스
         body_text_safe = (script_text or "").rstrip() + "\n\u200A"
 
         fit_ok = False
-        for _ in range(80):  # 여유있게 반복 횟수 확대(60→80)
-            tmp = make_caption(body_text_safe, body_fontsize, body_interline, body_width_px)
+        tmp = None
+        for _ in range(80):
+            tmp = make_caption(body_text_safe, body_fontsize, body_interline, body_width_px, align="left")
             if tmp.h <= allowed_body_height:
                 fit_ok = True
                 break
 
-            # 1) 폰트 크기 더 줄이기
             if body_fontsize > MIN_FONT_SIZE:
                 body_fontsize = max(MIN_FONT_SIZE, body_fontsize - 2)
                 continue
-            # 2) 줄 간격 더 줄이기
             if body_interline > MIN_INTERLINE:
-                # 점진적으로 10% 감소(최소치 보장)
                 next_inter = int(max(MIN_INTERLINE, round(body_interline * 0.9)))
                 body_interline = next_inter if next_inter < body_interline else body_interline - 1
                 continue
-            # 3) 너비 더 줄여서 줄바꿈 유도
-            min_width_px = int(video_width * MIN_WIDTH_RATIO)
             if body_width_px > min_width_px:
                 body_width_px = max(min_width_px, body_width_px - 10)
                 continue
 
-            # 4) 위 모든 수단으로도 안 맞으면 최후의 안전장치:
-            #    현재 렌더 결과를 비율 축소해 allowed_body_height에 강제 맞춤
+            # 최후: 높이 비율로 강제 축소
             scale = allowed_body_height / float(tmp.h)
-            tmp_scaled = tmp.resized(scale)
-            body_clip_final = tmp_scaled
+            tmp = tmp.resized(scale)
             fit_ok = True
             break
 
-        if not fit_ok:
-            # 루프 종료 시점에 tmp가 있음. 그래도 혹시 모르면 마지막으로 강제 축소
+        if not fit_ok and tmp is not None:
             scale = allowed_body_height / float(tmp.h)
-            body_clip_final = tmp.resized(scale)
-        else:
-            # 루프에서 폰트/줄간격/너비로 맞춘 경우 최종 본문 다시 생성
-            if 'body_clip_final' not in locals():
-                body_clip_final = make_caption(body_text_safe, body_fontsize, body_interline, body_width_px)
+            tmp = tmp.resized(scale)
 
-        body_y = title_y + title_h + gap_between_title_and_body
-        body_clip = body_clip_final.with_position(("center", body_y)).with_duration(duration)
+        # 본문 위치 — 좌우 패딩 고려(정수 좌표)
+        body_x = int(SAFE_SIDE_PAD + (CONTENT_WIDTH - tmp.w) / 2)
+        body_y = int(title_y + title_h + GAP_TITLE_BODY)
+        body_clip = tmp.with_position((body_x, body_y)).with_duration(duration)
 
-        # 하단 안전패드용 투명 클립
-        if SAFE_BOTTOM_PAD > 0:
-            pad_clip = ColorClip(
-                size=(video_width, SAFE_BOTTOM_PAD),
-                color=(0, 0, 0)
-            ).with_opacity(0).with_duration(duration).with_position(("center", video_height - SAFE_BOTTOM_PAD))
+        # 하단 투명 패드
+        pad_clip = ColorClip(size=(video_width, SAFE_BOTTOM_PAD), color=(0, 0, 0)).with_opacity(0)\
+                   .with_duration(duration).with_position(("center", video_height - SAFE_BOTTOM_PAD))
 
-            video = CompositeVideoClip(
-                [bg_clip, title_clip, body_clip, pad_clip],
-                size=(video_width, video_height)
-            ).with_duration(duration)
-        else:
-            video = CompositeVideoClip(
-                [bg_clip, title_clip, body_clip],
-                size=(video_width, video_height)
-            ).with_duration(duration)
+        video = CompositeVideoClip([bg_clip, title_clip, body_clip, pad_clip], size=(video_width, video_height))\
+                    .with_duration(duration)
 
-    # 오디오 & 저장
+    # ===== 오디오 & 저장 =====
     final_audio = audio
     if bgm_path and os.path.exists(bgm_path):
         bgm = AudioFileClip(bgm_path).volumex(0.2).with_duration(duration)
