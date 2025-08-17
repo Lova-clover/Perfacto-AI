@@ -441,7 +441,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         return "\n".join(centered_lines) + "\n"
 
     # ===== 제목 =====
-    title_fontsize = 34
+    title_fontsize = 38
     max_title_width = CONTENT_WIDTH - 2 * LEFT_BLEED_PAD
     centered_title_text = center_label_multiline(title_text, max_title_width, title_fontsize)
     title_clip_tmp = TextClip(
@@ -463,7 +463,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     if allowed_body_height <= 0:
         video = CompositeVideoClip([bg_clip, title_clip], size=(video_width, video_height)).with_duration(duration)
     else:
-        body_fontsize  = 24          # 필요 시 사용자 조정
+        body_fontsize  = 26          # 필요 시 사용자 조정
         body_width_px  = CONTENT_WIDTH
 
         # 줄 간격/여백 (하단 잘림 방지에 효과적)
