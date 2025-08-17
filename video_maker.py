@@ -354,12 +354,6 @@ def add_subtitles_to_video(input_video_path, ass_path, output_path="assets/video
     return output_path
 
 def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path="", save_path="assets/dark_text_video.mp4"):
-    from moviepy import (
-        ImageClip, AudioFileClip, CompositeVideoClip, TextClip, ColorClip, CompositeAudioClip
-    )
-    import os, numpy as np
-    from moviepy.audio.AudioClip import AudioArrayClip
-
     video_width, video_height = 720, 1080
     font_path = os.path.abspath(os.path.join("assets", "fonts", "Pretendard-Bold.ttf"))
     if not os.path.exists(font_path):
@@ -370,7 +364,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         audio = AudioFileClip(audio_path)
         duration = audio.duration
     else:
-        duration = 10
+        duration = 2
         audio = AudioArrayClip(np.array([[0.0, 0.0]]), fps=44100).with_duration(duration)
 
     bg_clip = ColorClip(size=(video_width, video_height), color=(0, 0, 0)).with_duration(duration)
