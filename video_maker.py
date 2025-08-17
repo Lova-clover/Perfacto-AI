@@ -373,20 +373,19 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     TOP_MARGIN = 150
     BOTTOM_MARGIN = 80
     SAFE_BOTTOM_PAD = 24
-    SAFE_SIDE_PAD = 24          # 좌우 패딩(← 좌측 잘림 방지 핵심)
+    SAFE_SIDE_PAD = 24           # 좌우 안전 패딩
+    LEFT_BLEED_PAD = 12          # 글리프 왼쪽 베어링 잘림 방지용 추가 패딩
     CONTENT_WIDTH = video_width - SAFE_SIDE_PAD * 2
 
     # ===== 제목 제한(중앙정렬 + 2줄 + …) =====
     def ellipsize_two_lines(text, max_chars_per_line=20):
-        if not text: 
+        if not text:
             return ""
-        # 아주 간단한 문자폭 근사치 기반 래핑
         import textwrap
         wrapped = textwrap.wrap(text.strip(), width=max_chars_per_line, break_long_words=True, break_on_hyphens=False)
         if len(wrapped) <= 2:
             return "\n".join(wrapped)
         out = wrapped[:2]
-        # 두 번째 줄 끝에 … 붙이기
         if len(out[1]) >= 1:
             out[1] = out[1].rstrip()
             if not out[1].endswith("…"):
@@ -397,15 +396,15 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
 
     # 공용 caption 생성자 (정렬 옵션 추가)
     def make_caption(text, fontsize, interline, width_px, align="left"):
-        # 좌우 잘림 방지를 위해 clip 폭을 살짝 줄여 여유 공간 확보
-        width_px = max(10, int(width_px) - 2)  # 1~2px 여유
+        # 좌우 보이지 않는 패딩을 캔버스 내부에 포함시키기 위해 실제 생성 폭을 줄임
+        avail_w = max(10, int(width_px) - 2 * LEFT_BLEED_PAD)
         return TextClip(
             text=text,
             font=font_path,
             font_size=fontsize,
             color="white",
             method="caption",
-            size=(width_px, None),
+            size=(avail_w, None),
             interline=interline,
             align=align
         )
@@ -416,8 +415,8 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     title_clip_tmp = make_caption(title_text + "\n\u200A", title_fontsize, title_interline, CONTENT_WIDTH, align="center")
     title_h = title_clip_tmp.h
     title_y = TOP_MARGIN
-    # 정중앙 정렬(가로) — 좌표를 정수로 고정
-    title_x = int((video_width - title_clip_tmp.w) / 2)
+    # 패딩 제외 가용폭 기준 중앙 + 왼쪽 bleed 패딩만큼 우측으로 밀기 (정수 좌표 고정)
+    title_x = int(SAFE_SIDE_PAD + LEFT_BLEED_PAD + ((CONTENT_WIDTH - 2 * LEFT_BLEED_PAD) - title_clip_tmp.w) / 2)
     title_clip = title_clip_tmp.with_position((title_x, int(title_y))).with_duration(duration)
 
     # ===== 본문 영역 =====
@@ -429,13 +428,14 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     else:
         body_fontsize  = 34
         body_interline = 20
-        body_width_px  = CONTENT_WIDTH   # 좌우 패딩 안쪽으로만 그리기
+        body_width_px  = CONTENT_WIDTH   # 좌우 안전 패딩 영역 내에서만 표시
 
         MIN_FONT_SIZE   = 14
         MIN_INTERLINE   = 6
         MIN_WIDTH_RATIO = 0.60  # CONTENT_WIDTH 기준
         min_width_px    = int(CONTENT_WIDTH * MIN_WIDTH_RATIO)
 
+        # 하단 잘림 방지용 개행 + 헤어스페이스
         body_text_safe = (script_text or "").rstrip() + "\n\u200A"
 
         fit_ok = False
@@ -467,8 +467,8 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
             scale = allowed_body_height / float(tmp.h)
             tmp = tmp.resized(scale)
 
-        # 본문 위치 — 좌우 패딩 고려(정수 좌표)
-        body_x = int(SAFE_SIDE_PAD + (CONTENT_WIDTH - tmp.w) / 2)
+        # 본문 위치 — 좌우 패딩 및 bleed 패딩 고려(정수 좌표)
+        body_x = int(SAFE_SIDE_PAD + LEFT_BLEED_PAD + ((CONTENT_WIDTH - 2 * LEFT_BLEED_PAD) - tmp.w) / 2)
         body_y = int(title_y + title_h + GAP_TITLE_BODY)
         body_clip = tmp.with_position((body_x, body_y)).with_duration(duration)
 
