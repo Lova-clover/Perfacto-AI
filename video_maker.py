@@ -458,7 +458,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         body_fontsize  = 28
         body_width_px  = CONTENT_WIDTH
 
-        LINE_GAP       = int(round(body_fontsize * 0.45))  # 줄 사이 추가 간격
+        LINE_GAP       = int(round(body_fontsize * 0.3))  # 줄 사이 추가 간격
         TOP_PAD_PX     = int(round(body_fontsize * 0.20))  # 첫 줄 위 여유
         BOTTOM_PAD_PX  = int(round(body_fontsize * 0.40))  # 마지막 줄 아래 여유
         DESCENDER_EXTRA = 2                                # 각 줄 하단 여유용 보정(px)
