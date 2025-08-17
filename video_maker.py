@@ -487,7 +487,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
 
         # 반 글자 정도의 내부 여백(px) 계산: 현 폰트 크기에서 '가' 폭의 절반
         base_char_w = max(8, line_width("가", body_fontsize))  # 한글 기준, 최소 8px 가드
-        INNER_PAD = int(round(base_char_w * 0.5))
+        INNER_PAD = int(round(base_char_w * 1.5))
 
         body_text_safe = (script_text or "").rstrip() + "\n\u200A"  # 하단 잘림 방지용 미세 공백
 
@@ -503,7 +503,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
                 body_fontsize = max(MIN_FONT_SIZE, body_fontsize - 2)
                 # 폰트가 변했으니 패딩 재계산
                 base_char_w = max(8, line_width("가", body_fontsize))
-                INNER_PAD = int(round(base_char_w * 0.5))
+                INNER_PAD = int(round(base_char_w * 1.5))
                 eff_width = max(20, body_width_px - 2 * INNER_PAD)
                 continue
             if body_interline > MIN_INTERLINE:
