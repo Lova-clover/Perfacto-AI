@@ -487,7 +487,8 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         MIN_WIDTH_RATIO = 0.60
         min_width_px    = int(CONTENT_WIDTH * MIN_WIDTH_RATIO)
 
-        body_text_safe = (script_text or "").rstrip() + "\n\u200A"
+        raw = (script_text or "").rstrip()
+        body_text_safe = "\u00A0" + raw + "\n\u200A" 
 
         fit_ok = False
         tmp = None
