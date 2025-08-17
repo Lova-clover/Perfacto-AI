@@ -463,13 +463,15 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     if allowed_body_height <= 0:
         video = CompositeVideoClip([bg_clip, title_clip], size=(video_width, video_height)).with_duration(duration)
     else:
-        body_fontsize  = 24          # ← 필요시 조정
+        body_fontsize  = 24          # 필요 시 사용자 조정
         body_width_px  = CONTENT_WIDTH
-        LINE_GAP       = 16          # ← 줄 사이 ‘추가’ 간격(px)
-        TOP_PAD_PX     = 4           # ← 첫 줄 위 여유
-        BOTTOM_PAD_PX  = 4           # ← 마지막 줄 아래 여유
-        PER_LINE_TOP   = max(0, int(round(body_fontsize * 0.10)))  # 각 줄 위 여유
-        PER_LINE_BOT   = max(0, int(round(body_fontsize * 0.10)))  # 각 줄 아래 여유
+
+        # 줄 간격/여백 (하단 잘림 방지에 효과적)
+        LINE_GAP       = int(round(body_fontsize * 0.7))   # 줄과 줄 사이 추가 간격
+        TOP_PAD_PX     = int(round(body_fontsize * 0.25))  # 첫 줄 위 여유
+        BOTTOM_PAD_PX  = int(round(body_fontsize * 0.50))  # 마지막 줄 아래 여유(하단 잘림 방지)
+        PER_LINE_TOP   = int(round(body_fontsize * 0.15))  # 각 줄 위 여유
+        PER_LINE_BOT   = int(round(body_fontsize * 0.30))  # 각 줄 아래 여유(← 하단 잘림 개선 핵심)
 
         MIN_FONT_SIZE   = 14
         MIN_WIDTH_RATIO = 0.60
@@ -480,7 +482,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         INNER_PAD = int(round(base_char_w * 1.5))
 
         def render_body(fs: int, width_px: int) -> CompositeVideoClip:
-            """줄바꿈 보존 + 투명 스페이서로 줄간격 구현"""
+            """줄바꿈 보존 + 캡션 방식 + 스페이서로 줄간격/하단 잘림 방지"""
             eff_wrap_w = max(20, width_px - 2 * INNER_PAD - 2 * LEFT_BLEED_PAD)
             lines = wrap_preserving_newlines((script_text or "").rstrip(), eff_wrap_w, fs)
 
@@ -489,36 +491,45 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
             maxw = 1
 
             def spacer(h):
-                # 투명 스페이서 (줄간격/마진용)
                 return ColorClip(size=(1, max(1, int(h))), color=(0, 0, 0)).with_opacity(0)
 
+            NBSP = "\u00A0"  # 좌우 베어링 보호용
             for i, line in enumerate(lines):
                 if line.strip() == "":
-                    # 완전 빈 줄: 글자 높이만큼 + 추가 간격
+                    # 빈 줄: 한 줄 높이 + 추가 간격
                     s = spacer(fs + LINE_GAP)
                     clips.append(s.with_position((0, y)))
                     y += s.h
                     continue
 
-                # 각 줄 위 여유
+                # 위쪽 여백
                 if PER_LINE_TOP:
                     s_top = spacer(PER_LINE_TOP)
                     clips.append(s_top.with_position((0, y)))
                     y += s_top.h
 
-                # 실제 텍스트 줄
-                c = TextClip(text=line, font=font_path, font_size=fs, color="white", method="label")
+                # 본문 한 줄(캡션 렌더링으로 폰트 메트릭 보존)
+                # NBSP를 앞뒤로 넣어 좌우 여백을 살짝 확보
+                c = TextClip(
+                    text=NBSP + line + NBSP,
+                    font=font_path,
+                    font_size=fs,
+                    color="white",
+                    method="caption",
+                    size=(eff_wrap_w, None),
+                    interline=0,   # 단일 줄이므로 의미 없음
+                )
                 clips.append(c.with_position((0, y)))
                 y += c.h
                 maxw = max(maxw, c.w)
 
-                # 각 줄 아래 여유
+                # 아래쪽 여백(하단 잘림 방지에 중요)
                 if PER_LINE_BOT:
                     s_bot = spacer(PER_LINE_BOT)
                     clips.append(s_bot.with_position((0, y)))
                     y += s_bot.h
 
-                # 줄 사이 추가 간격
+                # 다음 줄 사이 간격
                 if i < len(lines) - 1:
                     s_gap = spacer(LINE_GAP)
                     clips.append(s_gap.with_position((0, y)))
@@ -526,7 +537,6 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
 
             total_h = y + BOTTOM_PAD_PX
             if not clips:
-                # 내용이 전혀 없을 때의 안전 처리
                 return CompositeVideoClip(
                     [spacer(int(fs * 1.2)).with_position((0, 0))],
                     size=(1, int(fs * 1.2))
