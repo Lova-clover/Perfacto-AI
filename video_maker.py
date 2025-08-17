@@ -484,7 +484,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         INNER_PAD = int(round(base_char_w * 1.5))
 
         def render_body(fs: int, width_px: int, line_gap: int):
-            """줄바꿈 보존 + 각 줄 개별 마진으로 안정적인 줄간격 구현"""
+            """줄바꿈 보존 + 각 줄 투명 마진으로 안정적인 줄간격 구현"""
             eff_wrap_w = max(20, width_px - 2 * INNER_PAD - 2 * LEFT_BLEED_PAD)
             lines = wrap_preserving_newlines((script_text or "").rstrip(), eff_wrap_w, fs)
 
@@ -492,21 +492,18 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
             y = TOP_PAD_PX
             maxw = 1
 
-            # 한 줄당 ‘위/아래 투명 마진’을 주어 줄간격 확보
-            # line_gap은 ‘줄 사이 추가 공간’이고, 글리프 상하 여유를 위해 per-line 마진도 조금 준다
             per_line_top = max(0, int(round(fs * 0.10)))   # 글리프 상단 여유
             per_line_bot = max(0, int(round(fs * 0.10)))   # 글리프 하단 여유
 
-            for i, line in enumerate(lines):
+            for line in lines:
                 if line.strip() == "":
-                    # 완전 빈 줄: 한 줄 높이 + 추가 간격만큼 띄워 빈 단락 유지
+                    # 빈 줄: 한 줄 높이 + 추가 간격만큼 띄워 빈 단락 유지
                     y += fs + line_gap
                     continue
 
-                # 줄 클립 생성
                 c = TextClip(text=line, font=font_path, font_size=fs, color="white", method="label")
-                # 각 줄에 투명 마진 부여 → 줄간격 효과가 확실하게 보임
-                c = c.margin(top=per_line_top, bottom=per_line_bot, opacity=0)
+                # ★ moviepy 2.x: with_margin 사용 (opacity=0로 투명 마진)
+                c = c.with_margin(top=per_line_top, bottom=per_line_bot, opacity=0)
 
                 clips.append(c.with_position((0, y)))
                 y += c.h + line_gap
