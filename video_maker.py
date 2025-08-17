@@ -360,6 +360,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     import os, numpy as np
     from moviepy.audio.AudioClip import AudioArrayClip
 
+    # ===== 기본 설정 =====
     video_width, video_height = 720, 1080
     font_path = os.path.abspath(os.path.join("assets", "fonts", "Pretendard-Bold.ttf"))
     if not os.path.exists(font_path):
@@ -375,7 +376,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
 
     bg_clip = ColorClip(size=(video_width, video_height), color=(0, 0, 0)).with_duration(duration)
 
-    # ===== 레이아웃 =====
+    # ===== 레이아웃 상수 =====
     TOP_MARGIN = 150
     BOTTOM_MARGIN = 80
     SAFE_BOTTOM_PAD = 24
@@ -397,7 +398,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
 
     title_text = ellipsize_two_lines(title_text or "", max_chars_per_line=18)
 
-    # ===== label 폭 측정 유틸 =====
+    # ===== label 폭 측정/래핑 유틸 =====
     def line_width(s: str, fs: int) -> int:
         if not s:
             return 0
@@ -407,7 +408,6 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         return w
 
     def wrap_to_width(text: str, max_w: int, fs: int):
-        # 단어 기준 래핑 (label 폭 측정 기반)
         words = text.split()
         lines, cur = [], ""
         for w in words:
@@ -420,6 +420,15 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         if cur:
             lines.append(cur)
         return lines if lines else [""]
+
+    def wrap_preserving_newlines(text: str, max_w: int, fs: int):
+        out = []
+        for block in (text or "").splitlines():
+            if block.strip() == "":
+                out.append("")  # 빈 줄 보존
+            else:
+                out.extend(wrap_to_width(block, max_w, fs))
+        return out
 
     def center_label_multiline(raw_text: str, max_w: int, fs: int, pad_char="\u00A0"):
         blocks = raw_text.split("\n")
@@ -464,7 +473,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         video = CompositeVideoClip([bg_clip, title_clip], size=(video_width, video_height)).with_duration(duration)
     else:
         body_fontsize  = 34
-        body_interline = 20
+        body_interline = 20  # label에서는 무시될 수 있음
         body_width_px  = CONTENT_WIDTH
 
         MIN_FONT_SIZE   = 14
@@ -472,50 +481,52 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         MIN_WIDTH_RATIO = 0.60
         min_width_px    = int(CONTENT_WIDTH * MIN_WIDTH_RATIO)
 
-        # ← 한 글자 + 절반(1.5자) 내부 패딩
-        base_char_w = max(8, line_width("가", body_fontsize), line_width("M", body_fontsize))  # 라틴/한글 혼용 대비
+        # 좌우 1.5 글자 내부 패딩
+        base_char_w = max(8, line_width("가", body_fontsize), line_width("M", body_fontsize))  # 한글/라틴 혼용 대비
         INNER_PAD = int(round(base_char_w * 1.5))
 
-        # 1) 우리가 직접 래핑(가용폭 = CONTENT_WIDTH - 2*INNER_PAD - 2*LEFT_BLEED_PAD)
+        # (핵심) 입력 줄바꿈을 보존하며 단락별로 래핑
         effective_wrap_width = max(20, body_width_px - 2 * INNER_PAD - 2 * LEFT_BLEED_PAD)
-        raw_body = (script_text or "").strip()
-        wrapped_lines = wrap_to_width(raw_body, effective_wrap_width, body_fontsize)
-        body_text_wrapped = "\n".join(wrapped_lines) + "\n\u200A"  # 하단 잘림 방지 미세공백
+        raw_body = (script_text or "").rstrip()
+        wrapped_lines = wrap_preserving_newlines(raw_body, effective_wrap_width, body_fontsize)
+        body_text_wrapped = "\n".join(wrapped_lines) + "\n\u200A"  # 하단 잘림 방지 미세 공백
 
         fit_ok = False
         body_clip_label = None
         for _ in range(80):
-            # 2) label로 그리기 (caption 사용 X)
             body_clip_label = TextClip(
                 text=body_text_wrapped,
                 font=font_path,
                 font_size=body_fontsize,
                 color="white",
-                interline=body_interline,
-                method="label"
+                method="label"  # caption 사용시 베어링 잘림 가능성 ↑
             )
             if body_clip_label.h <= allowed_body_height:
                 fit_ok = True
                 break
 
-            # 줄이 너무 길면 글자크기/행간/가용폭 순으로 축소
+            # 높이 초과 시: 글자크기 ↓ → (필요 시) 가용폭 재계산 → 다시 래핑
             if body_fontsize > MIN_FONT_SIZE:
                 body_fontsize = max(MIN_FONT_SIZE, body_fontsize - 2)
                 base_char_w = max(8, line_width("가", body_fontsize), line_width("M", body_fontsize))
                 INNER_PAD = int(round(base_char_w * 1.5))
                 effective_wrap_width = max(20, body_width_px - 2 * INNER_PAD - 2 * LEFT_BLEED_PAD)
-                wrapped_lines = wrap_to_width(raw_body, effective_wrap_width, body_fontsize)
+                wrapped_lines = wrap_preserving_newlines(raw_body, effective_wrap_width, body_fontsize)
                 body_text_wrapped = "\n".join(wrapped_lines) + "\n\u200A"
                 continue
+
             if body_interline > MIN_INTERLINE:
+                # method="label"에서는 interline이 적용되지 않을 수 있음(필요 시 caption 전환 고려)
                 next_inter = int(max(MIN_INTERLINE, round(body_interline * 0.9)))
                 if next_inter < body_interline:
                     body_interline = next_inter
+                    # label 유지: 효과 미미, caption 전환시만 실제 행간 반영
                     continue
+
             if body_width_px > min_width_px:
                 body_width_px = max(min_width_px, body_width_px - 10)
                 effective_wrap_width = max(20, body_width_px - 2 * INNER_PAD - 2 * LEFT_BLEED_PAD)
-                wrapped_lines = wrap_to_width(raw_body, effective_wrap_width, body_fontsize)
+                wrapped_lines = wrap_preserving_newlines(raw_body, effective_wrap_width, body_fontsize)
                 body_text_wrapped = "\n".join(wrapped_lines) + "\n\u200A"
                 continue
 
@@ -529,7 +540,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
             scale = allowed_body_height / float(body_clip_label.h)
             body_clip_label = body_clip_label.resized(scale)
 
-        # 3) 투명 래퍼로 좌우에 1.5자 패딩 추가
+        # 좌우 1.5자 패딩 래퍼
         body_wrapper_w = body_clip_label.w + 2 * INNER_PAD
         body_wrapper_h = body_clip_label.h
         body_wrapper = CompositeVideoClip(
