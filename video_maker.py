@@ -354,12 +354,18 @@ def add_subtitles_to_video(input_video_path, ass_path, output_path="assets/video
     return output_path
 
 def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path="", save_path="assets/dark_text_video.mp4"):
+    from moviepy import (
+        ImageClip, AudioFileClip, CompositeVideoClip, TextClip, ColorClip, CompositeAudioClip
+    )
+    import os, numpy as np
+    from moviepy.audio.AudioClip import AudioArrayClip
+
     video_width, video_height = 720, 1080
     font_path = os.path.abspath(os.path.join("assets", "fonts", "Pretendard-Bold.ttf"))
     if not os.path.exists(font_path):
         raise FileNotFoundError(f"폰트가 없습니다: {font_path}")
 
-    # 길이
+    # 길이: 오디오 없으면 2초 고정
     if audio_path and os.path.exists(audio_path):
         audio = AudioFileClip(audio_path)
         duration = audio.duration
@@ -373,8 +379,8 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     TOP_MARGIN = 150
     BOTTOM_MARGIN = 80
     SAFE_BOTTOM_PAD = 24
-    SAFE_SIDE_PAD = 24           # 좌우 안전 패딩
-    LEFT_BLEED_PAD = 12          # 글리프 왼쪽 베어링 잘림 방지용 추가 패딩
+    SAFE_SIDE_PAD = 24
+    LEFT_BLEED_PAD = 16   # ← 살짝 늘려 여유 확보
     CONTENT_WIDTH = video_width - SAFE_SIDE_PAD * 2
 
     # ===== 제목 2줄 + 말줄임 =====
@@ -414,7 +420,6 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         return w
 
     def wrap_to_width(text: str, max_w: int, fs: int):
-        # 단어 기준 래핑 (label 폭 측정 기반)
         words = text.split()
         lines, cur = [], ""
         for w in words:
@@ -429,8 +434,6 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         return lines if lines else [""]
 
     def center_label_multiline(raw_text: str, max_w: int, fs: int, pad_char="\u00A0"):
-        """각 줄 폭을 맞춰 NBSP로 좌우 패딩을 넣어 '가운데처럼' 보이게 정렬한 멀티라인 문자열 반환."""
-        # 빈 줄 포함 처리
         blocks = raw_text.split("\n")
         wrapped_lines = []
         for block in blocks:
@@ -445,18 +448,14 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
             lw = line_width(l, fs)
             pad = int(round((maxw - lw) / (2 * spacew))) if maxw > lw else 0
             centered_lines.append(pad_char * pad + l)
-        # 하단 잘림 방지 개행 추가
-        return "\n".join(centered_lines) + "\n"
+        return "\n".join(centered_lines) + "\n"  # 하단 잘림 방지 개행
 
     # ===== 제목 =====
     title_fontsize = 46
     title_interline = 16
     max_title_width = CONTENT_WIDTH - 2 * LEFT_BLEED_PAD
-
-    # label 기반 시각적 가운데 정렬 텍스트 생성
     centered_title_text = center_label_multiline(title_text, max_title_width, title_fontsize)
 
-    # label로 실제 클립 생성
     title_clip_tmp = TextClip(
         text=centered_title_text,
         font=font_path,
@@ -466,14 +465,24 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     )
     title_h = title_clip_tmp.h
     title_y = TOP_MARGIN
-
-    # 패딩 제외 가용폭 기준 중앙 + 왼쪽 bleed 패딩 보정 (정수 좌표)
     title_x = int(SAFE_SIDE_PAD + LEFT_BLEED_PAD + ((CONTENT_WIDTH - 2 * LEFT_BLEED_PAD) - title_clip_tmp.w) / 2)
     title_clip = title_clip_tmp.with_position((title_x, int(title_y))).with_duration(duration)
 
     # ===== 본문 영역 =====
     GAP_TITLE_BODY = 32
     allowed_body_height = video_height - BOTTOM_MARGIN - (title_y + title_h + GAP_TITLE_BODY) - SAFE_BOTTOM_PAD
+
+    # 👇 줄 앞 왼쪽 베어링 잘림 방지용: 각 줄 맨 앞에 얇은 공백(헤어스페이스) 주입
+    HAIR = "\u200A"  # hair space
+    def pad_each_line_left(text: str) -> str:
+        # 빈 줄은 그대로 두고, 내용 있는 줄만 HAIR를 1~2개 붙임
+        padded_lines = []
+        for line in text.split("\n"):
+            if line.strip():
+                padded_lines.append(HAIR + line)
+            else:
+                padded_lines.append(line)
+        return "\n".join(padded_lines)
 
     if allowed_body_height <= 0:
         video = CompositeVideoClip([bg_clip, title_clip], size=(video_width, video_height)).with_duration(duration)
@@ -487,8 +496,10 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         MIN_WIDTH_RATIO = 0.60
         min_width_px    = int(CONTENT_WIDTH * MIN_WIDTH_RATIO)
 
-        raw = (script_text or "").rstrip()
-        body_text_safe = "\u00A0" + raw + "\n\u200A" 
+        # 원본 → 줄 단위 왼쪽 얇은 공백 주입 → 하단 잘림 방지용 미세 공백 추가
+        raw_body = (script_text or "").rstrip()
+        padded_body = pad_each_line_left(raw_body)
+        body_text_safe = padded_body + "\n\u200A"
 
         fit_ok = False
         tmp = None
