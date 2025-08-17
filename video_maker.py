@@ -397,21 +397,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
 
     title_text = ellipsize_two_lines(title_text or "", max_chars_per_line=18)
 
-    # ===== caption(label) 유틸 =====
-    def make_caption(text, fontsize, interline, width_px):
-        # caption은 내부에서 좌우 bleed를 더 고려하므로 약간 줄여 잡음
-        avail_w = max(10, int(width_px) - 2 * LEFT_BLEED_PAD)
-        return TextClip(
-            text=text,
-            font=font_path,
-            font_size=fontsize,
-            color="white",
-            method="caption",
-            size=(avail_w, None),
-            interline=interline
-        )
-
-    # label 폭 측정 유틸
+    # ===== label 폭 측정 유틸 =====
     def line_width(s: str, fs: int) -> int:
         if not s:
             return 0
@@ -421,6 +407,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         return w
 
     def wrap_to_width(text: str, max_w: int, fs: int):
+        # 단어 기준 래핑 (label 폭 측정 기반)
         words = text.split()
         lines, cur = [], ""
         for w in words:
@@ -485,55 +472,72 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         MIN_WIDTH_RATIO = 0.60
         min_width_px    = int(CONTENT_WIDTH * MIN_WIDTH_RATIO)
 
-        # 반 글자 정도의 내부 여백(px) 계산: 현 폰트 크기에서 '가' 폭의 절반
-        base_char_w = max(8, line_width("가", body_fontsize))  # 한글 기준, 최소 8px 가드
+        # ← 한 글자 + 절반(1.5자) 내부 패딩
+        base_char_w = max(8, line_width("가", body_fontsize), line_width("M", body_fontsize))  # 라틴/한글 혼용 대비
         INNER_PAD = int(round(base_char_w * 1.5))
 
-        body_text_safe = (script_text or "").rstrip() + "\n\u200A"  # 하단 잘림 방지용 미세 공백
+        # 1) 우리가 직접 래핑(가용폭 = CONTENT_WIDTH - 2*INNER_PAD - 2*LEFT_BLEED_PAD)
+        effective_wrap_width = max(20, body_width_px - 2 * INNER_PAD - 2 * LEFT_BLEED_PAD)
+        raw_body = (script_text or "").strip()
+        wrapped_lines = wrap_to_width(raw_body, effective_wrap_width, body_fontsize)
+        body_text_wrapped = "\n".join(wrapped_lines) + "\n\u200A"  # 하단 잘림 방지 미세공백
 
         fit_ok = False
-        tmp = None
-        eff_width = body_width_px - 2 * INNER_PAD  # 캡션 자체 래핑 폭을 내부 패딩만큼 줄임
+        body_clip_label = None
         for _ in range(80):
-            tmp = make_caption(body_text_safe, body_fontsize, body_interline, eff_width)
-            if tmp.h <= allowed_body_height:
+            # 2) label로 그리기 (caption 사용 X)
+            body_clip_label = TextClip(
+                text=body_text_wrapped,
+                font=font_path,
+                font_size=body_fontsize,
+                color="white",
+                interline=body_interline,
+                method="label"
+            )
+            if body_clip_label.h <= allowed_body_height:
                 fit_ok = True
                 break
+
+            # 줄이 너무 길면 글자크기/행간/가용폭 순으로 축소
             if body_fontsize > MIN_FONT_SIZE:
                 body_fontsize = max(MIN_FONT_SIZE, body_fontsize - 2)
-                # 폰트가 변했으니 패딩 재계산
-                base_char_w = max(8, line_width("가", body_fontsize))
+                base_char_w = max(8, line_width("가", body_fontsize), line_width("M", body_fontsize))
                 INNER_PAD = int(round(base_char_w * 1.5))
-                eff_width = max(20, body_width_px - 2 * INNER_PAD)
+                effective_wrap_width = max(20, body_width_px - 2 * INNER_PAD - 2 * LEFT_BLEED_PAD)
+                wrapped_lines = wrap_to_width(raw_body, effective_wrap_width, body_fontsize)
+                body_text_wrapped = "\n".join(wrapped_lines) + "\n\u200A"
                 continue
             if body_interline > MIN_INTERLINE:
                 next_inter = int(max(MIN_INTERLINE, round(body_interline * 0.9)))
-                body_interline = next_inter if next_inter < body_interline else body_interline - 1
-                continue
+                if next_inter < body_interline:
+                    body_interline = next_inter
+                    continue
             if body_width_px > min_width_px:
                 body_width_px = max(min_width_px, body_width_px - 10)
-                eff_width = max(20, body_width_px - 2 * INNER_PAD)
+                effective_wrap_width = max(20, body_width_px - 2 * INNER_PAD - 2 * LEFT_BLEED_PAD)
+                wrapped_lines = wrap_to_width(raw_body, effective_wrap_width, body_fontsize)
+                body_text_wrapped = "\n".join(wrapped_lines) + "\n\u200A"
                 continue
-            # 최후: 높이 비율로 강제 축소
-            scale = allowed_body_height / float(tmp.h)
-            tmp = tmp.resized(scale)
-            # 폭 축소로 글자 폭도 줄었으므로 패딩을 다시 재계산할 필요는 없음(래퍼가 처리)
+
+            # 최후: 비율 축소
+            scale = allowed_body_height / float(body_clip_label.h)
+            body_clip_label = body_clip_label.resized(scale)
             fit_ok = True
             break
 
-        if not fit_ok and tmp is not None:
-            scale = allowed_body_height / float(tmp.h)
-            tmp = tmp.resized(scale)
+        if not fit_ok and body_clip_label is not None:
+            scale = allowed_body_height / float(body_clip_label.h)
+            body_clip_label = body_clip_label.resized(scale)
 
-        # ★ 투명 래퍼: 좌우에 INNER_PAD씩 추가해 캔버스를 넓힘(텍스트는 안쪽으로 밀어넣음)
-        body_wrapper_w = tmp.w + 2 * INNER_PAD
-        body_wrapper_h = tmp.h
+        # 3) 투명 래퍼로 좌우에 1.5자 패딩 추가
+        body_wrapper_w = body_clip_label.w + 2 * INNER_PAD
+        body_wrapper_h = body_clip_label.h
         body_wrapper = CompositeVideoClip(
-            [ tmp.with_position((INNER_PAD, 0)) ],  # 좌측으로 INNER_PAD만큼 안쪽
+            [body_clip_label.with_position((INNER_PAD, 0))],
             size=(body_wrapper_w, body_wrapper_h)
         ).with_duration(duration)
 
-        # 중앙 정렬은 래퍼 기준
+        # 중앙 정렬(래퍼 기준)
         body_x = int(SAFE_SIDE_PAD + ((CONTENT_WIDTH - body_wrapper.w) / 2))
         body_y = int(title_y + title_h + GAP_TITLE_BODY)
         body_clip = body_wrapper.with_position((body_x, body_y)).with_duration(duration)
@@ -542,8 +546,8 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         pad_clip = ColorClip(size=(video_width, SAFE_BOTTOM_PAD), color=(0, 0, 0)).with_opacity(0)\
                    .with_duration(duration).with_position(("center", video_height - SAFE_BOTTOM_PAD))
 
-        video = CompositeVideoClip([bg_clip, title_clip, body_clip, pad_clip], size=(video_width, video_height))\
-                    .with_duration(duration)
+        video = CompositeVideoClip([bg_clip, title_clip, body_clip, pad_clip],
+                                   size=(video_width, video_height)).with_duration(duration)
 
     # ===== 오디오 & 저장 =====
     final_audio = audio
