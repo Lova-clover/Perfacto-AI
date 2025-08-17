@@ -455,7 +455,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     if allowed_body_height <= 0:
         video = CompositeVideoClip([bg_clip, title_clip], size=(video_width, video_height)).with_duration(duration)
     else:
-        body_fontsize  = 28
+        body_fontsize  = 32
         body_width_px  = CONTENT_WIDTH
 
         LINE_GAP       = int(round(body_fontsize * 0.3))  # 줄 사이 추가 간격
