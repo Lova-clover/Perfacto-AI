@@ -354,6 +354,12 @@ def add_subtitles_to_video(input_video_path, ass_path, output_path="assets/video
     return output_path
 
 def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path="", save_path="assets/dark_text_video.mp4"):
+    from moviepy import (
+        ImageClip, AudioFileClip, CompositeVideoClip, TextClip, ColorClip, CompositeAudioClip
+    )
+    import os, numpy as np
+    from moviepy.audio.AudioClip import AudioArrayClip
+
     video_width, video_height = 720, 1080
     font_path = os.path.abspath(os.path.join("assets", "fonts", "Pretendard-Bold.ttf"))
     if not os.path.exists(font_path):
@@ -377,7 +383,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     LEFT_BLEED_PAD = 12          # 글리프 왼쪽 베어링 잘림 방지용 추가 패딩
     CONTENT_WIDTH = video_width - SAFE_SIDE_PAD * 2
 
-    # ===== 제목 제한(중앙정렬 + 2줄 + …) =====
+    # ===== 제목 2줄 + 말줄임 =====
     def ellipsize_two_lines(text, max_chars_per_line=20):
         if not text:
             return ""
@@ -386,15 +392,12 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         if len(wrapped) <= 2:
             return "\n".join(wrapped)
         out = wrapped[:2]
-        if len(out[1]) >= 1:
-            out[1] = out[1].rstrip()
-            if not out[1].endswith("…"):
-                out[1] = (out[1][:-1] + "…") if len(out[1]) > 0 else "…"
+        out[1] = (out[1].rstrip()[:-1] + "…") if len(out[1].rstrip()) > 0 else "…"
         return "\n".join(out)
 
     title_text = ellipsize_two_lines(title_text or "", max_chars_per_line=18)
 
-    # 공용 caption 생성자 (정렬 옵션 추가)
+    # ===== caption(label) 유틸 =====
     def make_caption(text, fontsize, interline, width_px):
         avail_w = max(10, int(width_px) - 2 * LEFT_BLEED_PAD)
         return TextClip(
@@ -407,13 +410,70 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
             interline=interline
         )
 
+    # --- label 기반 가운데 정렬(align 없이) ---
+    def line_width(s: str, fs: int) -> int:
+        if not s:
+            return 0
+        c = TextClip(text=s, font=font_path, font_size=fs, method="label")
+        w = c.w
+        c.close()
+        return w
+
+    def wrap_to_width(text: str, max_w: int, fs: int):
+        # 단어 기준 래핑 (label 폭 측정 기반)
+        words = text.split()
+        lines, cur = [], ""
+        for w in words:
+            test = (cur + " " + w).strip()
+            if not cur or line_width(test, fs) <= max_w:
+                cur = test
+            else:
+                lines.append(cur)
+                cur = w
+        if cur:
+            lines.append(cur)
+        return lines if lines else [""]
+
+    def center_label_multiline(raw_text: str, max_w: int, fs: int, pad_char="\u00A0"):
+        """각 줄 폭을 맞춰 NBSP로 좌우 패딩을 넣어 '가운데처럼' 보이게 정렬한 멀티라인 문자열 반환."""
+        # 빈 줄 포함 처리
+        blocks = raw_text.split("\n")
+        wrapped_lines = []
+        for block in blocks:
+            if block.strip():
+                wrapped_lines += wrap_to_width(block, max_w, fs)
+            else:
+                wrapped_lines.append("")
+        maxw = max(line_width(l, fs) for l in wrapped_lines) if wrapped_lines else 0
+        spacew = max(line_width(pad_char, fs), 1)
+        centered_lines = []
+        for l in wrapped_lines:
+            lw = line_width(l, fs)
+            pad = int(round((maxw - lw) / (2 * spacew))) if maxw > lw else 0
+            centered_lines.append(pad_char * pad + l)
+        # 하단 잘림 방지 개행 추가
+        return "\n".join(centered_lines) + "\n"
+
     # ===== 제목 =====
     title_fontsize = 46
     title_interline = 16
-    title_clip_tmp = make_caption(title_text + "\n\u200A", title_fontsize, title_interline, CONTENT_WIDTH)
+    max_title_width = CONTENT_WIDTH - 2 * LEFT_BLEED_PAD
+
+    # label 기반 시각적 가운데 정렬 텍스트 생성
+    centered_title_text = center_label_multiline(title_text, max_title_width, title_fontsize)
+
+    # label로 실제 클립 생성
+    title_clip_tmp = TextClip(
+        text=centered_title_text,
+        font=font_path,
+        font_size=title_fontsize,
+        color="white",
+        method="label"
+    )
     title_h = title_clip_tmp.h
     title_y = TOP_MARGIN
-    # 패딩 제외 가용폭 기준 중앙 + 왼쪽 bleed 패딩만큼 우측으로 밀기 (정수 좌표 고정)
+
+    # 패딩 제외 가용폭 기준 중앙 + 왼쪽 bleed 패딩 보정 (정수 좌표)
     title_x = int(SAFE_SIDE_PAD + LEFT_BLEED_PAD + ((CONTENT_WIDTH - 2 * LEFT_BLEED_PAD) - title_clip_tmp.w) / 2)
     title_clip = title_clip_tmp.with_position((title_x, int(title_y))).with_duration(duration)
 
@@ -426,14 +486,13 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     else:
         body_fontsize  = 34
         body_interline = 20
-        body_width_px  = CONTENT_WIDTH   # 좌우 안전 패딩 영역 내에서만 표시
+        body_width_px  = CONTENT_WIDTH
 
         MIN_FONT_SIZE   = 14
         MIN_INTERLINE   = 6
-        MIN_WIDTH_RATIO = 0.60  # CONTENT_WIDTH 기준
+        MIN_WIDTH_RATIO = 0.60
         min_width_px    = int(CONTENT_WIDTH * MIN_WIDTH_RATIO)
 
-        # 하단 잘림 방지용 개행 + 헤어스페이스
         body_text_safe = (script_text or "").rstrip() + "\n\u200A"
 
         fit_ok = False
@@ -443,7 +502,6 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
             if tmp.h <= allowed_body_height:
                 fit_ok = True
                 break
-
             if body_fontsize > MIN_FONT_SIZE:
                 body_fontsize = max(MIN_FONT_SIZE, body_fontsize - 2)
                 continue
@@ -454,7 +512,6 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
             if body_width_px > min_width_px:
                 body_width_px = max(min_width_px, body_width_px - 10)
                 continue
-
             # 최후: 높이 비율로 강제 축소
             scale = allowed_body_height / float(tmp.h)
             tmp = tmp.resized(scale)
@@ -465,7 +522,6 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
             scale = allowed_body_height / float(tmp.h)
             tmp = tmp.resized(scale)
 
-        # 본문 위치 — 좌우 패딩 및 bleed 패딩 고려(정수 좌표)
         body_x = int(SAFE_SIDE_PAD + LEFT_BLEED_PAD + ((CONTENT_WIDTH - 2 * LEFT_BLEED_PAD) - tmp.w) / 2)
         body_y = int(title_y + title_h + GAP_TITLE_BODY)
         body_clip = tmp.with_position((body_x, body_y)).with_duration(duration)
