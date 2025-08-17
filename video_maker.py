@@ -354,13 +354,6 @@ def add_subtitles_to_video(input_video_path, ass_path, output_path="assets/video
     return output_path
 
 def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path="", save_path="assets/dark_text_video.mp4"):
-    from moviepy import (
-        ImageClip, AudioFileClip, CompositeVideoClip, TextClip, ColorClip, CompositeAudioClip
-    )
-    import os, numpy as np
-    from moviepy.audio.AudioClip import AudioArrayClip
-
-    # ===== 기본 설정 =====
     video_width, video_height = 720, 1080
     font_path = os.path.abspath(os.path.join("assets", "fonts", "Pretendard-Bold.ttf"))
     if not os.path.exists(font_path):
@@ -448,7 +441,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         return "\n".join(centered_lines) + "\n"
 
     # ===== 제목 =====
-    title_fontsize = 40
+    title_fontsize = 30
     title_interline = 16
     max_title_width = CONTENT_WIDTH - 2 * LEFT_BLEED_PAD
     centered_title_text = center_label_multiline(title_text, max_title_width, title_fontsize)
@@ -472,7 +465,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     if allowed_body_height <= 0:
         video = CompositeVideoClip([bg_clip, title_clip], size=(video_width, video_height)).with_duration(duration)
     else:
-        body_fontsize  = 28
+        body_fontsize  = 20
         body_interline = 20  # label에서는 무시될 수 있음
         body_width_px  = CONTENT_WIDTH
 
