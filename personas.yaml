@@ -1,0 +1,55 @@
+# 하나의 파일에 여러 그룹을 넣고 jobs에서 group을 고를 수 있게 설계
+# groups.default: 베이직(음성 포함)
+# groups.emotional: 감성 텍스트(무성)
+
+default_group: default
+
+groups:
+  default:
+    - name: P1_주제_탐색
+      rag: web
+      text: |
+        유튜브 숏폼에서 바이럴 가능성이 높은 오늘의 역사 주제를 1가지 선정하라.
+        선정 근거를 3줄로 정리하라.
+
+    - name: P2_앵글_결정
+      rag: none
+      text: |
+        P1 결과를 바탕으로 30초 분량 한 문장 후킹을 제안하라. 단 1문장.
+
+    - name: P3_스크립트_작성
+      rag: youtube
+      youtube_channel: "@역사이야기"
+      text: |
+        P2 후킹을 확장하여 30초 대본을 6~8문장으로 쓰고, 한 문장당 6~12단어로 간결하게.
+
+    - name: P4_카피_다듬기
+      rag: none
+      text: |
+        P3 대본을 발음 쉬운 한국어로 매끄럽게 줄여라. 군더더기 제거.
+
+    - name: P5_타이틀_후보
+      rag: none
+      text: |
+        P4 대본에 맞춰 5단어 이내 제목 5개만 생성.
+
+    - name: P6_최종_대본
+      rag: none
+      text: |
+        P3/P4를 통합해 최종 30초 스크립트 1개만 출력. 문장 연결 자연스럽게.
+
+  emotional:
+    - name: E1_주제_탐색
+      rag: web
+      text: |
+        공감/위로 계열 감성 카피 주제를 하나 선정하고 이유 2줄.
+
+    - name: E2_감성_문장화
+      rag: none
+      text: |
+        짧은 문장들로 감성 텍스트를 10~14줄 작성.
+
+    - name: E3_정제
+      rag: none
+      text: |
+        고급 어휘를 줄이고, 이모지 없이 간결하게 다듬어라.
