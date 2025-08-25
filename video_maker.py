@@ -623,7 +623,7 @@ def create_video_from_videos(
         try:
             title_clip = TextClip(
                 text=formatted_title + "\n",
-                fontsize=48, color="white", font=font_path,
+                font_size=48, color="white", font=font_path,
                 stroke_color="skyblue", stroke_width=1,
                 method="caption", size=(max_title_width, None)   # ⬅ align 제거
             ).with_duration(duration)
@@ -632,7 +632,7 @@ def create_video_from_videos(
             # caption 미지원 → label 폴백(기존 로직 유지)
             def line_width(s: str) -> int:
                 if not s: return 0
-                c = TextClip(text=s, font=font_path, fontsize=48, method="label")
+                c = TextClip(text=s, font=font_path, font_size=48, method="label")
                 w = c.w; c.close(); return w
 
             def wrap_to_width(text: str, max_w: int):
@@ -663,7 +663,7 @@ def create_video_from_videos(
 
             final_text = "\n".join(centered) + "\n"
             title_clip = TextClip(
-                text=final_text, fontsize=48, color="white",
+                text=final_text, font_size=48, color="white",
                 font=font_path, stroke_color="skyblue", stroke_width=1,
                 method="label",
             ).with_duration(duration)
@@ -672,7 +672,7 @@ def create_video_from_videos(
         pad_y = 16
         dummy = TextClip(
             text=formatted_title if used_caption else "\n".join(wrapped) if 'wrapped' in locals() else formatted_title,
-            fontsize=48, font=font_path,
+            font_size=48, font=font_path,
             method="caption" if used_caption else "label",
             size=(max_title_width, None) if used_caption else None
         )
