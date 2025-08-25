@@ -206,8 +206,7 @@ def generate_ass_subtitle(segments, ass_path, template_name="default",
             text = (seg.get('text') or "").strip()
 
             if strip_trailing_punct_last and i == len(segments) - 1:
-                # 마지막 자막 꼬리 구두점 제거 (옵션)
-                text = re.sub(r'[\s　]*[,.!?…~·]+$', '', text)
+                text = _strip_last_punct_preserve_closers(text)
 
             # ASS 안전 이스케이프 + 줄바꿈 변환
             text = _escape_ass_text(text)
@@ -359,3 +358,25 @@ def auto_densify_for_subs(segments, tempo: str = "fast"):
             dense.append({"start": t, "end": t2, "text": txt})
             t = t2
     return dense
+
+def _strip_last_punct_preserve_closers(s: str) -> str:
+    s = (s or "").rstrip()
+    if not s:
+        return s
+    closers = '")\']”’)]}›»」』】〕〗〉》'
+    puncts  = '.,!?…~·。'
+
+    # 1) 끝에서부터 닫는 기호들을 걷어낸다
+    tail = []
+    i = len(s) - 1
+    while i >= 0 and s[i] in closers:
+        tail.append(s[i])
+        i -= 1
+
+    # 2) 닫는 기호 앞의 꼬리 구두점들 제거(공백 포함)
+    j = i
+    while j >= 0 and (s[j] in puncts or s[j].isspace() or s[j] == '　'):
+        j -= 1
+
+    # 3) 원본문자열(구두점 제거) + 닫는 기호들 복원
+    return s[:j+1] + ''.join(reversed(tail))
