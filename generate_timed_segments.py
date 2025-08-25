@@ -207,12 +207,15 @@ def format_ass_timestamp(seconds):
     return f"{h:01}:{m:02}:{s:02}.{cs:02}"
 
 
-# --- 변경 1: 분할 함수에 콤마/마침표 분할 옵션 추가 ---
-def split_script_to_lines(script_text, comma_period_split=False):
-    if comma_period_split:
-        parts = re.split(r'(?<=[,.])\s*', script_text.strip())
-        return [p.strip() for p in parts if p.strip()]
-    return [sent.strip() for sent in kss.split_sentences(script_text) if sent.strip()]
+def split_script_to_lines(script_text, mode="newline"):
+    text = script_text or ""
+    if mode == "punct":  # 콤마/마침표 기준
+        parts = re.split(r'(?<=[,.])\s*', text.strip())
+        return [p for p in map(str.strip, parts) if p]
+    elif mode == "kss":  # 한국어 문장 분할기
+        return [s.strip() for s in kss.split_sentences(text) if s.strip()]
+    else:                # ✅ 입력 줄바꿈 그대로(원하시는 동작)
+        return [ln.strip() for ln in text.splitlines() if ln.strip()]
 
 # --- 변경 2: generate_subtitle_from_script 시그니처/로직 확장 ---
 def generate_subtitle_from_script(
@@ -222,14 +225,14 @@ def generate_subtitle_from_script(
     provider: str = "elevenlabs",
     template: str = "default",
     polly_voice_key: str = "korean_female",
-    subtitle_lang: str = "ko",                 # "auto" | "ko" | "en"
-    translate_only_if_english: bool = False,   # 원문이 영어일 때만 자막 번역
-    tts_lang: str | None = None,               # "en"/"ko"/None -> None이면 원문대로
-    split_by_commas: bool = False,             # 콤마/마침표 분할 사용 여부
-    strip_trailing_punct_last: bool = True     # 마지막 자막 구두점 제거
+    subtitle_lang: str = "ko",
+    translate_only_if_english: bool = False,
+    tts_lang: str | None = None,
+    split_mode: str = "newline",          # ✅ 새 파라미터
+    strip_trailing_punct_last: bool = False
 ):
     # 1) 라인 분할
-    script_lines = split_script_to_lines(script_text, comma_period_split=split_by_commas)
+    script_lines = split_script_to_lines(script_text, mode=split_mode) 
 
     if not script_lines:
         return [], None, ass_path

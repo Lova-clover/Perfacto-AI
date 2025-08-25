@@ -516,16 +516,16 @@ with st.sidebar:
                         tmpl = st.session_state.selected_tts_template if provider == "elevenlabs" else st.session_state.selected_polly_voice_key
 
                         segments, audio_clips, ass_path = generate_subtitle_from_script(
-                            script_text=final_script_for_video,                         # 원문 한국어
+                            script_text=final_script_for_video,                         # ✅ 입력한 대사 원문
                             ass_path=os.path.join("assets", "generated_subtitle.ass"),
                             full_audio_file_path=audio_path,
                             provider=provider,
                             template=tmpl,
-                            subtitle_lang="ko",                 # 자막은 100% 한국어 원문 그대로
+                            subtitle_lang="ko",                 # ✅ 자막 = 원문(한국어)
                             translate_only_if_english=False,
-                            tts_lang="en",                      # 음성만 영어로
-                            split_by_commas=True,               # 콤마/마침표 단위로 끊기
-                            strip_trailing_punct_last=True      # 마지막 자막만 구두점 제거
+                            tts_lang="en",                      # ✅ 음성만 영어(라인별 번역 후 TTS)
+                            split_mode="newline",               # ✅ 입력 줄바꿈 그대로(가장 중요)
+                            strip_trailing_punct_last=False     # ✅ 원문 100% 유지
                         )
                         try:
                             if audio_clips is not None:
@@ -594,27 +594,12 @@ with st.sidebar:
                             if len(video_paths) < len(segments):
                                 st.warning(f"영상 {len(video_paths)}개만 확보되어 일부 구간은 반복될 수 있습니다.")
                             st.success(f"영상 {len(video_paths)}개 확보")
-                            # === 🔧 (VIDEO_TEMPLATE 전용) 자막 촘촘화 + 영상 구간 병합 ===
-                            try:
-                                # 1) 단어 단위로 자막을 더 촘촘하게(한 화면에 한 줄로 몰려 나오지 않도록)
-                                target_min_events = max(len(segments) * 2, len(video_paths) * 3)  # 적어도 2N, 그리고 3K 이상
-                                dense_sub_segments = densify_subtitles_by_words(segments, target_min_events)
+                            # ✅ VIDEO 템플릿에서도 자막은 "원본 그대로" 사용
+                            segments_for_video = segments  # 자막(ASS)은 이미 위에서 생성 완료
 
-                                # 기존 ASS를 'dense' 자막으로 재생성
-                                generate_ass_subtitle(
-                                    segments=dense_sub_segments,
-                                    ass_path=ass_path,
-                                    template_name=st.session_state.selected_subtitle_template
-                                )
-                                patch_ass_center(ass_path)  # 가운데 정렬
-
-                                # 2) 영상이 부족하면 영상 구간을 병합하여 K구간으로 맞춤
-                                segments_for_video = segments
-                                if len(video_paths) < len(segments):
-                                    segments_for_video = coalesce_segments_for_videos(segments, len(video_paths))
-                            except Exception as tune_e:
-                                st.warning(f"자막/영상 밀도 조절에 실패하여 기본 방식으로 진행합니다: {tune_e}")
-                                segments_for_video = segments
+                            # 영상 클립 수가 세그먼트보다 적을 때만 "영상 구간"을 병합
+                            if len(video_paths) < len(segments):
+                                segments_for_video = coalesce_segments_for_videos(segments, len(video_paths))
                         else:
                             st.write(f"🖼️ '{media_query_final}' 관련 이미지 수집 중...")
                             image_paths = generate_images_for_topic(media_query_final, max(3, len(segments)))
