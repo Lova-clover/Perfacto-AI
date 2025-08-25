@@ -9,7 +9,7 @@ from elevenlabs_tts import generate_tts, TTS_ELEVENLABS_TEMPLATES, TTS_POLLY_VOI
 from generate_timed_segments import generate_subtitle_from_script, generate_ass_subtitle, SUBTITLE_TEMPLATES
 from video_maker import (
     create_video_with_segments,
-    create_video_from_videos,   # ✅ 새로 추가
+    create_video_from_videos,
     add_subtitles_to_video,
     create_dark_text_video
 )
@@ -264,48 +264,44 @@ with st.sidebar:
                 key="script_editor_editable"
             )
 
-            with st.spinner("스크립트에서 미디어 키워드 추출 중..."):
-                topic_prompt = f"""다음 스크립트에서 이미지를 생성하기 위한 2~3개의 키워드 또는 간결한 구문(10단어 이하)을 추출하세요. 키워드만 응답하세요.
-
-스크립트:
-{selected_script}
-
-키워드:"""
-                topic_llm_chain = get_default_chain(system_prompt="당신은 텍스트에서 핵심 키워드를 뽑아내는 전문가입니다.")
-                topic = topic_llm_chain.invoke({"question": topic_prompt, "chat_history": []}).strip()
-                st.session_state.video_topic = topic
-
-            with st.spinner("스크립트에서 영상 제목을 추출 중..."):
-                title_prompt = f"""다음 스크립트에 기반해 매력적이고 임팩트 있는 짧은 한국어 영상 제목을 생성하세요. 제목만 응답하세요.
+            # 제목 자동 생성은 VIDEO_TEMPLATE일 때 건너뜁니다(제목 미사용).
+            if not is_video_template:
+                with st.spinner("스크립트에서 영상 제목을 추출 중..."):
+                    title_prompt = f"""다음 스크립트에 기반해 매력적이고 임팩트 있는 짧은 한국어 영상 제목을 생성하세요. 제목만 응답하세요.
 
 스크립트:
 {selected_script}
 
 제목:"""
-                title_llm_chain = get_default_chain(system_prompt="당신은 숏폼 영상 제목을 짓는 전문가입니다.")
-                title = title_llm_chain.invoke({"question": title_prompt, "chat_history": []}).strip()
-                st.session_state.auto_video_title = title
-                if not st.session_state.get("title_locked", False):
-                    st.session_state.video_title = title
+                    title_llm_chain = get_default_chain(system_prompt="당신은 숏폼 영상 제목을 짓는 전문가입니다.")
+                    title = title_llm_chain.invoke({"question": title_prompt, "chat_history": []}).strip()
+                    st.session_state.auto_video_title = title
+                    if not st.session_state.get("title_locked", False):
+                        st.session_state.video_title = title
         else:
             st.warning("사용 가능한 페르소나 결과가 없습니다. 먼저 페르소나 실행을 통해 결과를 생성해 주세요.")
 
+        # 미디어 검색 키워드
         if not is_emotional:
             st.session_state.video_topic = st.text_input(
-                "이미지 생성에 사용될 키워드",
+                "이미지/영상 검색에 사용될 키워드",
                 value=st.session_state.video_topic,
                 key="video_topic_input_final"
             )
 
-        st.session_state.video_title = st.text_input(
-            "영상 제목 (영상 위에 표시될 제목)",
-            value=st.session_state.video_title,
-            key="video_title_input_final",
-            on_change=_lock_title
-        )
+        # 제목 입력칸: VIDEO_TEMPLATE에서는 숨김
+        if not is_video_template:
+            st.session_state.video_title = st.text_input(
+                "영상 제목 (영상 위에 표시될 제목)",
+                value=st.session_state.video_title,
+                key="video_title_input_final",
+                on_change=_lock_title
+            )
+        else:
+            st.session_state.video_title = ""  # 사용하지 않음
 
         if is_emotional:
-            st.info("감성 텍스트 영상은 **이미지/음성 없이** 텍스트 + (선택) BGM으로만 제작됩니다.")
+            st.info("감성 텍스트 영상은 **이미지/영상/보이스 없이** 텍스트 + (선택) BGM으로만 제작됩니다.")
             st.session_state.include_voice = False
         else:
             st.session_state.include_voice = st.checkbox("영상에 AI 목소리 포함", value=st.session_state.include_voice)
@@ -361,7 +357,7 @@ with st.sidebar:
 
             final_script_for_video = st.session_state.edited_script_content
             final_topic_for_video = st.session_state.video_topic
-            final_title_for_video = st.session_state.video_title
+            final_title_for_video = st.session_state.video_title  # VIDEO_TEMPLATE이면 빈 문자열이어도 됨
 
             if not final_script_for_video.strip():
                 st.error("스크립트 내용이 비어있습니다.")
@@ -369,7 +365,8 @@ with st.sidebar:
             if (not is_emotional) and (not final_topic_for_video.strip()):
                 st.error("영상 주제가 비어있습니다.")
                 st.stop()
-            if not final_title_for_video.strip():
+            # 🔎 제목 필수 체크는 VIDEO_TEMPLATE에서는 건너뜀
+            if (not is_video_template) and (not final_title_for_video.strip()):
                 st.error("영상 제목이 비어있습니다.")
                 st.stop()
 
@@ -392,57 +389,48 @@ with st.sidebar:
                     segments = []
                     ass_path = None
 
-                    # --- 음성 포함 분기 ---
+                    # --- 음성 포함 / 미포함 분기 ---
                     if not is_emotional and st.session_state.include_voice:
-                        # 1) TTS (템플릿이면 영어)
+                        # (중요) 이중 음성 방지:
+                        #   👉 전체 TTS(단발) 생성은 하지 않고,
+                        #   👉 generate_subtitle_from_script() 한 번으로 "라인별 TTS → 병합"까지 처리
                         audio_output_dir = "assets"
                         os.makedirs(audio_output_dir, exist_ok=True)
                         audio_path = os.path.join(audio_output_dir, "generated_audio.mp3")
 
-                        tts_text = final_script_for_video
-                        if st.session_state.video_style == VIDEO_TEMPLATE:
+                        # VIDEO_TEMPLATE에서는 영어 보이스를 원하므로, 스크립트를 영어로 변환해서 전달
+                        tts_source_text = final_script_for_video
+                        if is_video_template:
                             try:
-                                tts_text = GoogleTranslator(source='auto', target='en').translate(final_script_for_video)
+                                tts_source_text = GoogleTranslator(source='auto', target='en').translate(final_script_for_video)
                             except Exception as e:
-                                st.warning(f"영어 번역 실패(원문으로 진행): {e}")
+                                st.warning(f"영어 번역 실패(원문 보이스로 진행): {e}")
+                                tts_source_text = final_script_for_video
 
-                        st.write("🗣️ 음성 파일 생성 중...")
-                        if st.session_state.selected_tts_provider == "ElevenLabs":
-                            generated_audio_path = generate_tts(
-                                text=tts_text,
-                                save_path=audio_path,
-                                provider="elevenlabs",
-                                template_name=st.session_state.selected_tts_template
-                            )
-                        else:
-                            generated_audio_path = generate_tts(
-                                text=tts_text,
-                                save_path=audio_path,
-                                provider="polly",
-                                polly_voice_name_key=st.session_state.selected_polly_voice_key
-                            )
-                        st.success(f"음성 파일 생성 완료: {generated_audio_path}")
-                        st.session_state.audio_path = generated_audio_path
+                        st.write("🗣️ 라인별 TTS 생성/병합 및 세그먼트 산출 중...")
+                        provider = "elevenlabs" if st.session_state.selected_tts_provider == "ElevenLabs" else "polly"
+                        tmpl = st.session_state.selected_tts_template if provider == "elevenlabs" else st.session_state.selected_polly_voice_key
 
-                        # 2) 세그먼트 & ASS (항상 한국어 자막)
-                        subtitle_output_dir = "assets"
-                        os.makedirs(subtitle_output_dir, exist_ok=True)
-                        ass_path = os.path.join(subtitle_output_dir, "generated_subtitle.ass")
-
-                        st.write("📝 자막/세그먼트 생성 중...")
                         segments, audio_clips, ass_path = generate_subtitle_from_script(
-                            script_text=final_script_for_video,       # 원문(한국어)
-                            ass_path=ass_path,
-                            full_audio_file_path=generated_audio_path,
-                            provider="elevenlabs" if st.session_state.selected_tts_provider == "ElevenLabs" else "polly",
-                            template=st.session_state.selected_tts_template if st.session_state.selected_tts_provider == "ElevenLabs"
-                                    else st.session_state.selected_polly_voice_key,
-                            subtitle_lang="ko",
-                            translate_only_if_english=False
+                            script_text=tts_source_text,
+                            ass_path=os.path.join("assets", "generated_subtitle.ass"),
+                            full_audio_file_path=audio_path,
+                            provider=provider,
+                            template=tmpl,
+                            subtitle_lang="ko",                 # 자막은 한국어
+                            translate_only_if_english=False     # 영어든 무엇이든 ko로
                         )
-                        if st.session_state.video_style == VIDEO_TEMPLATE:
+                        # (리소스 정리)
+                        try:
+                            if audio_clips is not None:
+                                audio_clips.close()
+                        except:
+                            pass
+
+                        if is_video_template:
                             patch_ass_center(ass_path)
-                        st.success(f"자막 파일 생성 완료: {ass_path}")
+                        st.success(f"음성/자막 생성 완료: {audio_path}, {ass_path}")
+                        st.session_state.audio_path = audio_path
 
                     else:
                         # 음성 없이 세그먼트 생성(텍스트 길이 기반)
@@ -471,23 +459,21 @@ with st.sidebar:
                         if segments: segments[-1]["end"] = current_time
 
                         if not is_emotional:
-                            subtitle_output_dir = "assets"
-                            os.makedirs(subtitle_output_dir, exist_ok=True)
-                            ass_path = os.path.join(subtitle_output_dir, "generated_subtitle.ass")
+                            ass_path = os.path.join("assets", "generated_subtitle.ass")
                             st.write("📝 자막 파일 생성 중...")
                             generate_ass_subtitle(
                                 segments=segments,
                                 ass_path=ass_path,
                                 template_name=st.session_state.selected_subtitle_template
                             )
-                            if st.session_state.video_style == VIDEO_TEMPLATE:
+                            if is_video_template:
                                 patch_ass_center(ass_path)
                             st.success(f"자막 파일 생성 완료: {ass_path}")
 
                     # --- 미디어(이미지 or 영상) 수집 ---
                     image_paths, video_paths = [], []
                     if st.session_state.video_style != "감성 텍스트 영상":
-                        if st.session_state.video_style == VIDEO_TEMPLATE:
+                        if is_video_template:
                             st.write(f"🎞️ '{media_query_final}' 관련 영상 수집 중...")
                             video_paths = generate_videos_for_topic(media_query_final, max(3, len(segments)), orientation="portrait")
                             if not video_paths:
@@ -523,20 +509,20 @@ with st.sidebar:
                     if is_emotional:
                         created_video_path = create_dark_text_video(
                             script_text=final_script_for_video,
-                            title_text=final_title_for_video,
+                            title_text="",                 # 감성 텍스트: 화면 제목 비사용
                             audio_path=None,
                             bgm_path=st.session_state.bgm_path,
                             save_path=temp_video_path
                         )
                         final_video_with_subs_path = created_video_path
                     else:
-                        if st.session_state.video_style == VIDEO_TEMPLATE:
+                        if is_video_template:
                             created_video_path = create_video_from_videos(
                                 video_paths=video_paths,
                                 segments=segments,
                                 audio_path=st.session_state.audio_path if st.session_state.include_voice else None,
-                                topic_title=final_title_for_video,
-                                include_topic_title=False,
+                                topic_title="",
+                                include_topic_title=False,  # ✅ 상단 제목 오버레이 제거
                                 bgm_path=st.session_state.bgm_path,
                                 save_path=temp_video_path
                             )
@@ -545,7 +531,7 @@ with st.sidebar:
                                 image_paths=image_paths,
                                 segments=segments,
                                 audio_path=st.session_state.audio_path if st.session_state.include_voice else None,
-                                topic_title=final_title_for_video,
+                                topic_title=st.session_state.video_title,
                                 include_topic_title=True,
                                 bgm_path=st.session_state.bgm_path,
                                 save_path=temp_video_path
@@ -592,7 +578,7 @@ with st.sidebar:
                     try:
                         youtube_link = upload_to_youtube(
                             final_path,
-                            title=st.session_state.get("video_title", "제목 없음")
+                            title=st.session_state.get("video_title") or "AI 자동 생성 영상"  # 기본값
                         )
                         st.session_state.upload_clicked = True
                         st.session_state.youtube_link = youtube_link
@@ -679,23 +665,26 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
         if extracted_topic_for_ui:
             st.session_state.video_topic = extracted_topic_for_ui
 
-    with st.spinner("답변에서 영상 제목을 자동 추출 중..."):
-        title_extraction_prompt = f"""당신은 TikTok, YouTube Shorts, Instagram Reels용 **매력적이고 바이럴성 있는 숏폼 비디오 제목**을 작성하는 전문가입니다.
+    # 제목 자동 추출은 VIDEO_TEMPLATE에서는 사용하지 않지만,
+    # 다른 스타일에서는 편의상 유지
+    if st.session_state.video_style != VIDEO_TEMPLATE:
+        with st.spinner("답변에서 영상 제목을 자동 추출 중..."):
+            title_extraction_prompt = f"""당신은 TikTok, YouTube Shorts, Instagram Reels용 **매력적이고 바이럴성 있는 숏폼 비디오 제목**을 작성하는 전문가입니다.
 다음 스크립트에서 **최대 5단어 이내**의 강렬한 한국어 제목만 생성하세요.
 
 스크립트:
 {ai_answer}
 
 영상 제목:"""
-        title_llm_chain = get_default_chain(
-            system_prompt="당신은 숏폼 비디오용 매우 짧고 강렬한 한국어 제목을 생성하는 전문 AI입니다. 항상 5단어 이내."
-        )
-        extracted_title_for_ui = title_llm_chain.invoke({"question": title_extraction_prompt, "chat_history": []}).strip()
-        if extracted_title_for_ui:
-            extracted_title_for_ui = re.sub(r'[\U00010000-\U0010ffff]', '', extracted_title_for_ui).strip()
-            st.session_state.auto_video_title = extracted_title_for_ui
-            if not st.session_state.get("title_locked", False):
-                st.session_state.video_title = extracted_title_for_ui
-        else:
-            if not st.session_state.get("video_title"):
-                st.session_state.video_title = "제목 없음"
+            title_llm_chain = get_default_chain(
+                system_prompt="당신은 숏폼 비디오용 매우 짧고 강렬한 한국어 제목을 생성하는 전문 AI입니다. 항상 5단어 이내."
+            )
+            extracted_title_for_ui = title_llm_chain.invoke({"question": title_extraction_prompt, "chat_history": []}).strip()
+            if extracted_title_for_ui:
+                extracted_title_for_ui = re.sub(r'[\U00010000-\U0010ffff]', '', extracted_title_for_ui).strip()
+                st.session_state.auto_video_title = extracted_title_for_ui
+                if not st.session_state.get("title_locked", False):
+                    st.session_state.video_title = extracted_title_for_ui
+            else:
+                if not st.session_state.get("video_title"):
+                    st.session_state.video_title = "제목 없음"
