@@ -589,7 +589,7 @@ def create_video_from_videos(
     import math
 
     video_width, video_height = 720, 1080
-    clips = []
+    segment_paths = []
 
     # 전체 길이
     total_video_duration = segments[-1]["end"] if segments else 10
@@ -600,6 +600,19 @@ def create_video_from_videos(
     else:
         audio = AudioArrayClip(np.array([[0.0, 0.0]]), fps=44100).with_duration(total_video_duration)
 
+    # BGM 합치기 (최종에 파일로 뽑아 mux)
+    final_audio = audio
+    bgm_raw = None
+    if bgm_path and os.path.exists(bgm_path):
+        bgm_raw = AudioFileClip(bgm_path)
+        bgm_array = bgm_raw.to_soundarray(fps=44100) * 0.2
+        repeat_count = int(np.ceil(audio.duration / max(bgm_raw.duration, 0.1)))
+        bgm_array = np.tile(bgm_array, (repeat_count, 1))[:int(audio.duration * 44100)]
+        bgm = AudioArrayClip(bgm_array, fps=44100).with_duration(audio.duration)
+        final_audio = CompositeAudioClip([audio, bgm])
+    else:
+        bgm = None
+
     # 부족하면 순환
     if len(video_paths) < len(segments):
         cycle = (len(segments) + len(video_paths) - 1) // len(video_paths)
@@ -608,12 +621,11 @@ def create_video_from_videos(
     def resize_cover(clip, W, H):
         scale = max(W / clip.w, H / clip.h)
         resized = clip.resized(scale)
-        # 중앙 배치로 프레임에 맞게 '크롭' 효과
         x = round((W - resized.w) / 2)
         y = round((H - resized.h) / 2)
         return resized.with_position((x, y))
 
-    # 타이틀(이미지 템플릿과 동일 로직)
+    # 타이틀(align 제거, fontsize 사용)
     def build_title_overlay(duration):
         font_path = os.path.join("assets", "fonts", "Pretendard-Bold.ttf")
         line1, line2 = auto_split_title(topic_title)
@@ -626,11 +638,11 @@ def create_video_from_videos(
                 text=formatted_title + "\n",
                 font_size=48, color="white", font=font_path,
                 stroke_color="skyblue", stroke_width=1,
-                method="caption", size=(max_title_width, None)   # ⬅ align 제거
+                method="caption", size=(max_title_width, None)
             ).with_duration(duration)
             used_caption = True
         except TypeError:
-            # caption 미지원 → label 폴백(기존 로직 유지)
+            # caption 미지원 → label 폴백
             def line_width(s: str) -> int:
                 if not s: return 0
                 c = TextClip(text=s, font=font_path, font_size=48, method="label")
@@ -652,7 +664,8 @@ def create_video_from_videos(
             for block in formatted_title.split("\n"):
                 if block.strip():
                     wrapped += wrap_to_width(block, max_title_width)
-            if not wrapped: wrapped = [""]
+            if not wrapped:
+                wrapped = [""]
 
             maxw = max(line_width(l) for l in wrapped) if wrapped else 1
             spacew = max(line_width("\u00A0"), 1)
@@ -669,7 +682,7 @@ def create_video_from_videos(
                 method="label",
             ).with_duration(duration)
 
-        # 높이 계산(dummy) — ⬇ align 절대 넣지 않기
+        # 높이 계산(dummy) — align 사용 금지
         pad_y = 16
         dummy = TextClip(
             text=formatted_title if used_caption else "\n".join(wrapped) if 'wrapped' in locals() else formatted_title,
@@ -690,86 +703,105 @@ def create_video_from_videos(
 
         return [black_bar, title_clip], title_bar_h
 
+    # ✅ 세그먼트별로 영상 파일을 먼저 저장(메모리 피크↓)
     for i, seg in enumerate(segments):
-        duration = seg["end"] - seg["start"]
+        duration = max(0.1, seg["end"] - seg["start"])
         path = video_paths[i]
-        raw = VideoFileClip(path).without_audio()  # 원본 오디오 제거
+        raw = VideoFileClip(path).without_audio()
 
         # 길이 맞추기(반복)
         if raw.duration < duration:
             repeat = int(math.ceil(duration / max(raw.duration, 0.1)))
             repeated = concatenate_videoclips([raw] * repeat, method="chain")
             try:
-                clip = repeated.subclipped(0, duration)
+                base_clip = repeated.subclipped(0, duration)
             except AttributeError:
-                clip = repeated.subclip(0, duration)
+                base_clip = repeated.subclip(0, duration)
+            try: raw.close()
+            except: pass
         else:
             try:
-                clip = raw.subclipped(0, duration)
+                base_clip = raw.subclipped(0, duration)
             except AttributeError:
-                clip = raw.subclip(0, duration)
+                base_clip = raw.subclip(0, duration)
 
-        # 세로 9:16 캔버스에 'cover'로 맞추기
-        base = resize_cover(clip, video_width, video_height)
+        # 9:16 캔버스 커버
+        base = resize_cover(base_clip, video_width, video_height)
 
         overlays = []
         if include_topic_title:
             o, _ = build_title_overlay(duration)
             overlays.extend(o)
 
-        seg_clip = CompositeVideoClip(
-            [base] + overlays, size=(video_width, video_height)
-        ).with_duration(duration)
-        clips.append(seg_clip)
+        seg_clip = CompositeVideoClip([base] + overlays, size=(video_width, video_height)).with_duration(duration)
 
-    final_audio = audio
-    if bgm_path and os.path.exists(bgm_path):
-        bgm_raw = AudioFileClip(bgm_path)
-        bgm_array = bgm_raw.to_soundarray(fps=44100) * 0.2
-        repeat_count = int(np.ceil(audio.duration / bgm_raw.duration))
-        bgm_array = np.tile(bgm_array, (repeat_count, 1))[:int(audio.duration * 44100)]
-        bgm = AudioArrayClip(bgm_array, fps=44100).with_duration(audio.duration)
-        final_audio = CompositeAudioClip([audio, bgm])
+        # 파일로 바로 써서 메모리 사용 억제
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        seg_out = os.path.join(os.path.dirname(save_path), f"_seg_{i:03d}.mp4")
+        seg_clip.write_videofile(
+            seg_out,
+            codec="libx264", audio=False, fps=24,
+            preset="ultrafast",
+            threads=max(1, (os.cpu_count() or 2)//2),
+            ffmpeg_params=["-movflags", "+faststart"],
+            logger=None
+        )
 
-    def _safe_close(x):
+        # 리소스 정리
+        for c in (seg_clip, base, base_clip):
+            try: c.close()
+            except: pass
+        try: raw.close()
+        except: pass
+        gc.collect()
+
+        segment_paths.append(os.path.abspath(seg_out))
+
+    # ✅ ffmpeg concat(영상만)
+    concat_list = os.path.join(os.path.dirname(save_path), "_concat.txt")
+    with open(concat_list, "w", encoding="utf-8") as f:
+        for p in segment_paths:
+            f.write(f"file '{p}'\n")
+
+    temp_video = os.path.join(os.path.dirname(save_path), "_temp_video.mp4")
+    # 동일 코덱/해상도/fps로 저장했으니 copy 가능
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list, "-c", "copy", temp_video],
+        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT
+    )
+
+    # ✅ 오디오 파일로 추출 후 mux
+    audio_mix = os.path.join(os.path.dirname(save_path), "_mix_audio.m4a")
+    try:
+        final_audio.write_audiofile(audio_mix, fps=44100, codec="aac", bitrate="128k", logger=None)
+    except Exception:
+        # MoviePy가 환경에 따라 codec 파라미터를 무시할 수 있으니, 실패 시 ffmpeg로 변환
+        wav_tmp = os.path.join(os.path.dirname(save_path), "_mix_audio.wav")
         try:
-            if x is not None:
-                x.close()
+            final_audio.write_audiofile(wav_tmp, fps=44100, logger=None)
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", wav_tmp, "-c:a", "aac", "-b:a", "128k", audio_mix],
+                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT
+            )
+            os.remove(wav_tmp)
         except Exception:
             pass
 
-    final = concatenate_videoclips(clips, method="chain").with_audio(final_audio).with_fps(24)
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", temp_video, "-i", audio_mix, "-c:v", "copy", "-c:a", "aac", "-shortest", save_path],
+        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT
+    )
 
-    # 임시 오디오 파일 경로 보장
-    tmp_audio = os.path.join(os.path.dirname(save_path), "_tmp_audio.m4a")
+    print(f"✅ 영상(동영상 소스) 저장 완료: {save_path}")
 
-    try:
-        final.write_videofile(
-            save_path,
-            codec="libx264",
-            audio_codec="aac",
-            fps=24,
-            preset="ultrafast",                 # 🔧 CPU/메모리 부담 완화
-            threads=max(1, (os.cpu_count() or 2)//2),
-            ffmpeg_params=["-movflags", "+faststart"],
-            temp_audiofile=tmp_audio,
-            remove_temp=True,
-            logger=None                         # 로그 스팸 줄이기(선택)
-        )
-        print(f"✅ 영상(동영상 소스) 저장 완료: {save_path}")
-    finally:
-        # 🔧 열린 리소스 깔끔히 정리 (FD 누수/OOM 방지)
-        _safe_close(final)
-        for c in clips:
-            _safe_close(c)
-        _safe_close(final_audio)
-        if 'audio' in locals():
-            _safe_close(audio)
-        if 'bgm_raw' in locals():
-            _safe_close(bgm_raw)
-        if 'bgm' in locals():
-            _safe_close(bgm)
-        gc.collect()
+    # 청소 + 리소스 정리
+    for p in segment_paths + [concat_list, temp_video, audio_mix]:
+        try: os.remove(p)
+        except: pass
+    for obj in (final_audio, audio, bgm_raw, bgm if 'bgm' in locals() else None):
+        try:
+            if obj is not None: obj.close()
+        except: pass
+    gc.collect()
 
     return save_path
