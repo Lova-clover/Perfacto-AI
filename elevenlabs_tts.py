@@ -139,31 +139,34 @@ def generate_elevenlabs_tts(text, save_path, template_name, voice_id):
         raise RuntimeError(f"ElevenLabs TTS 생성 실패: {response.status_code} {response.text}")
 
 def generate_polly_tts(text, save_path, polly_voice_name_key):
-    """
-    Generates speech using Amazon Polly.
-    """
-    # Determine the VoiceId from the mapping, defaulting to Matthew if key not found
-    voice_id = TTS_POLLY_VOICES.get(polly_voice_name_key, "Joanna")
+    voice_id = TTS_POLLY_VOICES.get(polly_voice_name_key, "Matthew")  # 안전 폴백을 영어로
+    # 보이스 키 → 언어 매핑(필요한 것만)
+    VOICE_LANG = {
+        "default_female":"en-US","default_male":"en-US",
+        "english_female_uk":"en-GB","english_male_uk":"en-GB",
+        "korean_female1":"ko-KR","korean_female2":"ko-KR",
+    }
+    lang = VOICE_LANG.get(polly_voice_name_key, "en-US")
+    use_ssml = lang.startswith("en")  # 영어 보이스면 SSML로 감싸 정확도 ↑
+
+    def synth(engine):
+        args = dict(OutputFormat='mp3', VoiceId=voice_id, Engine=engine)
+        if use_ssml:
+            ssml = f"<speak><lang xml:lang='{lang}'>{text}</lang></speak>"
+            return polly_client.synthesize_speech(Text=ssml, TextType='ssml', **args)
+        else:
+            return polly_client.synthesize_speech(Text=text, TextType='text', **args)
 
     try:
-        response = polly_client.synthesize_speech(
-            Text=text,
-            OutputFormat='mp3', # Output format as MP3
-            VoiceId=voice_id, # Selected voice ID
-            Engine='neural' # Use neural engine for better quality, if available for the voice
-        )
-
-        if "AudioStream" in response:
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            with open(save_path, 'wb') as file:
-                file.write(response['AudioStream'].read()) # Write audio stream to file
-            print(f"✅ Amazon Polly 음성 저장 완료: {save_path}")
-            return save_path
-        else:
-            raise RuntimeError("Amazon Polly TTS 생성 실패: AudioStream not found in response.")
-
+        resp = synth('neural')
     except Exception as e:
-        raise RuntimeError(f"Amazon Polly TTS 생성 실패: {e}")
+        # neural 미지원 등 → standard로 재시도
+        resp = synth('standard')
+
+    with open(save_path, 'wb') as f:
+        f.write(resp['AudioStream'].read())
+    return save_path
+
 
 def generate_tts(text, save_path="assets/audio.mp3", provider="Amazon Polly", template_name="default", voice_id=None, polly_voice_name_key="korean_female1"):
     """
