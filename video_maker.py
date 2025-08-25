@@ -8,6 +8,7 @@ import subprocess
 import numpy as np
 from moviepy.audio.AudioClip import AudioArrayClip
 import imageio_ffmpeg
+import gc
 
 def create_motion_clip(img_path, duration, width, height):
     base_clip_original_size = ImageClip(img_path)
@@ -730,8 +731,45 @@ def create_video_from_videos(
         bgm = AudioArrayClip(bgm_array, fps=44100).with_duration(audio.duration)
         final_audio = CompositeAudioClip([audio, bgm])
 
+    def _safe_close(x):
+        try:
+            if x is not None:
+                x.close()
+        except Exception:
+            pass
+
     final = concatenate_videoclips(clips, method="chain").with_audio(final_audio).with_fps(24)
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    final.write_videofile(save_path, codec="libx264", audio_codec="aac")
-    print(f"✅ 영상(동영상 소스) 저장 완료: {save_path}")
+
+    # 임시 오디오 파일 경로 보장
+    tmp_audio = os.path.join(os.path.dirname(save_path), "_tmp_audio.m4a")
+
+    try:
+        final.write_videofile(
+            save_path,
+            codec="libx264",
+            audio_codec="aac",
+            fps=24,
+            preset="ultrafast",                 # 🔧 CPU/메모리 부담 완화
+            threads=max(1, (os.cpu_count() or 2)//2),
+            ffmpeg_params=["-movflags", "+faststart"],
+            temp_audiofile=tmp_audio,
+            remove_temp=True,
+            logger=None                         # 로그 스팸 줄이기(선택)
+        )
+        print(f"✅ 영상(동영상 소스) 저장 완료: {save_path}")
+    finally:
+        # 🔧 열린 리소스 깔끔히 정리 (FD 누수/OOM 방지)
+        _safe_close(final)
+        for c in clips:
+            _safe_close(c)
+        _safe_close(final_audio)
+        if 'audio' in locals():
+            _safe_close(audio)
+        if 'bgm_raw' in locals():
+            _safe_close(bgm_raw)
+        if 'bgm' in locals():
+            _safe_close(bgm)
+        gc.collect()
+
     return save_path
