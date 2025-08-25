@@ -334,11 +334,11 @@ def _auto_split_for_tempo(text: str, tempo: str = "medium"):
             chunks.append(cur)
     return chunks
 
-
-def auto_densify_for_subs(segments, tempo: str = "fast"):
+def auto_densify_for_subs(segments, tempo: str = "fast", strip_trailing_punct_each: bool = True):
     """
-    각 원 세그먼트(한 줄)를 tempo에 맞춰 여러 하위 자막 이벤트로 쪼개되,
+    각 원 세그먼트(한 줄)를 tempo에 맞춰 여러 하위 자막 이벤트로 쪼갭니다.
     오디오/영상 타이밍은 유지(문자 길이 비율로 시간 배분).
+    strip_trailing_punct_each=True 면 각 조각의 끝 구두점(.,!?… 등) 제거.
     """
     dense = []
     for seg in segments:
@@ -348,11 +348,16 @@ def auto_densify_for_subs(segments, tempo: str = "fast"):
         if not pieces:
             dense.append(seg)
             continue
+
+        # ✅ 각 조각의 끝 구두점 제거(닫는 따옴표/괄호는 보존)
+        if strip_trailing_punct_each:
+            pieces = [_strip_last_punct_preserve_closers(p) for p in pieces]
+
         total_chars = sum(len(x) for x in pieces) or 1
         t = start
         for i, txt in enumerate(pieces):
             if i == len(pieces) - 1:
-                t2 = end  # 마지막은 끝까지
+                t2 = end
             else:
                 t2 = t + dur * (len(txt) / total_chars)
             dense.append({"start": t, "end": t2, "text": txt})
