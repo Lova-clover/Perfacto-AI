@@ -98,19 +98,18 @@ def generate_videos_for_topic(
                 continue
             if dur < min_duration:
                 continue
-
-            # 해상도 높은 mp4 우선
-            files = sorted(
-                v.get("video_files", []),
-                key=lambda f: (f.get("width", 0), f.get("height", 0)),
-                reverse=True,
-            )
+            candidates = [
+                f for f in v.get("video_files", [])
+                if f.get("link","").endswith(".mp4") and 720 <= (f.get("width") or 0) <= 1080
+            ]
+            if not candidates:
+                # 없으면 그나마 작은 mp4 하나
+                candidates = [f for f in v.get("video_files", []) if f.get("link","").endswith(".mp4")]
             picked = None
-            for f in files:
-                link = f.get("link", "")
-                if link.endswith(".mp4") and f.get("width", 0) >= 720:
-                    picked = f
-                    break
+            if candidates:
+                picked = sorted(candidates, key=lambda f: f.get("width") or 10**9)[0]  # 폭이 가장 작은 것
+            else:
+                continue
             if not picked:
                 continue
 
