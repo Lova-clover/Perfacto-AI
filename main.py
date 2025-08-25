@@ -528,7 +528,7 @@ with st.sidebar:
                             strip_trailing_punct_last=False     # ✅ 원문 100% 유지
                         )
                         # ✅ 자막만 "자동-빠른 템포"로 더 쪼개서 덮어쓰기 (오디오/영상 타이밍 유지)
-                        dense_events = auto_densify_for_subs(segments, tempo="fast")
+                        dense_events = auto_densify_for_subs(segments, tempo="medium")
                         generate_ass_subtitle(
                             segments=dense_events,
                             ass_path=ass_path,

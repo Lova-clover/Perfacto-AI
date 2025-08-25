@@ -299,7 +299,7 @@ def generate_subtitle_from_script(
     return segments, None, ass_path
 
 # === Auto-paced subtitle densifier (쉼표·세미콜론 우선, 길이면 보정) ===
-def _auto_split_for_tempo(text: str, tempo: str = "fast"):
+def _auto_split_for_tempo(text: str, tempo: str = "medium"):
     """
     tempo: fast(짧게) | medium | slow
     - 1차: 쉼표/세미콜론/중점 등에서 우선 분할 (구두점은 앞 조각에 남김)
