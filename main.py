@@ -4,10 +4,15 @@ from langchain_core.messages import HumanMessage, AIMessage
 from RAG.rag_pipeline import get_retriever_from_source
 from RAG.chain_builder import get_conversational_rag_chain, get_default_chain
 from persona import generate_response_from_persona
-from image_generator import generate_images_for_topic
+from image_generator import generate_images_for_topic, generate_videos_for_topic
 from elevenlabs_tts import generate_tts, TTS_ELEVENLABS_TEMPLATES, TTS_POLLY_VOICES
 from generate_timed_segments import generate_subtitle_from_script, generate_ass_subtitle, SUBTITLE_TEMPLATES
-from video_maker import create_video_with_segments, add_subtitles_to_video, create_dark_text_video   
+from video_maker import (
+    create_video_with_segments,
+    create_video_from_videos,   # ✅ 새로 추가
+    add_subtitles_to_video,
+    create_dark_text_video
+)
 from deep_translator import GoogleTranslator
 from file_handler import get_documents_from_files
 from upload import upload_to_youtube
@@ -16,19 +21,20 @@ from text_scraper import get_links, clean_html_parallel, filter_noise
 from langchain_core.documents import Document
 
 import os
-import requests # 기본 이미지 다운로드를 위해 추가
+import requests
 import re
-import json # JSON 파싱을 위해 추가
+import json
 import nest_asyncio
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import FAISS
 
 nest_asyncio.apply()
-
-# API 키 불러오기
 load_dotenv()
 
+VIDEO_TEMPLATE = "영상(영어보이스+한국어자막·가운데)"
+
+# ---------- 유틸 ----------
 def get_web_documents_from_query(query: str):
     try:
         urls = get_links(query, num=40)
@@ -46,89 +52,81 @@ def get_web_documents_from_query(query: str):
         return docs, None
     except Exception as e:
         return [], str(e)
-    
-# --- 앱 기본 설정 ---
+
+def patch_ass_center(ass_path: str):
+    """ASS 자막의 모든 Dialogue에 {\an5}를 붙여 화면 정중앙 정렬."""
+    try:
+        with open(ass_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        out = []
+        for ln in lines:
+            if ln.startswith("Dialogue:"):
+                parts = ln.split(",", 9)
+                if len(parts) >= 10 and r"{\an" not in parts[9]:
+                    parts[9] = r"{\an5}" + parts[9]
+                    ln = ",".join(parts)
+            out.append(ln)
+        with open(ass_path, "w", encoding="utf-8") as f:
+            f.writelines(out)
+    except Exception as e:
+        print(f"ASS 중앙 정렬 패치 실패: {e}")
+
+# ---------- 앱 기본 ----------
 st.set_page_config(page_title="Perfacto AI", page_icon="🤖")
 st.title("PerfactoAI")
-st.markdown(
-    """
-Make your own vids automatically
-"""
-)            
-# --- 세션 상태 초기화 ---
-if "messages" not in st.session_state:
-    st.session_state["messages"] = []
-if "retriever" not in st.session_state:
-    st.session_state.retriever = None
-if "system_prompt" not in st.session_state:
-    st.session_state.system_prompt = "당신은 유능한 AI 어시스턴트입니다."
-if "last_user_query" not in st.session_state:
-    st.session_state.last_user_query = ""
-if "video_topic" not in st.session_state:
-    st.session_state.video_topic = ""
-if "video_title" not in st.session_state: # 새롭게 추가된 부분: 영상 제목 세션 상태
-    st.session_state.video_title = ""
-if "auto_video_title" not in st.session_state:
-    st.session_state.auto_video_title = ""   # LLM이 뽑은 최신 자동제목 저장
-if "title_locked" not in st.session_state:
-    st.session_state.title_locked = False    # 사용자가 제목을 손대면 True로 잠금
-if "edited_script_content" not in st.session_state:
-    st.session_state.edited_script_content = ""
-if "selected_tts_provider" not in st.session_state: # 새로운 TTS 공급자 세션 상태
-    st.session_state.selected_tts_provider = "ElevenLabs" # 기본값 설정
-if "selected_tts_template" not in st.session_state:
-    st.session_state.selected_tts_template = "educational" # ElevenLabs 템플릿
-if "selected_polly_voice_key" not in st.session_state: # Amazon Polly 음성 세션 상태
-    st.session_state.selected_polly_voice_key = "korean_female1" # 기본값 설정
-if "selected_subtitle_template" not in st.session_state:
-    st.session_state.selected_subtitle_template = "educational"
-if "bgm_path" not in st.session_state:
-    st.session_state.bgm_path = None
-if "include_voice" not in st.session_state:
-    st.session_state.include_voice = True
-if "generated_topics" not in st.session_state:
-    st.session_state.generated_topics = []
-if "selected_generated_topic" not in st.session_state:
-    st.session_state.selected_generated_topic = ""
-if "audio_path" not in st.session_state: 
-    st.session_state.audio_path = None
-if "last_rag_sources" not in st.session_state:
-    st.session_state.last_rag_sources = []
-if "persona_rag_flags" not in st.session_state:
-    st.session_state.persona_rag_flags = {}  # 각 페르소나가 RAG 사용할지 여부
-if "persona_rag_retrievers" not in st.session_state:
-    st.session_state.persona_rag_retrievers = {}  # 각 페르소나 전용 retriever
-# 업로드/다운로드 버튼을 항상 표시하고 세션 상태 유지
-# --- 초기화 (맨 위에서 설정) ---
-if "upload_clicked" not in st.session_state:
-    st.session_state.upload_clicked = False
-if "youtube_link" not in st.session_state:
-    st.session_state.youtube_link = ""
-if "video_binary_data" not in st.session_state:
-    st.session_state.video_binary_data = None
+st.markdown("Make your own vids automatically")
 
-# === 제목 잠금/해제 헬퍼 ===
+# ---------- 세션 ----------
 def _lock_title():
-    # 사용자가 입력창을 수정하면 호출 → 자동 덮어쓰기 금지
     st.session_state.title_locked = True
 
 def _use_auto_title():
-    # 자동 제목으로 되돌리고 잠금 해제
     st.session_state.title_locked = False
     auto = st.session_state.get("auto_video_title", "")
     if auto:
         st.session_state.video_title = auto
 
-# --- 사이드바: AI 페르소나 설정 및 RAG 설정 ---
+def _init_session():
+    defaults = dict(
+        messages=[],
+        retriever=None,
+        system_prompt="당신은 유능한 AI 어시스턴트입니다.",
+        last_user_query="",
+        video_topic="",
+        video_title="",
+        auto_video_title="",
+        title_locked=False,
+        edited_script_content="",
+        selected_tts_provider="ElevenLabs",
+        selected_tts_template="educational",
+        selected_polly_voice_key="korean_female1",
+        selected_subtitle_template="educational",
+        bgm_path=None,
+        include_voice=True,
+        generated_topics=[],
+        selected_generated_topic="",
+        audio_path=None,
+        last_rag_sources=[],
+        persona_rag_flags={},
+        persona_rag_retrievers={},
+        upload_clicked=False,
+        youtube_link="",
+        video_binary_data=None,
+        final_video_path=""
+    )
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+_init_session()
+
+# ---------- 사이드바 ----------
 with st.sidebar:
     st.header("⚙️ AI 페르소나 및 RAG 설정")
-
     if "persona_blocks" not in st.session_state:
         st.session_state.persona_blocks = []
 
     delete_idx = None
 
-    # --- 페르소나 문장 기반 생성기 (범용 응답 생성) ---
     if st.button("➕ 페르소나 추가"):
         st.session_state.persona_blocks.append({
             "name": "새 페르소나",
@@ -144,7 +142,6 @@ with st.sidebar:
             "페르소나 역할 이름", value=block["name"], key=f"name_{i}"
         )
 
-        # 이전 페르소나 응답 이어받기
         persona_options = [("persona", idx) for idx in range(len(st.session_state.persona_blocks)) if idx != i]
         prev_idxs = st.multiselect(
             "이전 페르소나 응답 이어받기",
@@ -155,12 +152,10 @@ with st.sidebar:
         )
         st.session_state.persona_blocks[i]["use_prev_idx"] = prev_idxs
 
-        # 지시문 입력
         st.session_state.persona_blocks[i]["text"] = st.text_area(
             "지시 문장", value=block["text"], key=f"text_{i}"
         )
 
-        # 🔄 RAG 소스 선택 (기본값: 사용 안 함)
         rag_source = st.radio(
             "📡 사용할 RAG 유형:",
             options=["웹 기반 RAG", "유튜브 자막 기반 RAG"],
@@ -168,27 +163,22 @@ with st.sidebar:
             key=f"rag_source_{i}"
         )
 
-        youtube_channel_input = None  # 🔑 입력값 초기화
-
+        youtube_channel_input = None
         if rag_source == "유튜브 자막 기반 RAG":
             youtube_channel_input = st.text_input(
                 "유튜브 채널 핸들 또는 URL 입력:",
                 value="@역사이야기",
-                key=f"youtube_channel_input_{i}"  # ❗️ 중복 피하기 위해 key 분리
+                key=f"youtube_channel_input_{i}"
             )
-        # 실행 버튼
+
         if st.button(f"🧠 페르소나 실행", key=f"run_{i}"):
             prev_blocks = []
             for ptype, pidx in st.session_state.persona_blocks[i].get("use_prev_idx", []):
                 if ptype == "persona" and pidx != i:
                     prev_blocks.append(f"[페르소나 #{pidx+1}]\n{st.session_state.persona_blocks[pidx]['result']}")
+            final_prompt = ("\n\n".join(prev_blocks) + "\n\n지시:\n" + block["text"]) if prev_blocks else block["text"]
 
-            joined_prev = "\n\n".join(prev_blocks)
-            final_prompt = f"{joined_prev}\n\n지시:\n{block['text']}" if joined_prev else block["text"]
-
-            rag_source = st.session_state.get(f"rag_source_{i}", None)
             retriever = None
-
             if rag_source == "웹 기반 RAG":
                 docs, error = get_web_documents_from_query(block["text"])
                 if not error and docs:
@@ -203,7 +193,6 @@ with st.sidebar:
                                 st.markdown(f"- 문서 {idx}: {url}")
                 else:
                     st.warning(f"웹 문서 수집 실패: {error or '문서 없음'}")
-
             elif rag_source == "유튜브 자막 기반 RAG":
                 if youtube_channel_input and youtube_channel_input.strip():
                     subtitle_docs = load_best_subtitles_documents(youtube_channel_input.strip())
@@ -218,34 +207,17 @@ with st.sidebar:
             if retriever:
                 st.session_state.persona_rag_flags[i] = True
                 st.session_state.persona_rag_retrievers[i] = retriever
-
-                rag_chain = get_conversational_rag_chain(
-                    retriever,
-                    st.session_state.system_prompt
-                )
-
-                rag_response = rag_chain.invoke({
-                    "input": final_prompt
-                })
-
+                rag_chain = get_conversational_rag_chain(retriever, st.session_state.system_prompt)
+                rag_response = rag_chain.invoke({"input": final_prompt})
                 content = rag_response.get("answer", rag_response.get("result", rag_response.get("content", "")))
                 source_docs = rag_response.get("source_documents", [])
-
                 sources = []
                 for doc in source_docs:
                     snippet = doc.page_content.strip()
-                    if len(snippet) > 300:
-                        snippet = snippet[:300] + "..."
-                    sources.append({
-                        "content": snippet,
-                        "source": doc.metadata.get("source", "출처 없음")
-                    })
-
-                st.session_state.messages.append(
-                    AIMessage(content=content, additional_kwargs={"sources": sources})
-                )
+                    if len(snippet) > 300: snippet = snippet[:300] + "..."
+                    sources.append({"content": snippet, "source": doc.metadata.get("source", "출처 없음")})
+                st.session_state.messages.append(AIMessage(content=content, additional_kwargs={"sources": sources}))
                 st.session_state.persona_blocks[i]["result"] = content
-                
             else:
                 st.session_state.persona_rag_flags[i] = False
                 result_text = generate_response_from_persona(final_prompt)
@@ -258,22 +230,21 @@ with st.sidebar:
     if delete_idx is not None:
         del st.session_state.persona_blocks[delete_idx]
         st.rerun()
-    
-    st.markdown("---")
 
+    st.markdown("---")
     with st.expander("영상 제작 설정", expanded=True):
-        # 영상 스타일 선택
+        # 영상 스타일
         st.session_state.video_style = st.selectbox(
             "영상 스타일 선택",
-            ["기본 이미지+타이틀", "감성 텍스트 영상"],
+            ["기본 이미지+타이틀", "감성 텍스트 영상", VIDEO_TEMPLATE],
             index=0
-        )   
+        )
         is_emotional = (st.session_state.video_style == "감성 텍스트 영상")
+        is_video_template = (st.session_state.video_style == VIDEO_TEMPLATE)
+
         st.subheader("📜 사용할 스크립트 선택")
-        
         available_personas_with_results = [
-            (i, block["name"]) for i, block in enumerate(st.session_state.persona_blocks)
-            if block.get("result", "").strip()
+            (i, block["name"]) for i, block in enumerate(st.session_state.persona_blocks) if block.get("result", "").strip()
         ]
 
         if available_personas_with_results:
@@ -284,306 +255,271 @@ with st.sidebar:
                 key="selected_script_persona_for_video",
                 index=0
             )
-
             selected_idx = selected_script_persona_idx[0]
             selected_script = st.session_state.persona_blocks[selected_idx]["result"]
 
-            # 🎬 사용자 수정 가능 스크립트
             st.session_state.edited_script_content = st.text_area(
                 "🎬 스크립트 내용 수정",
                 value=selected_script,
                 key="script_editor_editable"
             )
 
-            # 🔍 이미지 키워드 자동 추출
-            with st.spinner("스크립트에서 이미지 키워드를 추출하는 중..."):
+            with st.spinner("스크립트에서 미디어 키워드 추출 중..."):
                 topic_prompt = f"""다음 스크립트에서 이미지를 생성하기 위한 2~3개의 키워드 또는 간결한 구문(10단어 이하)을 추출하세요. 키워드만 응답하세요.
 
-    스크립트:
-    {selected_script}
+스크립트:
+{selected_script}
 
-    키워드:"""
+키워드:"""
                 topic_llm_chain = get_default_chain(system_prompt="당신은 텍스트에서 핵심 키워드를 뽑아내는 전문가입니다.")
                 topic = topic_llm_chain.invoke({"question": topic_prompt, "chat_history": []}).strip()
                 st.session_state.video_topic = topic
 
-            # 🎯 영상 제목 자동 추출
-            with st.spinner("스크립트에서 영상 제목을 추출하는 중..."):
+            with st.spinner("스크립트에서 영상 제목을 추출 중..."):
                 title_prompt = f"""다음 스크립트에 기반해 매력적이고 임팩트 있는 짧은 한국어 영상 제목을 생성하세요. 제목만 응답하세요.
 
-    스크립트:
-    {selected_script}
+스크립트:
+{selected_script}
 
-    제목:"""
+제목:"""
                 title_llm_chain = get_default_chain(system_prompt="당신은 숏폼 영상 제목을 짓는 전문가입니다.")
                 title = title_llm_chain.invoke({"question": title_prompt, "chat_history": []}).strip()
-                st.session_state.auto_video_title = title  # 자동 제목은 따로 저장
-                # 아직 사용자가 제목을 만지지 않았거나(=잠금 아님) 현재 제목이 비어있다면만 반영
+                st.session_state.auto_video_title = title
                 if not st.session_state.get("title_locked", False):
                     st.session_state.video_title = title
-
         else:
             st.warning("사용 가능한 페르소나 결과가 없습니다. 먼저 페르소나 실행을 통해 결과를 생성해 주세요.")
+
         if not is_emotional:
-            # 영상 주제 입력 필드 이름 변경 (Moved here)
             st.session_state.video_topic = st.text_input(
-                "이미지 생성에 사용될 키워드", # 필드 이름 변경
-                value=st.session_state.video_topic, # 세션 상태에서 가져옴
-                key="video_topic_input_final" # Changed key to avoid conflict if any
+                "이미지 생성에 사용될 키워드",
+                value=st.session_state.video_topic,
+                key="video_topic_input_final"
             )
 
-        # 새롭게 추가된 부분: 영상 제목 입력 필드
         st.session_state.video_title = st.text_input(
             "영상 제목 (영상 위에 표시될 제목)",
             value=st.session_state.video_title,
             key="video_title_input_final",
-            on_change=_lock_title  # 사용자가 수정하면 잠금!
+            on_change=_lock_title
         )
 
         if is_emotional:
             st.info("감성 텍스트 영상은 **이미지/음성 없이** 텍스트 + (선택) BGM으로만 제작됩니다.")
             st.session_state.include_voice = False
         else:
-            # 음성 포함 여부 선택
             st.session_state.include_voice = st.checkbox("영상에 AI 목소리 포함", value=st.session_state.include_voice)
-
             if st.session_state.include_voice:
-                # TTS 서비스 공급자 선택 라디오 버튼 추가
                 st.session_state.selected_tts_provider = st.radio(
                     "음성 서비스 공급자 선택:",
                     ("ElevenLabs", "Amazon Polly"),
                     index=0 if st.session_state.selected_tts_provider == "ElevenLabs" else 1,
                     key="tts_provider_select"
                 )
-
                 if st.session_state.selected_tts_provider == "ElevenLabs":
-                    # ElevenLabs 템플릿 선택
                     elevenlabs_template_names = list(TTS_ELEVENLABS_TEMPLATES.keys())
                     st.session_state.selected_tts_template = st.selectbox(
                         "ElevenLabs 음성 템플릿 선택:",
                         options=elevenlabs_template_names,
-                        index=elevenlabs_template_names.index(st.session_state.selected_tts_template) if st.session_state.selected_tts_template in elevenlabs_template_names else 0,
+                        index=elevenlabs_template_names.index(st.session_state.selected_tts_template)
+                            if st.session_state.selected_tts_template in elevenlabs_template_names else 0,
                         key="elevenlabs_template_select"
                     )
-                    # ElevenLabs는 voice_id를 따로 받을 수도 있지만, 여기서는 템플릿으로만 통일하여 간결하게 합니다.
-                    # 만약 특정 Voice ID를 직접 입력받고 싶다면 추가적인 text_input을 구성할 수 있습니다.
-
-                elif st.session_state.selected_tts_provider == "Amazon Polly":
-                    # Amazon Polly 음성 선택
+                else:
                     polly_voice_keys = list(TTS_POLLY_VOICES.keys())
                     st.session_state.selected_polly_voice_key = st.selectbox(
                         "Amazon Polly 음성 선택:",
                         options=polly_voice_keys,
-                        index=polly_voice_keys.index(st.session_state.selected_polly_voice_key) if st.session_state.selected_polly_voice_key in polly_voice_keys else 0,
+                        index=polly_voice_keys.index(st.session_state.selected_polly_voice_key)
+                            if st.session_state.selected_polly_voice_key in polly_voice_keys else 0,
                         key="polly_voice_select"
                     )
-        
+
         if not is_emotional:
-            # 자막 템플릿 선택
             st.session_state.selected_subtitle_template = st.selectbox(
                 "자막 템플릿 선택",
                 options=list(SUBTITLE_TEMPLATES.keys()),
                 index=list(SUBTITLE_TEMPLATES.keys()).index(st.session_state.selected_subtitle_template)
             )
 
-        # BGM 파일 업로드 (선택 사항)
         uploaded_bgm_file = st.file_uploader("BGM 파일 업로드 (선택 사항, .mp3, .wav)", type=["mp3", "wav"])
         if uploaded_bgm_file:
-            temp_bgm_path = os.path.join("assets", uploaded_bgm_file.name) # Use original filename
+            temp_bgm_path = os.path.join("assets", uploaded_bgm_file.name)
             os.makedirs("assets", exist_ok=True)
             with open(temp_bgm_path, "wb") as f:
                 f.write(uploaded_bgm_file.read())
             st.session_state.bgm_path = temp_bgm_path
-            st.success(f"배경 음악 '{uploaded_bgm_file.name}' 업로드를 완료했어요!")
-        else:
-            # If no file is uploaded, and there was a previous BGM, keep it unless explicitly cleared.
-            pass # Keep existing bgm_path if no new file is uploaded
+            st.success(f"배경 음악 '{uploaded_bgm_file.name}' 업로드 완료!")
 
         st.subheader("영상 제작")
         if st.button("영상 만들기"):
-            # 이전 내용 초기화
+            # 초기화
             st.session_state.video_binary_data = None
-            st.session_state.final_video_path = None
+            st.session_state.final_video_path = ""
             st.session_state.youtube_link = ""
             st.session_state.upload_clicked = False
-            # 사용자가 수정한 스크립트 내용과 주제를 사용
+
             final_script_for_video = st.session_state.edited_script_content
             final_topic_for_video = st.session_state.video_topic
-            final_title_for_video = st.session_state.video_title # 새롭게 추가된 부분: 최종 영상 제목
+            final_title_for_video = st.session_state.video_title
 
             if not final_script_for_video.strip():
-                st.error("스크립트 내용이 비어있습니다. 스크립트를 입력하거나 생성해주세요.")
+                st.error("스크립트 내용이 비어있습니다.")
                 st.stop()
             if (not is_emotional) and (not final_topic_for_video.strip()):
-                st.error("영상 주제가 비어있습니다. 주제를 입력해주세요.")
+                st.error("영상 주제가 비어있습니다.")
                 st.stop()
-            if not final_title_for_video.strip(): # 새롭게 추가된 부분: 영상 제목 유효성 검사
-                st.error("영상 제목이 비어있습니다. 제목을 입력하거나 생성해주세요.")
+            if not final_title_for_video.strip():
+                st.error("영상 제목이 비어있습니다.")
                 st.stop()
-    
+
             with st.spinner("✨ 영상 제작 중입니다..."):
                 try:
-                    # --- 0-1. 추출된 토픽을 영어로 번역 (GoogleTranslator 사용) ---
+                    # --- 키워드 영어화 (이미지/영상 검색용) ---
                     if not is_emotional:
-                        st.write("🌐 이미지 검색어를 영어로 번역 중...")
-                        image_query_english = ""
+                        st.write("🌐 미디어 검색어를 영어로 변환 중...")
                         try:
-                            translator = GoogleTranslator(source='ko', target='en')
-                            image_query_english = translator.translate(final_topic_for_video)
-                            st.success(f"이미지 검색어 번역 완료 (영어): '{image_query_english}'")
+                            image_query_english = GoogleTranslator(source='auto', target='en').translate(final_topic_for_video)
+                            st.success(f"변환 완료: '{image_query_english}'")
                         except Exception as e:
-                            st.warning(f"이미지 검색어 번역에 실패했습니다. 한국어 검색어를 그대로 사용합니다. 오류: {e}")
+                            st.warning(f"검색어 번역 실패(원문 사용): {e}")
                             image_query_english = final_topic_for_video
-                        image_query_final = image_query_english 
+                        media_query_final = image_query_english
+                    else:
+                        media_query_final = ""
 
                     audio_path = None
                     segments = []
+                    ass_path = None
 
+                    # --- 음성 포함 분기 ---
                     if not is_emotional and st.session_state.include_voice:
-                        # --- 1. Text-to-Speech (TTS) 생성 ---
+                        # 1) TTS (템플릿이면 영어)
                         audio_output_dir = "assets"
                         os.makedirs(audio_output_dir, exist_ok=True)
                         audio_path = os.path.join(audio_output_dir, "generated_audio.mp3")
-                        
+
+                        tts_text = final_script_for_video
+                        if st.session_state.video_style == VIDEO_TEMPLATE:
+                            try:
+                                tts_text = GoogleTranslator(source='auto', target='en').translate(final_script_for_video)
+                            except Exception as e:
+                                st.warning(f"영어 번역 실패(원문으로 진행): {e}")
+
                         st.write("🗣️ 음성 파일 생성 중...")
-                        
                         if st.session_state.selected_tts_provider == "ElevenLabs":
                             generated_audio_path = generate_tts(
-                                text=final_script_for_video,
+                                text=tts_text,
                                 save_path=audio_path,
-                                provider="elevenlabs", # 공급자 명시
-                                template_name=st.session_state.selected_tts_template # ElevenLabs 템플릿
+                                provider="elevenlabs",
+                                template_name=st.session_state.selected_tts_template
                             )
-                        elif st.session_state.selected_tts_provider == "Amazon Polly":
+                        else:
                             generated_audio_path = generate_tts(
-                                text=final_script_for_video,
+                                text=tts_text,
                                 save_path=audio_path,
-                                provider="polly", # 공급자 명시
-                                polly_voice_name_key=st.session_state.selected_polly_voice_key # Polly 음성 키
+                                provider="polly",
+                                polly_voice_name_key=st.session_state.selected_polly_voice_key
                             )
-
                         st.success(f"음성 파일 생성 완료: {generated_audio_path}")
-                        st.session_state.audio_path = generated_audio_path # Store audio path in session state
+                        st.session_state.audio_path = generated_audio_path
 
-                        # --- 2. Audio Transcription (ASR) 및 Subtitle (ASS) 파일 생성 ---
+                        # 2) 세그먼트 & ASS (항상 한국어 자막)
                         subtitle_output_dir = "assets"
                         os.makedirs(subtitle_output_dir, exist_ok=True)
                         ass_path = os.path.join(subtitle_output_dir, "generated_subtitle.ass")
-                        
-                        audio_save_path = "assets/generated_audio.mp3"
-                        full_audio_path = generate_tts(
-                        text=final_script_for_video,
-                        save_path=audio_save_path,
-                        provider="elevenlabs" if st.session_state.selected_tts_provider == "ElevenLabs" else "polly",
-                        template_name=st.session_state.selected_tts_template if st.session_state.selected_tts_provider == "ElevenLabs"
-                                else st.session_state.selected_polly_voice_key
-                    )
 
-                        st.write("📝 자막 생성을 위한 음성 분석 중...")
+                        st.write("📝 자막/세그먼트 생성 중...")
                         segments, audio_clips, ass_path = generate_subtitle_from_script(
-                        script_text=final_script_for_video,
-                        ass_path=ass_path,
-                        full_audio_file_path=full_audio_path, 
-                        provider="elevenlabs" if st.session_state.selected_tts_provider == "ElevenLabs" else "polly",
-                        template=st.session_state.selected_tts_template if st.session_state.selected_tts_provider == "ElevenLabs"
-                                else st.session_state.selected_polly_voice_key,
-                        subtitle_lang="ko",  # ✅ 한국어 자막 강제
-                        translate_only_if_english=False  # ✅ 항상 번역
-                    )
+                            script_text=final_script_for_video,       # 원문(한국어)
+                            ass_path=ass_path,
+                            full_audio_file_path=generated_audio_path,
+                            provider="elevenlabs" if st.session_state.selected_tts_provider == "ElevenLabs" else "polly",
+                            template=st.session_state.selected_tts_template if st.session_state.selected_tts_provider == "ElevenLabs"
+                                    else st.session_state.selected_polly_voice_key,
+                            subtitle_lang="ko",
+                            translate_only_if_english=False
+                        )
+                        if st.session_state.video_style == VIDEO_TEMPLATE:
+                            patch_ass_center(ass_path)
                         st.success(f"자막 파일 생성 완료: {ass_path}")
-                    else: # 음성이 없는 경우
-                        st.write("음성 없이 텍스트만으로 영상을 구성합니다." if is_emotional
-                                else "음성 없이 자막과 이미지만으로 영상을 생성합니다.")
 
-                        # 스크립트를 문장 단위로 분할
+                    else:
+                        # 음성 없이 세그먼트 생성(텍스트 길이 기반)
+                        st.write("🔤 음성 없이 텍스트 기반 세그먼트 생성")
                         sentences = re.split(r'(?<=[.?!])\s*', final_script_for_video.strip())
                         sentences = [s.strip() for s in sentences if s.strip()]
-
                         if not sentences:
-                            sentences = [final_script_for_video.strip()] # 전체 스크립트를 하나의 문장으로
+                            sentences = [final_script_for_video.strip()]
 
-                        words_per_minute = 150 # 분당 단어 수 (평균적인 읽기 속도)
+                        words_per_minute = 150
                         total_script_words = len(final_script_for_video.split())
-                        total_estimated_duration_seconds = (total_script_words / words_per_minute) * 60
+                        total_estimated_duration_seconds = max(5, (total_script_words / words_per_minute) * 60)
 
-                        if total_estimated_duration_seconds < 5: # 너무 짧은 영상 방지 (최소 5초)
-                            total_estimated_duration_seconds = 5
-
-                        current_time = 0.0 # 현재 시간 (누적)
-                        segments = [] # 최종 segments 리스트
-
-                        # total_chars 계산 (이전 코드에서 누락되어 있던 부분)
+                        current_time = 0.0
                         total_chars = sum(len(s) for s in sentences)
-
                         for sentence_text in sentences:
-                            min_segment_duration = 1.5 # 초
-
-                            if total_chars > 0: # 0으로 나누는 오류 방지
+                            min_segment_duration = 1.5
+                            if total_chars > 0:
                                 proportion = len(sentence_text) / total_chars
                                 segment_duration = total_estimated_duration_seconds * proportion
-                            else: # 스크립트가 비어있거나 특수한 경우 (이 경우는 거의 없겠지만 안전장치)
+                            else:
                                 segment_duration = total_estimated_duration_seconds / len(sentences)
-
                             segment_duration = max(min_segment_duration, segment_duration)
-
-                            segments.append({
-                                "start": current_time,
-                                "end": current_time + segment_duration,
-                                "text": sentence_text
-                            })
+                            segments.append({"start": current_time, "end": current_time + segment_duration, "text": sentence_text})
                             current_time += segment_duration
+                        if segments: segments[-1]["end"] = current_time
 
-                        if segments:
-                            segments[-1]["end"] = current_time 
                         if not is_emotional:
                             subtitle_output_dir = "assets"
                             os.makedirs(subtitle_output_dir, exist_ok=True)
                             ass_path = os.path.join(subtitle_output_dir, "generated_subtitle.ass")
-
                             st.write("📝 자막 파일 생성 중...")
                             generate_ass_subtitle(
                                 segments=segments,
                                 ass_path=ass_path,
                                 template_name=st.session_state.selected_subtitle_template
                             )
+                            if st.session_state.video_style == VIDEO_TEMPLATE:
+                                patch_ass_center(ass_path)
                             st.success(f"자막 파일 생성 완료: {ass_path}")
 
+                    # --- 미디어(이미지 or 영상) 수집 ---
+                    image_paths, video_paths = [], []
                     if st.session_state.video_style != "감성 텍스트 영상":
-                        # --- 3. 이미지 생성 ---
-                        num_images = max(3, len(segments)) if segments else 3 # 최소 3장 또는 세그먼트 수만큼
-                        image_output_dir = "assets"
-                        os.makedirs(image_output_dir, exist_ok=True)
-                        
-                        st.write(f"🖼️ '{image_query_final}' 관련 이미지 {num_images}장 생성 중...")
-                        image_paths = generate_images_for_topic(image_query_final, num_images)
-                        
-                        if not image_paths:
-                            st.warning("이미지 생성에 실패했습니다. 기본 이미지를 사용합니다.")
-                            default_image_path = "assets/default_image.jpg"
-                            if not os.path.exists(default_image_path):
-                                try:
-                                    print("Downloading a placeholder image as default_image.jpg is not found.")
-                                    generic_image_url = "https://images.pexels.com/photos/936043/pexels-photo-936043.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2" # Example URL
-                                    image_data = requests.get(generic_image_url).content
-                                    with open(default_image_path, "wb") as f:
-                                        f.write(image_data)
-                                    print(f"✅ Placeholder image saved to: {default_image_path}")
-                                except Exception as img_dl_e:
-                                    st.error(f"기본 이미지 다운로드에도 실패했습니다. 오류: {img_dl_e}")
-                                    st.stop()
-                            image_paths = [default_image_path] * num_images # Ensure enough default images
-                            
-                        st.success(f"이미지 {len(image_paths)}장 생성 완료.")
-                    else:
-                        image_paths = []
-                                               
-                    # --- 4. 비디오 생성 (자막 제외) ---
+                        if st.session_state.video_style == VIDEO_TEMPLATE:
+                            st.write(f"🎞️ '{media_query_final}' 관련 영상 수집 중...")
+                            video_paths = generate_videos_for_topic(media_query_final, max(3, len(segments)), orientation="portrait")
+                            if not video_paths:
+                                st.error("적합한 영상 클립을 찾지 못했습니다. 키워드를 바꿔보세요.")
+                                st.stop()
+                            st.success(f"영상 {len(video_paths)}개 확보")
+                        else:
+                            st.write(f"🖼️ '{media_query_final}' 관련 이미지 수집 중...")
+                            image_paths = generate_images_for_topic(media_query_final, max(3, len(segments)))
+                            if not image_paths:
+                                st.warning("이미지 생성 실패. 기본 이미지를 사용합니다.")
+                                default_image_path = "assets/default_image.jpg"
+                                if not os.path.exists(default_image_path):
+                                    try:
+                                        generic_image_url = "https://images.pexels.com/photos/936043/pexels-photo-936043.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2"
+                                        image_data = requests.get(generic_image_url).content
+                                        os.makedirs("assets", exist_ok=True)
+                                        with open(default_image_path, "wb") as f:
+                                            f.write(image_data)
+                                    except Exception as img_dl_e:
+                                        st.error(f"기본 이미지 다운로드 실패: {img_dl_e}")
+                                        st.stop()
+                                image_paths = [default_image_path] * max(3, len(segments))
+                            st.success(f"이미지 {len(image_paths)}장 확보")
+
+                    # --- 합성 ---
                     video_output_dir = "assets"
                     os.makedirs(video_output_dir, exist_ok=True)
                     temp_video_path = os.path.join(video_output_dir, "temp_video.mp4")
                     final_video_path = os.path.join(video_output_dir, "final_video_with_subs.mp4")
 
-                    st.write("🎬 비디오 클립 조합 및 오디오 통합 중...")
+                    st.write("🎬 비디오 합성 중...")
                     if is_emotional:
                         created_video_path = create_dark_text_video(
                             script_text=final_script_for_video,
@@ -594,42 +530,48 @@ with st.sidebar:
                         )
                         final_video_with_subs_path = created_video_path
                     else:
-                        created_video_path = create_video_with_segments(
-                            image_paths=image_paths,
-                            segments=segments,
-                            audio_path=audio_path if st.session_state.include_voice else None,
-                            topic_title=final_title_for_video,
-                            include_topic_title=True,
-                            bgm_path=st.session_state.bgm_path,
-                            save_path=temp_video_path
-                        )
-                        # --- 5. 비디오에 자막 추가 ---
-                        st.write("📝 비디오에 자막 추가 중...")
+                        if st.session_state.video_style == VIDEO_TEMPLATE:
+                            created_video_path = create_video_from_videos(
+                                video_paths=video_paths,
+                                segments=segments,
+                                audio_path=st.session_state.audio_path if st.session_state.include_voice else None,
+                                topic_title=final_title_for_video,
+                                include_topic_title=True,
+                                bgm_path=st.session_state.bgm_path,
+                                save_path=temp_video_path
+                            )
+                        else:
+                            created_video_path = create_video_with_segments(
+                                image_paths=image_paths,
+                                segments=segments,
+                                audio_path=st.session_state.audio_path if st.session_state.include_voice else None,
+                                topic_title=final_title_for_video,
+                                include_topic_title=True,
+                                bgm_path=st.session_state.bgm_path,
+                                save_path=temp_video_path
+                            )
+
+                        # 자막 오버레이
+                        st.write("📝 자막 입히는 중...")
                         final_video_with_subs_path = add_subtitles_to_video(
                             input_video_path=created_video_path,
                             ass_path=ass_path,
                             output_path=final_video_path
                         )
-                    st.success(f"기본 비디오 생성 완료: {created_video_path}")
 
-                    # ✅ 최종 영상 경로 저장
-                    st.session_state["final_video_path"] = final_video_with_subs_path
-                    
                     st.success(f"✅ 최종 영상 생성 완료: {final_video_with_subs_path}")
+                    st.session_state["final_video_path"] = final_video_with_subs_path
 
                 except Exception as e:
-                    st.error(f"❌ 영상 생성 중 오류가 발생했습니다: {e}")
+                    st.error(f"❌ 영상 생성 중 오류: {e}")
                     st.exception(e)
-        
+
     st.divider()
-    # 🎬 다운로드 및 업로드 섹션
+    # ---------- 다운로드 & 업로드 ----------
     with st.expander("📤 다운로드 및 업로드", expanded=True):
         final_path = st.session_state.get("final_video_path", "")
-
         if final_path and os.path.exists(final_path):
             st.video(final_path)
-
-            # ✅ 세션에 바이너리가 없으면 파일에서 읽어 즉시 보정
             data_for_download = st.session_state.get("video_binary_data", None)
             if data_for_download is None:
                 try:
@@ -637,17 +579,14 @@ with st.sidebar:
                         data_for_download = f.read()
                     st.session_state.video_binary_data = data_for_download
                 except Exception as e:
-                    st.error(f"영상 파일을 읽는 중 오류가 발생했습니다: {e}")
-                    data_for_download = b""  # 안전 가드
-
+                    st.error(f"영상 파일 읽기 오류: {e}")
+                    data_for_download = b""
             st.download_button(
                 label="🎬 영상 다운로드",
                 data=data_for_download,
                 file_name="generated_multimodal_video.mp4",
                 mime="video/mp4"
             )
-
-            # 📤 업로드 버튼
             if not st.session_state.upload_clicked:
                 if st.button("YouTube에 자동 업로드"):
                     try:
@@ -664,132 +603,93 @@ with st.sidebar:
             else:
                 st.success("✅ YouTube 업로드 완료됨")
                 st.markdown(f"[📺 영상 보러가기]({st.session_state.youtube_link})")
-            
         else:
-            st.info("📌 먼저 영상을 만들어 주세요. '영상 만들기' 버튼을 눌러야 이 영역이 활성화됩니다.")    
-            
+            st.info("📌 먼저 '영상 만들기'를 실행해 주세요.")
+
     if st.button("대화 초기화"):
         st.session_state.clear()
         st.rerun()
 
-
-# --- 메인 채팅 인터페이스 ---
+# ---------- 메인 채팅 ----------
 for message in st.session_state.messages:
-    # message 객체의 'type' 속성 (예: 'human', 'ai')을 사용합니다.
     with st.chat_message(message.type):
-        # message 객체의 'content' 속성을 사용합니다.
         st.markdown(message.content)
-
-        # AI 메시지이고, 추가적인 인자 (additional_kwargs)에 'sources'가 있다면 표시
-        # AIMessage 객체에 'sources'를 직접 추가하는 대신 'additional_kwargs'에 저장됩니다.
         if message.type == "ai" and hasattr(message, "additional_kwargs") and "sources" in message.additional_kwargs and message.additional_kwargs["sources"]:
             st.subheader("📚 참고 문단 (RAG 기반)")
             for idx, source_item in enumerate(message.additional_kwargs["sources"], start=1):
                 content_display = source_item["content"]
                 source_url_display = source_item.get("source", "N/A")
-                
-                # 내용이 너무 길면 줄이기
                 if len(content_display) > 200:
                     content_display = content_display[:200] + "..."
-                
-                # URL이 있으면 링크와 함께 표시
                 if source_url_display != 'N/A':
                     st.markdown(f"**출처 {idx}:** [{source_url_display}]({source_url_display})\n> {content_display}")
                 else:
                     st.markdown(f"**출처 {idx}:**\n> {content_display}")
 
-
-# --- 챗봇 입력 및 응답 ---
 if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI 기술 트렌드 알려줘)"):
-    st.session_state.messages.append(HumanMessage(content=user_input)) # Langchain HumanMessage 사용
+    st.session_state.messages.append(HumanMessage(content=user_input))
     with st.chat_message("human"):
         st.markdown(user_input)
-    st.session_state.last_user_query = user_input # 마지막 사용자 쿼리 저장
+    st.session_state.last_user_query = user_input
 
     with st.chat_message("ai"):
         container = st.empty()
         ai_answer = ""
         sources_list = []
-        
-        # RAG 사용 여부 결정 (URL 또는 파일이 처리된 경우)
+
         if st.session_state.retriever:
             rag_chain = get_conversational_rag_chain(st.session_state.retriever, st.session_state.system_prompt)
             rag_response = rag_chain.invoke({"input": user_input})
-            
             ai_answer = rag_response.get("answer", rag_response.get("result", rag_response.get("content", "")))
             source_docs = rag_response.get("source_documents", [])
-
             sources_list = []
             for doc in source_docs:
-                sources_list.append({
-                    "content": doc.page_content[:200],
-                    "source": doc.metadata.get("source", "출처 없음")
-                })
-
+                sources_list.append({"content": doc.page_content[:200], "source": doc.metadata.get("source", "출처 없음")})
             container.markdown(ai_answer)
-
-            # ✅ 출처까지 함께 저장
-            st.session_state.messages.append(
-                AIMessage(content=ai_answer, additional_kwargs={"sources": sources_list})
-            )
+            st.session_state.messages.append(AIMessage(content=ai_answer, additional_kwargs={"sources": sources_list}))
         else:
-            # 일반 챗봇 모드 (RAG 비활성화)
             chain = get_default_chain(st.session_state.system_prompt)
-            
-            # 챗봇 스트리밍 응답
             for token in chain.stream({"question": user_input, "chat_history": st.session_state.messages}):
                 ai_answer += token
                 container.markdown(ai_answer)
-        
-        # RAG 기반 출처 표시 (이전 코드를 통합)
-        if sources_list: # sources_list에 값이 있을 때만 표시
+
+        if sources_list:
             st.write("### 📚 참고 문단 (RAG 기반)")
             for idx, source_item in enumerate(sources_list, start=1):
                 content_display = source_item["content"]
                 source_url_display = source_item.get("source", "N/A")
-                
-                # 내용이 너무 길면 줄이기
                 if len(content_display) > 200:
                     content_display = content_display[:200] + "..."
-                
-                # URL이 있으면 링크와 함께 표시
                 if source_url_display != 'N/A':
                     st.markdown(f"**출처 {idx}:** [{source_url_display}]({source_url_display})\n> {content_display}")
                 else:
                     st.markdown(f"**출처 {idx}:**\n> {content_display}")
 
-
-
-    # 챗봇이 답변을 생성한 후, 사이드바의 스크립트와 주제 필드를 자동으로 채웁니다.
-    # 일반 챗봇 답변을 스크립트로 활용
+    # 채팅 답변을 곧바로 스크립트/주제로 반영
     st.session_state.edited_script_content = ai_answer
-    with st.spinner("답변에서 영상 주제를 자동으로 추출하고 있습니다..."):
+    with st.spinner("답변에서 영상 주제를 자동 추출 중..."):
         topic_extraction_prompt = f"""다음 스크립트에서 이미지를 생성하기 위한 2-3개의 간결한 키워드 또는 아주 짧은 구문(최대 10단어)으로 메인 주제를 추출해주세요. 키워드/구문만 응답하세요.
 
-        스크립트:
-        {ai_answer}
+스크립트:
+{ai_answer}
 
-        키워드/주제:"""
+키워드/주제:"""
         topic_llm_chain = get_default_chain(system_prompt="당신은 주어진 텍스트에서 키워드를 추출하는 유용한 조수입니다.")
         extracted_topic_for_ui = topic_llm_chain.invoke({"question": topic_extraction_prompt, "chat_history": []}).strip()
         if extracted_topic_for_ui:
             st.session_state.video_topic = extracted_topic_for_ui
 
-    # 새롭게 추가된 부분: 챗봇 답변에서 영상 제목 자동 추출
-    with st.spinner("답변에서 영상 제목을 자동으로 추출하고 있습니다..."):
-        title_extraction_prompt = f"""당신은 TikTok, YouTube Shorts, Instagram Reels과 같은 **매력적이고 바이럴성 있는 숏폼 비디오 제목**을 작성하는 전문 크리에이터입니다.
-다음 스크립트에서 시청자의 스크롤을 멈추게 할 수 있는, **최대 5단어 이내의 간결하고 임팩트 있는 한국어 제목**을 생성해주세요.
-이 제목은 호기심을 유발하고, 핵심 내용을 빠르게 전달하며, 클릭을 유도하는 강력한 후크 역할을 해야 합니다.
-**예시: '체스 초고수 꿀팁!', '이거 알면 체스 끝!', '체스 천재되는 법?'**
-**제목만 응답하세요.**
+    with st.spinner("답변에서 영상 제목을 자동 추출 중..."):
+        title_extraction_prompt = f"""당신은 TikTok, YouTube Shorts, Instagram Reels용 **매력적이고 바이럴성 있는 숏폼 비디오 제목**을 작성하는 전문가입니다.
+다음 스크립트에서 **최대 5단어 이내**의 강렬한 한국어 제목만 생성하세요.
 
-        스크립트:
-        {ai_answer}
+스크립트:
+{ai_answer}
 
-        영상 제목:"""
+영상 제목:"""
         title_llm_chain = get_default_chain(
-    system_prompt="당신은 숏폼(Shorts) 비디오를 위한 매우 짧고 강렬한 한국어 제목을 생성하는 전문 AI입니다. 항상 5단어 이내로, 시청자의 호기심을 극대화하는 제목을 만드세요."
-)
+            system_prompt="당신은 숏폼 비디오용 매우 짧고 강렬한 한국어 제목을 생성하는 전문 AI입니다. 항상 5단어 이내."
+        )
         extracted_title_for_ui = title_llm_chain.invoke({"question": title_extraction_prompt, "chat_history": []}).strip()
         if extracted_title_for_ui:
             extracted_title_for_ui = re.sub(r'[\U00010000-\U0010ffff]', '', extracted_title_for_ui).strip()
@@ -797,6 +697,5 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
             if not st.session_state.get("title_locked", False):
                 st.session_state.video_title = extracted_title_for_ui
         else:
-            # 자동제목이 없을 때만 기본값 세팅 (사용자 입력은 건드리지 않음)
             if not st.session_state.get("video_title"):
                 st.session_state.video_title = "제목 없음"

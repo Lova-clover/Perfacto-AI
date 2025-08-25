@@ -1,5 +1,5 @@
 from moviepy import (
-    ImageClip, AudioFileClip, concatenate_videoclips,
+    ImageClip, VideoFileClip, AudioFileClip, concatenate_videoclips,
     CompositeVideoClip, TextClip, ColorClip, CompositeAudioClip
 )
 import os
@@ -573,4 +573,162 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     final_video = video.with_audio(final_audio).with_fps(24)
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     final_video.write_videofile(save_path, codec="libx264", audio_codec="aac")
+    return save_path
+
+def create_video_from_videos(
+    video_paths, segments, audio_path, topic_title,
+    include_topic_title=True, bgm_path="", save_path="assets/video_from_videos.mp4"
+):
+    """
+    - video_paths: 내려받은 mp4 리스트
+    - segments: [{start, end, text}] (오디오/자막 타이밍 기준)
+    - audio_path: 음성(영어) TTS mp3 경로
+    - topic_title: 상단 타이틀 텍스트
+    """
+    import math
+
+    video_width, video_height = 720, 1080
+    clips = []
+
+    # 전체 길이
+    total_video_duration = segments[-1]["end"] if segments else 10
+
+    # 오디오(없으면 무음)
+    if audio_path and os.path.exists(audio_path):
+        audio = AudioFileClip(audio_path)
+    else:
+        audio = AudioArrayClip(np.array([[0.0, 0.0]]), fps=44100).with_duration(total_video_duration)
+
+    # 부족하면 순환
+    if len(video_paths) < len(segments):
+        cycle = (len(segments) + len(video_paths) - 1) // len(video_paths)
+        video_paths = (video_paths * cycle)[:len(segments)]
+
+    def resize_cover(clip, W, H):
+        scale = max(W / clip.w, H / clip.h)
+        resized = clip.resized(scale)
+        # 중앙 배치로 프레임에 맞게 '크롭' 효과
+        x = round((W - resized.w) / 2)
+        y = round((H - resized.h) / 2)
+        return resized.with_position((x, y))
+
+    # 타이틀(이미지 템플릿과 동일 로직)
+    def build_title_overlay(duration):
+        font_path = os.path.join("assets", "fonts", "Pretendard-Bold.ttf")
+        line1, line2 = auto_split_title(topic_title)
+        formatted_title = line1 + ("\n" + line2 if line2 else "")
+        max_title_width = video_width - 40
+
+        used_caption = False
+        try:
+            title_clip = TextClip(
+                text=formatted_title + "\n",
+                font_size=48, color="white", font=font_path,
+                stroke_color="skyblue", stroke_width=1,
+                method="caption", size=(max_title_width, None), align="center",
+            ).with_duration(duration)
+            used_caption = True
+        except TypeError:
+            # caption 미지원 환경 폴백: label 기반 가운데 보정
+            def line_width(s: str) -> int:
+                if not s: return 0
+                c = TextClip(text=s, font=font_path, font_size=48, method="label")
+                w = c.w; c.close(); return w
+
+            def wrap_to_width(text: str, max_w: int):
+                words = text.split()
+                lines, cur = [], ""
+                for w in words:
+                    test = (cur + " " + w).strip()
+                    if not cur or line_width(test) <= max_w:
+                        cur = test
+                    else:
+                        lines.append(cur); cur = w
+                if cur: lines.append(cur)
+                return lines
+
+            wrapped = []
+            for block in formatted_title.split("\n"):
+                if block.strip():
+                    wrapped += wrap_to_width(block, max_title_width)
+            if not wrapped: wrapped = [""]
+
+            maxw = max(line_width(l) for l in wrapped) if wrapped else 1
+            spacew = max(line_width("\u00A0"), 1)
+            centered = []
+            for l in wrapped:
+                lw = line_width(l)
+                pad = int(round((maxw - lw) / (2 * spacew))) if maxw > lw else 0
+                centered.append("\u00A0" * pad + l)
+
+            final_text = "\n".join(centered) + "\n"
+            title_clip = TextClip(
+                text=final_text, font_size=48, color="white",
+                font=font_path, stroke_color="skyblue", stroke_width=1,
+                method="label",
+            ).with_duration(duration)
+
+        # 높이 계산
+        pad_y = 16
+        dummy = TextClip(
+            text=formatted_title if used_caption else "\n".join(wrapped) if 'wrapped' in locals() else formatted_title,
+            font_size=48, font=font_path, method="caption" if used_caption else "label", size=(max_title_width, None) if used_caption else None, align="center"
+        )
+        title_bar_h = dummy.h + pad_y * 2
+        dummy.close()
+
+        black_bar = ColorClip(size=(video_width, title_bar_h), color=(0, 0, 0)).with_duration(duration).with_position(("center", "top"))
+
+        x = round((video_width - title_clip.w) / 2)
+        base_y = round((title_bar_h - title_clip.h) / 2)
+        y = max(0, min(base_y + 10, title_bar_h - title_clip.h))
+        title_clip = title_clip.with_position((x, y))
+
+        return [black_bar, title_clip], title_bar_h
+
+    for i, seg in enumerate(segments):
+        duration = seg["end"] - seg["start"]
+        path = video_paths[i]
+        raw = VideoFileClip(path).without_audio()  # 원본 오디오 제거
+
+        # 길이 맞추기(반복)
+        if raw.duration < duration:
+            repeat = int(math.ceil(duration / max(raw.duration, 0.1)))
+            repeated = concatenate_videoclips([raw] * repeat, method="chain")
+            try:
+                clip = repeated.subclipped(0, duration)
+            except AttributeError:
+                clip = repeated.subclip(0, duration)
+        else:
+            try:
+                clip = raw.subclipped(0, duration)
+            except AttributeError:
+                clip = raw.subclip(0, duration)
+
+        # 세로 9:16 캔버스에 'cover'로 맞추기
+        base = resize_cover(clip, video_width, video_height)
+
+        overlays = []
+        if include_topic_title:
+            o, _ = build_title_overlay(duration)
+            overlays.extend(o)
+
+        seg_clip = CompositeVideoClip(
+            [base] + overlays, size=(video_width, video_height)
+        ).with_duration(duration)
+        clips.append(seg_clip)
+
+    final_audio = audio
+    if bgm_path and os.path.exists(bgm_path):
+        bgm_raw = AudioFileClip(bgm_path)
+        bgm_array = bgm_raw.to_soundarray(fps=44100) * 0.2
+        repeat_count = int(np.ceil(audio.duration / bgm_raw.duration))
+        bgm_array = np.tile(bgm_array, (repeat_count, 1))[:int(audio.duration * 44100)]
+        bgm = AudioArrayClip(bgm_array, fps=44100).with_duration(audio.duration)
+        final_audio = CompositeAudioClip([audio, bgm])
+
+    final = concatenate_videoclips(clips, method="chain").with_audio(final_audio).with_fps(24)
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    final.write_videofile(save_path, codec="libx264", audio_codec="aac")
+    print(f"✅ 영상(동영상 소스) 저장 완료: {save_path}")
     return save_path
