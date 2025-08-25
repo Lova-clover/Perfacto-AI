@@ -251,7 +251,7 @@ def generate_subtitle_from_script(
     translate_only_if_english: bool = False,
     tts_lang: str | None = None,
     split_mode: str = "newline",          # ✅ 새 파라미터
-    strip_trailing_punct_last: bool = False
+    strip_trailing_punct_last: bool = True
 ):
     # 1) 라인 분할
     script_lines = split_script_to_lines(script_text, mode=split_mode) 
@@ -297,3 +297,65 @@ def generate_subtitle_from_script(
     generate_ass_subtitle(segments, ass_path, template_name=template,
                           strip_trailing_punct_last=strip_trailing_punct_last)
     return segments, None, ass_path
+
+# === Auto-paced subtitle densifier (쉼표·세미콜론 우선, 길이면 보정) ===
+def _auto_split_for_tempo(text: str, tempo: str = "fast"):
+    """
+    tempo: fast(짧게) | medium | slow
+    - 1차: 쉼표/세미콜론/중점 등에서 우선 분할 (구두점은 앞 조각에 남김)
+    - 2차: 너무 길면 공백 근처로 잘라내기 (한국어 공백 기준, 없으면 길이로 강제 절단)
+    """
+    import re
+    max_len_map = {"fast": 12, "medium": 18, "slow": 24}
+    max_len = max_len_map.get(tempo, 16)
+
+    # 1차: 부드러운 분할(쉼표류, ; : · 등)
+    parts = re.split(r'(?<=[,，、;:·])\s*', (text or "").strip())
+    parts = [p for p in parts if p]
+
+    chunks = []
+    for p in parts:
+        p = p.strip()
+        if not p:
+            continue
+        if len(p) <= max_len:
+            chunks.append(p)
+            continue
+
+        # 2차: 길면 공백 근처로 분절(가까운 공백 찾기, 없으면 강제)
+        cur = p
+        while len(cur) > max_len:
+            window = cur[: max_len + 4]  # 살짝 여유
+            # 가장 오른쪽 공백 위치(가능하면 단어 경계에서 끊기)
+            spaces = [m.start() for m in re.finditer(r'\s', window)]
+            split_pos = spaces[-1] if spaces else max_len
+            chunks.append(cur[:split_pos].strip())
+            cur = cur[split_pos:].strip()
+        if cur:
+            chunks.append(cur)
+    return chunks
+
+
+def auto_densify_for_subs(segments, tempo: str = "fast"):
+    """
+    각 원 세그먼트(한 줄)를 tempo에 맞춰 여러 하위 자막 이벤트로 쪼개되,
+    오디오/영상 타이밍은 유지(문자 길이 비율로 시간 배분).
+    """
+    dense = []
+    for seg in segments:
+        start, end = seg["start"], seg["end"]
+        dur = max(0.01, end - start)
+        pieces = _auto_split_for_tempo(seg.get("text", ""), tempo=tempo)
+        if not pieces:
+            dense.append(seg)
+            continue
+        total_chars = sum(len(x) for x in pieces) or 1
+        t = start
+        for i, txt in enumerate(pieces):
+            if i == len(pieces) - 1:
+                t2 = end  # 마지막은 끝까지
+            else:
+                t2 = t + dur * (len(txt) / total_chars)
+            dense.append({"start": t, "end": t2, "text": txt})
+            t = t2
+    return dense

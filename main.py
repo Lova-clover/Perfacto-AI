@@ -6,7 +6,7 @@ from RAG.chain_builder import get_conversational_rag_chain, get_default_chain
 from persona import generate_response_from_persona
 from image_generator import generate_images_for_topic, generate_videos_for_topic
 from elevenlabs_tts import TTS_ELEVENLABS_TEMPLATES, TTS_POLLY_VOICES
-from generate_timed_segments import generate_subtitle_from_script, generate_ass_subtitle, SUBTITLE_TEMPLATES
+from generate_timed_segments import generate_subtitle_from_script, generate_ass_subtitle, SUBTITLE_TEMPLATES, _auto_split_for_tempo, auto_densify_for_subs
 from video_maker import (
     create_video_with_segments,
     create_video_from_videos,
@@ -526,6 +526,14 @@ with st.sidebar:
                             tts_lang="en",                      # ✅ 음성만 영어(라인별 번역 후 TTS)
                             split_mode="newline",               # ✅ 입력 줄바꿈 그대로(가장 중요)
                             strip_trailing_punct_last=False     # ✅ 원문 100% 유지
+                        )
+                        # ✅ 자막만 "자동-빠른 템포"로 더 쪼개서 덮어쓰기 (오디오/영상 타이밍 유지)
+                        dense_events = auto_densify_for_subs(segments, tempo="fast")
+                        generate_ass_subtitle(
+                            segments=dense_events,
+                            ass_path=ass_path,
+                            template_name=st.session_state.selected_subtitle_template,
+                            strip_trailing_punct_last=True
                         )
                         try:
                             if audio_clips is not None:
