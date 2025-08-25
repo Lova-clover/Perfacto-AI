@@ -6,7 +6,7 @@ from RAG.chain_builder import get_conversational_rag_chain, get_default_chain
 from persona import generate_response_from_persona
 from image_generator import generate_images_for_topic, generate_videos_for_topic
 from elevenlabs_tts import TTS_ELEVENLABS_TEMPLATES, TTS_POLLY_VOICES
-from generate_timed_segments import generate_subtitle_from_script, generate_ass_subtitle, SUBTITLE_TEMPLATES, _auto_split_for_tempo, auto_densify_for_subs
+from generate_timed_segments import generate_subtitle_from_script, generate_ass_subtitle, SUBTITLE_TEMPLATES, _auto_split_for_tempo, auto_densify_for_subs, _strip_last_punct_preserve_closers
 from video_maker import (
     create_video_with_segments,
     create_video_from_videos,
@@ -529,11 +529,16 @@ with st.sidebar:
                         )
                         # ✅ 자막만 "자동-빠른 템포"로 더 쪼개서 덮어쓰기 (오디오/영상 타이밍 유지)
                         dense_events = auto_densify_for_subs(segments, tempo="medium")
+
+                        # ✅ 마지막 조각의 꼬리 구두점 확실히 제거(따옴표/괄호는 보존)
+                        if dense_events:
+                            dense_events[-1]["text"] = _strip_last_punct_preserve_closers(dense_events[-1]["text"])
+
                         generate_ass_subtitle(
                             segments=dense_events,
                             ass_path=ass_path,
                             template_name=st.session_state.selected_subtitle_template,
-                            strip_trailing_punct_last=True
+                            strip_trailing_punct_last=False   # ✅ 이미 위에서 처리했으니 비활성
                         )
                         try:
                             if audio_clips is not None:

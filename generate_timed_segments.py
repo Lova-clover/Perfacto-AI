@@ -364,19 +364,14 @@ def _strip_last_punct_preserve_closers(s: str) -> str:
     if not s:
         return s
     closers = '")\']”’)]}›»」』】〕〗〉》'
-    puncts  = '.,!?…~·。'
+    # ↓ 전각 마침표(．, ｡), 전각 느낌표/물음표(！, ？)까지 포함
+    puncts  = '.,!?…~·。．｡！？'
 
-    # 1) 끝에서부터 닫는 기호들을 걷어낸다
     tail = []
     i = len(s) - 1
     while i >= 0 and s[i] in closers:
-        tail.append(s[i])
-        i -= 1
-
-    # 2) 닫는 기호 앞의 꼬리 구두점들 제거(공백 포함)
+        tail.append(s[i]); i -= 1
     j = i
     while j >= 0 and (s[j] in puncts or s[j].isspace() or s[j] == '　'):
         j -= 1
-
-    # 3) 원본문자열(구두점 제거) + 닫는 기호들 복원
     return s[:j+1] + ''.join(reversed(tail))
