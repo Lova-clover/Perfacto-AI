@@ -536,7 +536,7 @@ with st.sidebar:
                                 segments=segments,
                                 audio_path=st.session_state.audio_path if st.session_state.include_voice else None,
                                 topic_title=final_title_for_video,
-                                include_topic_title=True,
+                                include_topic_title=False,
                                 bgm_path=st.session_state.bgm_path,
                                 save_path=temp_video_path
                             )

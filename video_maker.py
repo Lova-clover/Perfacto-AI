@@ -788,7 +788,16 @@ def create_video_from_videos(
             pass
 
     subprocess.run(
-        ["ffmpeg", "-y", "-i", temp_video, "-i", audio_mix, "-c:v", "copy", "-c:a", "aac", "-shortest", save_path],
+        [
+            "ffmpeg","-y",
+            "-i", temp_video,
+            "-i", audio_mix,
+            # ✅ 비디오는 temp_video의 첫 번째 비디오 스트림, 오디오는 audio_mix의 첫 번째 오디오 스트림만 사용
+            "-map","0:v:0","-map","1:a:0",
+            "-c:v","copy","-c:a","aac",
+            "-shortest",
+            save_path
+        ],
         check=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT
     )
 
