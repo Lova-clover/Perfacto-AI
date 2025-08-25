@@ -111,9 +111,6 @@ def _maybe_translate_lines(lines, target='ko', only_if_src_is_english=True):
         # 번역 실패 시 원문 유지 (크래시 방지)
         return lines
 
-def split_script_to_lines(script_text):
-    return [sent.strip() for sent in kss.split_sentences(script_text) if sent.strip()]
-
 def generate_tts_per_line(script_lines, provider, template, polly_voice_key="korean_female1"):
     audio_paths = []
     temp_audio_dir = "temp_line_audios"
@@ -179,13 +176,13 @@ def get_segments_from_audio(audio_paths, script_lines):
     return segments
 
 
-def generate_ass_subtitle(segments, ass_path, template_name="default"):
+def generate_ass_subtitle(segments, ass_path, template_name="default",
+                          strip_trailing_punct_last=True):
     settings = SUBTITLE_TEMPLATES.get(template_name, SUBTITLE_TEMPLATES["default"])
-
     with open(ass_path, "w", encoding="utf-8") as f:
+        # [Script Info] + [V4+ Styles] 헤더 (이 부분이 지금 한 버전에서 빠져 있음)
         f.write("[Script Info]\n")
         f.write("ScriptType: v4.00+\n\n")
-
         f.write("[V4+ Styles]\n")
         f.write("Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
         f.write(f"Style: Bottom,{settings['Fontname']},{settings['Fontsize']},{settings['PrimaryColour']},{settings['OutlineColour']},1,{settings['Outline']},0,2,10,10,{settings['MarginV']},1\n\n")
@@ -194,18 +191,13 @@ def generate_ass_subtitle(segments, ass_path, template_name="default"):
         f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
 
         for i, seg in enumerate(segments):
-            start = seg['start']
-            # 변경: 다음 세그먼트 시작 대신 현재 세그먼트의 실제 끝 시간을 사용
-            end = seg['end']
-
+            start, end = seg['start'], seg['end']
             text = seg['text'].strip().replace("\\n", " ")
-
-            # 시간 형식 변환
+            if strip_trailing_punct_last and i == len(segments) - 1:
+                text = re.sub(r'[\s　]*[,.!?…~·]+$', '', text)  # 마지막 자막만 꼬리 구두점 제거
             start_ts = format_ass_timestamp(start)
             end_ts = format_ass_timestamp(end)
-
-            # Dialogue: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-            f.write(f"Dialogue: 0,{start_ts},{end_ts},Bottom,,0,0,0,,{text}\n")
+            f.write(f"Dialogue: 0,{start_ts},{end_ts},Bottom,0,0,0,{text}\n")
 
 def format_ass_timestamp(seconds):
     h = int(seconds // 3600)
@@ -215,6 +207,14 @@ def format_ass_timestamp(seconds):
     return f"{h:01}:{m:02}:{s:02}.{cs:02}"
 
 
+# --- 변경 1: 분할 함수에 콤마/마침표 분할 옵션 추가 ---
+def split_script_to_lines(script_text, comma_period_split=False):
+    if comma_period_split:
+        parts = re.split(r'(?<=[,.])\s*', script_text.strip())
+        return [p.strip() for p in parts if p.strip()]
+    return [sent.strip() for sent in kss.split_sentences(script_text) if sent.strip()]
+
+# --- 변경 2: generate_subtitle_from_script 시그니처/로직 확장 ---
 def generate_subtitle_from_script(
     script_text: str,
     ass_path: str,
@@ -222,68 +222,53 @@ def generate_subtitle_from_script(
     provider: str = "elevenlabs",
     template: str = "default",
     polly_voice_key: str = "korean_female",
-    # ▼ 새로 추가: 자막 언어 컨트롤
-    subtitle_lang: str = "ko",             # "auto" | "ko" | "en"
-    translate_only_if_english: bool = False   # True면 "원문이 영어일 때만 ko로 번역"
-    # 현재는 한국어자막만 사용할 것이기 때문에 False
+    subtitle_lang: str = "ko",                 # "auto" | "ko" | "en"
+    translate_only_if_english: bool = False,   # 원문이 영어일 때만 자막 번역
+    tts_lang: str | None = None,               # "en"/"ko"/None -> None이면 원문대로
+    split_by_commas: bool = False,             # 콤마/마침표 분할 사용 여부
+    strip_trailing_punct_last: bool = True     # 마지막 자막 구두점 제거
 ):
-    print(f"디버그: 자막 생성을 위한 스크립트 라인 분리 중...")
-    script_lines = split_script_to_lines(script_text)
-    print(f"디버그: 분리된 스크립트 라인 수: {len(script_lines)}")
+    # 1) 라인 분할
+    script_lines = split_script_to_lines(script_text, comma_period_split=split_by_commas)
 
     if not script_lines:
-        print("경고: 스크립트 라인이 생성되지 않았습니다. 빈 segments 반환.")
         return [], None, ass_path
 
-    # 1) TTS는 항상 원문으로 (영어 음성 유지 목적)
+    # 2) TTS 라인: 원문을 유지하되, tts_lang 지정 시 라인 단위 번역(개수 보존)
     tts_lines = script_lines[:]
+    if tts_lang in ("en", "ko"):
+        tts_lines = _maybe_translate_lines(
+            script_lines,
+            target=tts_lang,
+            only_if_src_is_english=False
+        )
 
-    # 2) 자막 텍스트만 선택적으로 번역
+    # 3) 자막 라인: 요청 언어에 따라 선택(ko면 그대로 두면 원문과 100% 동일)
     target = None
     if subtitle_lang == "ko":
         target = "ko"
     elif subtitle_lang == "en":
         target = "en"
-    # "auto"면 target=None → 번역 안함 (원문 그대로)
 
     subtitle_lines = (
         _maybe_translate_lines(
-            script_lines,
-            target=target,
+            script_lines, target=target,
             only_if_src_is_english=translate_only_if_english
-        )
-        if target is not None else script_lines
+        ) if target is not None else script_lines
     )
 
-    # 3) 라인별 TTS (원문 기준)
+    # 4) 라인별 TTS 생성 및 병합
     audio_paths = generate_tts_per_line(tts_lines, provider=provider, template=template)
     if not audio_paths:
-        print("오류: 라인별 오디오 파일이 생성되지 않았습니다. 빈 segments 반환.")
         return [], None, ass_path
 
-    # 4) 병합 및 타이밍
     segments_raw = merge_audio_files(audio_paths, full_audio_file_path)
     segments = []
     for i, s in enumerate(segments_raw):
-        # 자막 문장은 번역된 문장(또는 원문) 사용
         line_text = subtitle_lines[i] if i < len(subtitle_lines) else tts_lines[i]
         segments.append({"start": s["start"], "end": s["end"], "text": line_text})
 
-    if not segments:
-        print("오류: 세그먼트 생성에 실패했습니다. 빈 segments 반환.")
-        return [], None, ass_path
-
-    # 5) MoviePy 전체 오디오 로드(변경 없음)
-    audio_clips = None
-    if os.path.exists(full_audio_file_path):
-        try:
-            audio_clips = AudioFileClip(full_audio_file_path)
-            print(f"디버그: 전체 오디오 파일 '{full_audio_file_path}' 로드 성공.")
-        except Exception as e:
-            print(f"오류: 전체 오디오 파일 로드 실패: {e}")
-    else:
-        print(f"경고: 전체 오디오 파일 '{full_audio_file_path}' 없음.")
-
-    # 6) ASS 생성 (변경 없음)
-    generate_ass_subtitle(segments, ass_path, template_name=template)
-    return segments, audio_clips, ass_path
+    # 5) ASS 생성 (마지막 자막 구두점 제거 옵션 전달)
+    generate_ass_subtitle(segments, ass_path, template_name=template,
+                          strip_trailing_punct_last=strip_trailing_punct_last)
+    return segments, None, ass_path

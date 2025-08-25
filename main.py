@@ -511,27 +511,21 @@ with st.sidebar:
                         os.makedirs(audio_output_dir, exist_ok=True)
                         audio_path = os.path.join(audio_output_dir, "generated_audio.mp3")
 
-                        # VIDEO_TEMPLATE는 영어 보이스가 기본, 자막은 한국어
-                        tts_source_text = final_script_for_video
-                        if is_video_template:
-                            try:
-                                tts_source_text = GoogleTranslator(source='auto', target='en').translate(final_script_for_video)
-                            except Exception as e:
-                                st.warning(f"영어 번역 실패(원문 보이스로 진행): {e}")
-                                tts_source_text = final_script_for_video
-
                         st.write("🗣️ 라인별 TTS 생성/병합 및 세그먼트 산출 중...")
                         provider = "elevenlabs" if st.session_state.selected_tts_provider == "ElevenLabs" else "polly"
                         tmpl = st.session_state.selected_tts_template if provider == "elevenlabs" else st.session_state.selected_polly_voice_key
 
                         segments, audio_clips, ass_path = generate_subtitle_from_script(
-                            script_text=tts_source_text,
+                            script_text=final_script_for_video,                         # 원문 한국어
                             ass_path=os.path.join("assets", "generated_subtitle.ass"),
                             full_audio_file_path=audio_path,
                             provider=provider,
                             template=tmpl,
-                            subtitle_lang="ko",                 # 자막은 한국어
-                            translate_only_if_english=False
+                            subtitle_lang="ko",                 # 자막은 100% 한국어 원문 그대로
+                            translate_only_if_english=False,
+                            tts_lang="en",                      # 음성만 영어로
+                            split_by_commas=True,               # 콤마/마침표 단위로 끊기
+                            strip_trailing_punct_last=True      # 마지막 자막만 구두점 제거
                         )
                         try:
                             if audio_clips is not None:
