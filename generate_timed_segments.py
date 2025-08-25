@@ -179,25 +179,47 @@ def get_segments_from_audio(audio_paths, script_lines):
 def generate_ass_subtitle(segments, ass_path, template_name="default",
                           strip_trailing_punct_last=True):
     settings = SUBTITLE_TEMPLATES.get(template_name, SUBTITLE_TEMPLATES["default"])
+
+    def _escape_ass_text(s: str) -> str:
+        # ASS에서 개행은 \N, 역슬래시는 이스케이프, 중괄호는 태그로 오인될 수 있음
+        s = s.replace("\\", r"\\")
+        s = s.replace("\r", "")
+        s = s.replace("\n", r"\N")
+        # 필요시 특수문자 추가 이스케이프 가능
+        return s
+
     with open(ass_path, "w", encoding="utf-8") as f:
-        # [Script Info] + [V4+ Styles] 헤더 (이 부분이 지금 한 버전에서 빠져 있음)
+        # 헤더
         f.write("[Script Info]\n")
         f.write("ScriptType: v4.00+\n\n")
+
         f.write("[V4+ Styles]\n")
         f.write("Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
         f.write(f"Style: Bottom,{settings['Fontname']},{settings['Fontsize']},{settings['PrimaryColour']},{settings['OutlineColour']},1,{settings['Outline']},0,2,10,10,{settings['MarginV']},1\n\n")
 
+        # 이벤트(여기서 포맷과 Dialogue 필드 개수를 반드시 일치시켜야 함)
         f.write("[Events]\n")
         f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
 
         for i, seg in enumerate(segments):
             start, end = seg['start'], seg['end']
-            text = seg['text'].strip().replace("\\n", " ")
+            text = (seg.get('text') or "").strip()
+
             if strip_trailing_punct_last and i == len(segments) - 1:
-                text = re.sub(r'[\s　]*[,.!?…~·]+$', '', text)  # 마지막 자막만 꼬리 구두점 제거
+                # 마지막 자막 꼬리 구두점 제거 (옵션)
+                text = re.sub(r'[\s　]*[,.!?…~·]+$', '', text)
+
+            # ASS 안전 이스케이프 + 줄바꿈 변환
+            text = _escape_ass_text(text)
+
             start_ts = format_ass_timestamp(start)
-            end_ts = format_ass_timestamp(end)
-            f.write(f"Dialogue: 0,{start_ts},{end_ts},Bottom,0,0,0,{text}\n")
+            end_ts   = format_ass_timestamp(end)
+
+            # 🔴 핵심: Name, Effect 컬럼을 비워두더라도 "자리"는 채워야 함
+            # Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+            # 예:     0,     0:00:00.00,0:00:02.10,Bottom, ,0,0,0, ,여기가텍스트
+            f.write(f"Dialogue: 0,{start_ts},{end_ts},Bottom,,0,0,0,,{text}\n")
+
 
 def format_ass_timestamp(seconds):
     h = int(seconds // 3600)
