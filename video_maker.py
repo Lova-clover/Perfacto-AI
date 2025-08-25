@@ -623,16 +623,16 @@ def create_video_from_videos(
         try:
             title_clip = TextClip(
                 text=formatted_title + "\n",
-                font_size=48, color="white", font=font_path,
+                fontsize=48, color="white", font=font_path,
                 stroke_color="skyblue", stroke_width=1,
-                method="caption", size=(max_title_width, None), align="center",
+                method="caption", size=(max_title_width, None)   # ⬅ align 제거
             ).with_duration(duration)
             used_caption = True
         except TypeError:
-            # caption 미지원 환경 폴백: label 기반 가운데 보정
+            # caption 미지원 → label 폴백(기존 로직 유지)
             def line_width(s: str) -> int:
                 if not s: return 0
-                c = TextClip(text=s, font=font_path, font_size=48, method="label")
+                c = TextClip(text=s, font=font_path, fontsize=48, method="label")
                 w = c.w; c.close(); return w
 
             def wrap_to_width(text: str, max_w: int):
@@ -663,21 +663,24 @@ def create_video_from_videos(
 
             final_text = "\n".join(centered) + "\n"
             title_clip = TextClip(
-                text=final_text, font_size=48, color="white",
+                text=final_text, fontsize=48, color="white",
                 font=font_path, stroke_color="skyblue", stroke_width=1,
                 method="label",
             ).with_duration(duration)
 
-        # 높이 계산
+        # 높이 계산(dummy) — ⬇ align 절대 넣지 않기
         pad_y = 16
         dummy = TextClip(
             text=formatted_title if used_caption else "\n".join(wrapped) if 'wrapped' in locals() else formatted_title,
-            font_size=48, font=font_path, method="caption" if used_caption else "label", size=(max_title_width, None) if used_caption else None, align="center"
+            fontsize=48, font=font_path,
+            method="caption" if used_caption else "label",
+            size=(max_title_width, None) if used_caption else None
         )
         title_bar_h = dummy.h + pad_y * 2
         dummy.close()
 
-        black_bar = ColorClip(size=(video_width, title_bar_h), color=(0, 0, 0)).with_duration(duration).with_position(("center", "top"))
+        black_bar = ColorClip(size=(video_width, title_bar_h), color=(0, 0, 0))\
+            .with_duration(duration).with_position(("center", "top"))
 
         x = round((video_width - title_clip.w) / 2)
         base_y = round((title_bar_h - title_clip.h) / 2)
