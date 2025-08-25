@@ -168,28 +168,43 @@ def generate_polly_tts(text, save_path, polly_voice_name_key):
     return save_path
 
 
-def generate_tts(text, save_path="assets/audio.mp3", provider="Amazon Polly", template_name="default", voice_id=None, polly_voice_name_key="Matthew"):
+def generate_tts(
+    text,
+    save_path="assets/audio.mp3",
+    provider="polly",               # 기본값을 polly로 통일(라벨 혼동 최소화)
+    template_name="default",
+    voice_id=None,
+    polly_voice_name_key=None       # 기본값 None → 내부에서 결정
+):
     """
     Generates text-to-speech using either ElevenLabs or Amazon Polly based on the provider.
-
-    Args:
-        text (str): The text to convert to speech.
-        save_path (str): The path to save the generated audio file.
-        provider (str): The TTS provider to use ('elevenlabs' or 'polly').
-        template_name (str, optional): For ElevenLabs, the name of the voice template. Defaults to "default".
-        voice_id (str, optional): For ElevenLabs, a specific voice ID to override the template's voice. Defaults to None.
-        polly_voice_name_key (str, optional): For Amazon Polly, the key from TTS_POLLY_VOICES to select the voice. Defaults to "default_male".
-
-    Returns:
-        str: The path to the saved audio file.
-
-    Raises:
-        ValueError: If an unsupported provider is specified.
-        RuntimeError: If TTS generation fails from the chosen provider.
     """
-    if provider == "elevenlabs":
+    # 1) provider 정규화 (여러 라벨 대응)
+    prov = (provider or "").strip().lower()
+    if prov in ("elevenlabs", "eleven labs"):
         return generate_elevenlabs_tts(text, save_path, template_name, voice_id)
-    elif provider == "polly":
-        return generate_polly_tts(text, save_path, polly_voice_name_key)
+
+    elif prov in ("polly", "amazon polly", "amazon_polly", "aws polly", "aws_polly"):
+        # 2) Polly 보이스 키 결정: 세션값 → 인자 → 안전 기본값
+        try:
+            import streamlit as st
+            sess_key = getattr(st.session_state, "selected_polly_voice_key", None)
+        except Exception:
+            sess_key = None
+
+        key = polly_voice_name_key or sess_key or "default_female"  # Joanna를 안전 기본값으로
+
+        # 3) 사용자가 VoiceId("Matthew")를 넘긴 경우도 처리
+        from elevenlabs_tts import TTS_POLLY_VOICES
+        if key not in TTS_POLLY_VOICES:
+            # 값이 VoiceId라면 역매핑 시도
+            rev = {v: k for k, v in TTS_POLLY_VOICES.items()}
+            key = rev.get(key, "default_female")
+
+        # (선택) 디버그 로그
+        # print(f"[TTS] provider=polly, key={key}, voiceId={TTS_POLLY_VOICES.get(key)}")
+
+        return generate_polly_tts(text, save_path, key)
+
     else:
         raise ValueError(f"Unsupported TTS provider: {provider}. Choose 'elevenlabs' or 'polly'.")
