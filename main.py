@@ -660,10 +660,10 @@ with st.sidebar:
                         if is_video_template:
                             created_video_path = create_video_from_videos(
                                 video_paths=video_paths,
-                                segments=segments,
+                                segments=segments_for_video,  # ✅ 병합/조정된 구간 사용
                                 audio_path=st.session_state.audio_path if st.session_state.include_voice else None,
-                                topic_title="",                  # ✅ 상단 제목 미사용
-                                include_topic_title=False,       # ✅ 제목 오버레이 제거
+                                topic_title="",
+                                include_topic_title=False,
                                 bgm_path=st.session_state.bgm_path,
                                 save_path=temp_video_path
                             )
