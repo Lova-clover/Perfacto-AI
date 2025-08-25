@@ -28,6 +28,7 @@ import nest_asyncio
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import FAISS
+import math 
 
 nest_asyncio.apply()
 load_dotenv()
@@ -36,6 +37,81 @@ VIDEO_TEMPLATE = "영상(영어보이스+한국어자막·가운데)"
 
 
 # ---------- 유틸 ----------
+def _tokenize_words_for_kr_en(text: str):
+    """한/영 혼합 문장을 단어(또는 덩어리)+문장부호 수준으로 토큰화."""
+    import re
+    tokens = re.findall(r'[\uAC00-\uD7A3A-Za-z0-9]+|[^\s]', text or "")
+    merged = []
+    for t in tokens:
+        if re.match(r'^[^\uAC00-\uD7A3A-Za-z0-9]+$', t) and merged:
+            merged[-1] += t
+        else:
+            merged.append(t)
+    return merged
+
+def densify_subtitles_by_words(segments, target_min_events: int):
+    """
+    자막 세그먼트를 단어 단위로 더 잘게 쪼개어 '한 화면에 문단이 왕창' 뜨는 현상 방지.
+    오디오 타이밍은 유지하고, 각 세그먼트 내부에서 글자 길이 비율로 시간 배분.
+    """
+    import re
+    total_tokens = 0
+    per_seg_tokens = []
+    for s in segments:
+        toks = _tokenize_words_for_kr_en(s['text'])
+        per_seg_tokens.append(toks)
+        total_tokens += len(toks)
+
+    if total_tokens == 0:
+        return segments
+
+    desired_events = max(target_min_events, len(segments))
+    chunk_size = max(1, min(6, math.ceil(total_tokens / desired_events)))
+
+    dense = []
+    for s, toks in zip(segments, per_seg_tokens):
+        if not toks:
+            dense.append(s)
+            continue
+        seg_start, seg_end = s['start'], s['end']
+        seg_dur = max(0.01, seg_end - seg_start)
+        n_chunks = math.ceil(len(toks) / chunk_size)
+        t0 = seg_start
+        base_len = max(1, len("".join(toks)))
+        for i in range(n_chunks):
+            part = toks[i*chunk_size:(i+1)*chunk_size]
+            if not part: 
+                continue
+            is_kor = bool(re.search(r'[\uAC00-\uD7A3]', "".join(part)))
+            text = ('' if is_kor else ' ').join(part).strip()
+            part_ratio = len("".join(part)) / base_len
+            dur = seg_dur * part_ratio
+            t1 = t0 + dur
+            if i == n_chunks - 1:
+                t1 = seg_end
+            dense.append({'start': t0, 'end': t1, 'text': text})
+            t0 = t1
+    return dense
+
+def coalesce_segments_for_videos(segments, clip_count: int):
+    """
+    영상이 적을 때, 연속 세그먼트를 clip_count개 구간으로 병합해
+    각 영상 클립이 맡을 구간을 만들어줌(자막은 촘촘한 dense 버전으로 별도 표시).
+    """
+    if clip_count <= 0 or not segments:
+        return segments
+    total_duration = segments[-1]['end']
+    target = total_duration / clip_count
+    coalesced, cur_start, acc = [], segments[0]['start'], 0.0
+    for s in segments:
+        acc += (s['end'] - s['start'])
+        if acc >= target and len(coalesced) < clip_count - 1:
+            coalesced.append({'start': cur_start, 'end': s['end'], 'text': ''})
+            cur_start, acc = s['end'], 0.0
+    if len(coalesced) < clip_count:
+        coalesced.append({'start': cur_start, 'end': segments[-1]['end'], 'text': ''})
+    return coalesced
+
 def get_web_documents_from_query(query: str):
     try:
         urls = get_links(query, num=40)
@@ -524,6 +600,27 @@ with st.sidebar:
                             if len(video_paths) < len(segments):
                                 st.warning(f"영상 {len(video_paths)}개만 확보되어 일부 구간은 반복될 수 있습니다.")
                             st.success(f"영상 {len(video_paths)}개 확보")
+                            # === 🔧 (VIDEO_TEMPLATE 전용) 자막 촘촘화 + 영상 구간 병합 ===
+                            try:
+                                # 1) 단어 단위로 자막을 더 촘촘하게(한 화면에 한 줄로 몰려 나오지 않도록)
+                                target_min_events = max(len(segments) * 2, len(video_paths) * 3)  # 적어도 2N, 그리고 3K 이상
+                                dense_sub_segments = densify_subtitles_by_words(segments, target_min_events)
+
+                                # 기존 ASS를 'dense' 자막으로 재생성
+                                generate_ass_subtitle(
+                                    segments=dense_sub_segments,
+                                    ass_path=ass_path,
+                                    template_name=st.session_state.selected_subtitle_template
+                                )
+                                patch_ass_center(ass_path)  # 가운데 정렬
+
+                                # 2) 영상이 부족하면 영상 구간을 병합하여 K구간으로 맞춤
+                                segments_for_video = segments
+                                if len(video_paths) < len(segments):
+                                    segments_for_video = coalesce_segments_for_videos(segments, len(video_paths))
+                            except Exception as tune_e:
+                                st.warning(f"자막/영상 밀도 조절에 실패하여 기본 방식으로 진행합니다: {tune_e}")
+                                segments_for_video = segments
                         else:
                             st.write(f"🖼️ '{media_query_final}' 관련 이미지 수집 중...")
                             image_paths = generate_images_for_topic(media_query_final, max(3, len(segments)))
