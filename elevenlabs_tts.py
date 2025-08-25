@@ -168,7 +168,7 @@ def generate_polly_tts(text, save_path, polly_voice_name_key):
     return save_path
 
 
-def generate_tts(text, save_path="assets/audio.mp3", provider="Amazon Polly", template_name="default", voice_id=None, polly_voice_name_key="korean_female1"):
+def generate_tts(text, save_path="assets/audio.mp3", provider="Amazon Polly", template_name="default", voice_id=None, polly_voice_name_key="Matthew"):
     """
     Generates text-to-speech using either ElevenLabs or Amazon Polly based on the provider.
 
