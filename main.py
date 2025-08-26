@@ -642,10 +642,10 @@ with st.sidebar:
                             except Exception:
                                 persona_text = ""
 
-                            # 3) 문장별 키워드 생성(페르소나 반영) → 영어화
+                            # 3) 문장별 키워드 생성(페르소나 반영) → 영어화  (LOOP ①)
                             per_sentence_queries = []
                             scene_chain = get_default_chain(system_prompt="당신은 숏폼 비디오 장면 키워드 생성 전문가입니다.")
-                            for i, snt in enumerate(sentence_units, start=1):
+                            for sen_idx, snt in enumerate(sentence_units, start=1):
                                 prompt = f"""너는 숏폼 비디오의 '장면 검색 키워드'를 만드는 도우미다.
 
                             [페르소나]
@@ -657,49 +657,52 @@ with st.sidebar:
                             [요구]
                             - 인물/배경/행동/분위기가 드러나는 '장면 키워드' 1~3개
                             - 각 키워드는 3~6단어의 짧은 영어 구문
-                            - **반드시 키워드만, 쉼표로 구분, 라벨/설명/문장/줄바꿈/따옴표 금지**
+                            - 반드시 키워드만, 쉼표로 구분, 라벨/설명/문장/줄바꿈/따옴표 금지
                             - 예: a frustrated editor, dark room, editing timeline
                             키워드:"""
-                            kw = scene_chain.invoke({"question": prompt, "chat_history": []}).strip() or snt
-                            try:
-                                kw_en = GoogleTranslator(source='auto', target='en').translate(kw)
-                            except Exception:
-                                kw_en = kw
-
-                            kw_en = _normalize_scene_query(kw_en)
-                            if not kw_en:
-                                # 완전 공백이면 문장 원문 기반 폴백
+                                kw = scene_chain.invoke({"question": prompt, "chat_history": []}).strip() or snt
                                 try:
-                                    kw_en = _normalize_scene_query(GoogleTranslator(source='auto', target='en').translate(snt))
+                                    kw_en = GoogleTranslator(source='auto', target='en').translate(kw)
                                 except Exception:
-                                    kw_en = _normalize_scene_query(snt)
+                                    kw_en = kw
 
-                            per_sentence_queries.append(kw_en)
-                            st.write(f"🧩 문장 {i} 키워드(정규화): {kw_en}")
-                            # 4) 문장별로 영상 1개씩 가져오기(한 문장 = 한 클립)
+                                kw_en = _normalize_scene_query(kw_en)
+                                if not kw_en:
+                                    # 완전 공백이면 문장 원문 기반 폴백
+                                    try:
+                                        kw_en = _normalize_scene_query(GoogleTranslator(source='auto', target='en').translate(snt))
+                                    except Exception:
+                                        kw_en = _normalize_scene_query(snt)
+
+                                per_sentence_queries.append(kw_en)
+                                st.write(f"🧩 문장 {sen_idx} 키워드(정규화): {kw_en}")
+
+                            # 4) 문장별로 영상 1개씩 가져오기  (LOOP ②)  ←★ 이 루프가 바깥으로 이동
                             video_paths = []
-                            for i, q in enumerate(per_sentence_queries):
-                                st.write(f"🎞️ 문장 {i+1} 검색: {q}")
 
-                                def _try_search(query: str):
-                                    return generate_videos_for_topic(
-                                        query=query,
-                                        num_videos=1,
-                                        start_index=i,
-                                        orientation="portrait"
-                                    )
+                            def _try_search(query: str, page_seed: int):
+                                return generate_videos_for_topic(
+                                    query=query,
+                                    num_videos=1,
+                                    start_index=page_seed,     # 검색 페이지/시드 다양화
+                                    orientation="portrait"
+                                )
 
-                                got = _try_search(q)
+                            for clip_idx, q in enumerate(per_sentence_queries, start=1):
+                                st.write(f"🎞️ 문장 {clip_idx} 검색: {q}")
+                                got = _try_search(q, clip_idx)
 
                                 if not got and ("," in q):
+                                    # 콤마 조각별 재시도
                                     for piece in [p.strip() for p in q.split(",") if p.strip()]:
-                                        got = _try_search(piece)
+                                        got = _try_search(piece, clip_idx)
                                         if got:
                                             break
 
                                 if not got:
-                                    # 전체 주제 키워드 폴백
-                                    got = _try_search(media_query_final or q)
+                                    # 전체 주제 키워드 폴백 (정규화 권장)
+                                    fb = _normalize_scene_query(media_query_final or q)
+                                    got = _try_search(fb, clip_idx)
 
                                 if got:
                                     video_paths.extend(got)
