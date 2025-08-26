@@ -180,15 +180,10 @@ def generate_polly_tts(
 
     # ✅ SSML 여부 체크
     if text.strip().startswith("<speak>"):
-        ssml = text  # 이미 SSML이면 그대로 사용
+        ssml = text
     else:
-        ssml = (
-            f"<speak>"
-            f"<prosody rate='{rate}' volume='{vol}'>"
-            f"<lang xml:lang='{lang}'>{text}</lang>"
-            f"</prosody>"
-            f"</speak>"
-        )
+        # 여러 prosody 블록(문장별 변환 결과)을 하나의 <speak>로 감쌈
+        ssml = f"<speak>{text}</speak>"
 
     def synth(engine):
         args = dict(OutputFormat='mp3', VoiceId=voice_id, Engine=engine)

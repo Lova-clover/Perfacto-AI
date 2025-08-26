@@ -1,6 +1,5 @@
 from deep_translator import GoogleTranslator
-import re
-from ssml_converter import convert_script_to_ssml
+from ssml_converter import convert_line_to_ssml
 # generate_timed_segments.py
 import os
 import re
@@ -261,10 +260,10 @@ def generate_subtitle_from_script(
     if not script_lines:
         return [], None, ass_path
 
-    # 2) TTS 라인 (음성용)
-    if provider == "polly":   # Polly는 SSML 지원
-        tts_lines = [convert_script_to_ssml(line) for line in script_lines]
-    else:                     # ElevenLabs는 SSML 못 씀
+    if provider == "polly":
+        # 문장 단위로 prosody 블록만 생성 (speak 제거됨)
+        tts_lines = [convert_line_to_ssml(line) for line in script_lines]
+    else:
         tts_lines = script_lines[:]
 
     # (선택) TTS 언어 강제 변환

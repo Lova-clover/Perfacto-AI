@@ -49,7 +49,12 @@ SSML_PROMPT = """역할: 너는 한국어 대본을 숏폼용 Amazon Polly SSML�
 (SSML만 출력)
 """
 
-def convert_script_to_ssml(user_script: str) -> str:
+def convert_line_to_ssml(user_line: str) -> str:
+    """
+    한 문장을 SSML prosody 블록으로 변환.
+    - <speak> 태그는 제거 (문장 단위로 쓰면 Polly가 오작동함)
+    """
     chain = get_default_chain(system_prompt=SSML_PROMPT)
-    result = chain.invoke({"question": user_script})
-    return result.strip()
+    result = chain.invoke({"question": user_line})
+    # ✅ <speak> 태그 제거
+    return result.replace("<speak>", "").replace("</speak>", "").strip()
