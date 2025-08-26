@@ -600,11 +600,9 @@ with st.sidebar:
                         st.write("🗣️ 라인별 TTS 생성/병합 및 세그먼트 산출 중...")
                         provider = "elevenlabs" if st.session_state.selected_tts_provider == "ElevenLabs" else "polly"
                         tmpl = st.session_state.selected_tts_template if provider == "elevenlabs" else st.session_state.selected_polly_voice_key
-
-                        ssml_script = convert_script_to_ssml(final_script_for_video)
                         
                         segments, audio_clips, ass_path = generate_subtitle_from_script(
-                            script_text=ssml_script,
+                            script_text=final_script_for_video,
                             ass_path=os.path.join("assets", "generated_subtitle.ass"),
                             full_audio_file_path=audio_path,
                             provider=provider,

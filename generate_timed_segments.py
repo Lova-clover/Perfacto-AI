@@ -1,6 +1,6 @@
 from deep_translator import GoogleTranslator
 import re
-
+from ssml_converter.py import convert_script_to_ssml
 # generate_timed_segments.py
 import os
 import re
@@ -253,37 +253,37 @@ def generate_subtitle_from_script(
     subtitle_lang: str = "ko",
     translate_only_if_english: bool = False,
     tts_lang: str | None = None,
-    split_mode: str = "newline",          # ✅ 새 파라미터
+    split_mode: str = "newline",
     strip_trailing_punct_last: bool = True
 ):
     # 1) 라인 분할
     script_lines = split_script_to_lines(script_text, mode=split_mode) 
-
     if not script_lines:
         return [], None, ass_path
 
-    # 2) TTS 라인: 원문을 유지하되, tts_lang 지정 시 라인 단위 번역(개수 보존)
-    tts_lines = script_lines[:]
+    # 2) TTS 라인 (음성용)
+    if provider == "polly":   # Polly는 SSML 지원
+        tts_lines = [convert_script_to_ssml(line) for line in script_lines]
+    else:                     # ElevenLabs는 SSML 못 씀
+        tts_lines = script_lines[:]
+
+    # (선택) TTS 언어 강제 변환
     if tts_lang in ("en", "ko"):
         tts_lines = _maybe_translate_lines(
-            script_lines,
+            tts_lines,
             target=tts_lang,
             only_if_src_is_english=False
         )
 
-    # 3) 자막 라인: 요청 언어에 따라 선택(ko면 그대로 두면 원문과 100% 동일)
-    target = None
-    if subtitle_lang == "ko":
-        target = "ko"
-    elif subtitle_lang == "en":
-        target = "en"
-
-    subtitle_lines = (
-        _maybe_translate_lines(
-            script_lines, target=target,
+    # 3) 자막 라인 (화면 표시용) — 항상 SSML 금지
+    if subtitle_lang in ("ko", "en"):
+        subtitle_lines = _maybe_translate_lines(
+            script_lines,
+            target=subtitle_lang,
             only_if_src_is_english=translate_only_if_english
-        ) if target is not None else script_lines
-    )
+        )
+    else:
+        subtitle_lines = script_lines[:]
 
     # 4) 라인별 TTS 생성 및 병합
     audio_paths = generate_tts_per_line(tts_lines, provider=provider, template=template)
@@ -293,17 +293,19 @@ def generate_subtitle_from_script(
     segments_raw = merge_audio_files(audio_paths, full_audio_file_path)
     segments = []
     for i, s in enumerate(segments_raw):
-        line_text = subtitle_lines[i] if i < len(subtitle_lines) else tts_lines[i]
+        line_text = subtitle_lines[i] if i < len(subtitle_lines) else script_lines[i]
         segments.append({
             "start": s["start"],
             "end": s["end"],
-            "text": line_text,
-            "pitch": _assign_pitch(line_text)   # ✅ pitch 추가
+            "text": line_text,                # ✅ 자막용 텍스트 (SSML 없음)
+            "pitch": _assign_pitch(line_text)
         })
 
-    # 5) ASS 생성 (마지막 자막 구두점 제거 옵션 전달)
-    generate_ass_subtitle(segments, ass_path, template_name=template,
-                          strip_trailing_punct_last=strip_trailing_punct_last)
+    # 5) ASS 생성
+    generate_ass_subtitle(
+        segments, ass_path, template_name=template,
+        strip_trailing_punct_last=strip_trailing_punct_last
+    )
     return segments, None, ass_path
 
 # === Auto-paced subtitle densifier (자연스러운 문맥 분할 우선) ===
