@@ -1,6 +1,6 @@
 from deep_translator import GoogleTranslator
 import re
-from ssml_converter.py import convert_script_to_ssml
+from ssml_converter import convert_script_to_ssml
 # generate_timed_segments.py
 import os
 import re
