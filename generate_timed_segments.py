@@ -423,7 +423,14 @@ def auto_densify_for_subs(
 
             if strip_trailing_punct_each:
                 final_pieces = [_strip_last_punct_preserve_closers(x) for x in final_pieces]
-
+        
+        final_pieces = _smooth_chunks_by_flow(
+            final_pieces,
+            target_words=3,
+            min_words=2,
+            max_words=5
+        )
+        
         if not final_pieces:
             dense.append(seg)
             continue
@@ -498,3 +505,57 @@ def _split_tokens_into_n(tokens, n, prefer_punct=True):
         out.append(" ".join(tokens[start:b]).strip())
         start = b
     return [x for x in out if x]
+
+
+def _smooth_chunks_by_flow(pieces, target_words=3, min_words=2, max_words=5):
+    """
+    pieces: 문자열 리스트(이미 조각난 자막)
+    - 1단어/너무짧은 조각은 앞/뒤와 합침
+    - 담화표지(그리고/하지만/근데/그런데/그러니까/또/또한/게다가/한편/반면에/즉)는 뒤 조각에 붙이는 걸 우선
+    - 너무 길어진 조각은 단어 경계 + 구두점 뒤를 선호해 다시 나눔
+    """
+    discourse_heads = {"그리고","하지만","근데","그런데","그러니까","또","또한","게다가","한편","반면에","즉"}
+
+    # 1) 토큰화
+    toks = [re.findall(r"\S+", p.strip()) for p in pieces if p.strip()]
+    if not toks:
+        return []
+
+    # 2) 1단어/짧은 조각 병합
+    i = 0
+    while i < len(toks):
+        wc = len(toks[i])
+        if wc >= min_words or len(toks) == 1:
+            i += 1
+            continue
+
+        first_tok = toks[i][0] if toks[i] else ""
+        # 담화표지만 단독이면 다음과 합치기 우선
+        if first_tok in discourse_heads and i + 1 < len(toks):
+            toks[i + 1] = toks[i] + toks[i + 1]
+            toks.pop(i)
+            continue
+
+        # 그 외: 앞 조각이 목표보다 짧으면 앞과 합치기, 아니면 뒤와 합치기
+        prev_ok = (i > 0 and len(toks[i - 1]) < target_words)
+        if prev_ok:
+            toks[i - 1] = toks[i - 1] + toks[i]
+            toks.pop(i)
+        elif i + 1 < len(toks):
+            toks[i] = toks[i] + toks[i + 1]
+            toks.pop(i + 1)
+        else:
+            i += 1  # 마지막 하나 남은 예외
+    # 3) 너무 긴 조각은 자연스럽게 재분할(구두점 선호)
+    refined = []
+    for tt in toks:
+        wc = len(tt)
+        if wc > max_words:
+            n = max(2, round(wc / target_words))
+            refined.extend(_split_tokens_into_n(tt, n, prefer_punct=True))
+        else:
+            refined.append(" ".join(tt).strip())
+
+    # 4) 각 조각 끝의 꼬리 구두점 정리(따옴표/괄호 보존)
+    refined = [_strip_last_punct_preserve_closers(x) for x in refined if x.strip()]
+    return refined
