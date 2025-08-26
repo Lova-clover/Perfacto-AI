@@ -225,7 +225,7 @@ def _save_unique_image(src_path_or_url: str, idx: int) -> str:
 def get_scene_keywords_batch(sentence_units, persona_text: str):
     """
     여러 문장을 한 번에 LLM에 보내서, 문장 수만큼 키워드 라인으로 받아옵니다.
-    출력 형식(중요): i번째 문장은 'i. keyword1, keyword2, keyword3' 한 줄
+    출력 형식(중요): i번째 문장은 'i. keyword' 한 줄
     """
     scene_chain = get_default_chain(system_prompt="당신은 숏폼 비주얼 장면 키워드 생성 전문가입니다.")
 
@@ -240,10 +240,11 @@ def get_scene_keywords_batch(sentence_units, persona_text: str):
 
 [요구]
 - 각 문장에 대해 1줄의 키워드만 생성
-- i번째 줄은 'i. a short phrase, another phrase, third phrase' 형식
-- 각 키워드는 3~6단어의 영어 구문
+- i번째 줄은 'i. one short phrase' 형식
+- 각 키워드는 3~6단어의 영어 구문, 반드시 1개만
 - 반드시 키워드만, 라벨/설명/따옴표/줄바꿈 추가 금지
 - 같은(혹은 거의 같은) 키워드/구를 여러 줄에 반복 사용하지 말 것. 유사 개념이면 스타일·시간대·로케이션을 바꿔 변주할 것.
+
 응답:
 """
 
