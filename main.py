@@ -343,7 +343,8 @@ with st.sidebar:
             )
             selected_idx = selected_script_persona_idx[0]
             selected_script = st.session_state.persona_blocks[selected_idx]["result"]
-
+            st.session_state.selected_script_persona_index = selected_idx
+            
             st.session_state.edited_script_content = st.text_area(
                 "🎬 스크립트 내용 수정",
                 value=selected_script,
@@ -516,16 +517,16 @@ with st.sidebar:
                         tmpl = st.session_state.selected_tts_template if provider == "elevenlabs" else st.session_state.selected_polly_voice_key
 
                         segments, audio_clips, ass_path = generate_subtitle_from_script(
-                            script_text=final_script_for_video,                         # ✅ 입력한 대사 원문
+                            script_text=final_script_for_video,
                             ass_path=os.path.join("assets", "generated_subtitle.ass"),
                             full_audio_file_path=audio_path,
                             provider=provider,
                             template=tmpl,
-                            subtitle_lang="ko",                 # ✅ 자막 = 원문(한국어)
+                            subtitle_lang="ko",
                             translate_only_if_english=False,
-                            tts_lang="en",                      # ✅ 음성만 영어(라인별 번역 후 TTS)
-                            split_mode="newline",               # ✅ 입력 줄바꿈 그대로(가장 중요)
-                            strip_trailing_punct_last=False     # ✅ 원문 100% 유지
+                            tts_lang="en",
+                            split_mode="kss",               # ✅ 문장 단위로 분할
+                            strip_trailing_punct_last=False
                         )
                         # ✅ 자막만 "자동-빠른 템포"로 더 쪼개서 덮어쓰기 (오디오/영상 타이밍 유지)
                         dense_events = auto_densify_for_subs(
@@ -598,25 +599,80 @@ with st.sidebar:
                     image_paths, video_paths = [], []
                     if st.session_state.video_style != "감성 텍스트 영상":
                         if is_video_template:
-                            st.write(f"🎞️ '{media_query_final}' 관련 영상 수집 중...")
-                            # ✅ 세그먼트 수만큼 정확히 요청(자막 변경마다 영상도 변경되도록)
-                            video_paths = generate_videos_for_topic(
-                                media_query_final,
-                                len(segments),
-                                orientation="portrait"
-                            )
-                            if not video_paths:
-                                st.error("적합한 영상 클립을 찾지 못했습니다. 키워드를 바꿔보세요.")
-                                st.stop()
-                            if len(video_paths) < len(segments):
-                                st.warning(f"영상 {len(video_paths)}개만 확보되어 일부 구간은 반복될 수 있습니다.")
-                            st.success(f"영상 {len(video_paths)}개 확보")
-                            # ✅ VIDEO 템플릿에서도 자막은 "원본 그대로" 사용
-                            segments_for_video = segments  # 자막(ASS)은 이미 위에서 생성 완료
+                            # ✅ 문장 단위(segments)로 문장별 키워드 생성 → 영상 1개씩 매칭
+                            st.write("🎯 문장별로 페르소나 기반 키워드를 만들어 개별 영상 검색을 수행합니다.")
 
-                            # 영상 클립 수가 세그먼트보다 적을 때만 "영상 구간"을 병합
+                            # 1) 문장 리스트(오디오/영상 기준) — split_mode='kss' 덕분에 문장 단위
+                            sentence_units = [s['text'] for s in segments]
+
+                            # 2) 페르소나 지시문 확보(선택된 스크립트 페르소나)
+                            persona_text = ""
+                            try:
+                                pidx = st.session_state.get("selected_script_persona_index", None)
+                                if pidx is not None:
+                                    persona_text = st.session_state.persona_blocks[pidx]["text"]
+                            except Exception:
+                                persona_text = ""
+
+                            # 3) 문장별 키워드 생성(페르소나 반영) → 영어화
+                            per_sentence_queries = []
+                            scene_chain = get_default_chain(system_prompt="당신은 숏폼 비디오 장면 키워드 생성 전문가입니다.")
+                            for i, snt in enumerate(sentence_units, start=1):
+                                prompt = f"""너는 숏폼 비디오의 '장면 검색 키워드'를 만드는 도우미다.
+
+                            [페르소나]
+                            {persona_text}
+
+                            [문장]
+                            {snt}
+
+                            [요구]
+                            - 인물/배경/행동/분위기가 드러나는 '장면 키워드' 1~3개
+                            - 각 키워드는 3~6단어의 짧은 영어 구문
+                            - 쉼표로 구분된 한 줄만 응답 (예: "a frustrated editor, dark room, editing timeline")
+                            키워드:"""
+                                kw = scene_chain.invoke({"question": prompt, "chat_history": []}).strip()
+                                if not kw:
+                                    kw = snt
+                                # 영어 보정(혹시 한글 키워드가 섞여 나왔을 때 대비)
+                                try:
+                                    kw_en = GoogleTranslator(source='auto', target='en').translate(kw)
+                                except Exception:
+                                    kw_en = kw
+                                per_sentence_queries.append(kw_en)
+                                st.write(f"🧩 문장 {i} 키워드: {kw_en}")
+
+                            # 4) 문장별로 영상 1개씩 가져오기(한 문장 = 한 클립)
+                            video_paths = []
+                            for i, q in enumerate(per_sentence_queries):
+                                st.write(f"🎞️ 문장 {i+1} 검색: {q}")
+                                got = generate_videos_for_topic(
+                                    query=q,
+                                    num_videos=1,
+                                    start_index=i,
+                                    orientation="portrait"
+                                )
+                                if got:
+                                    video_paths.extend(got)
+                                else:
+                                    # 폴백: 전체 주제 키워드로라도 1개 채움
+                                    fallback = generate_videos_for_topic(
+                                        query=media_query_final or q,
+                                        num_videos=1,
+                                        start_index=i,
+                                        orientation="portrait"
+                                    )
+                                    if fallback:
+                                        video_paths.extend(fallback)
+
+                            # 5) 길이 안 맞으면 마지막 클립 반복
                             if len(video_paths) < len(segments):
-                                segments_for_video = coalesce_segments_for_videos(segments, len(video_paths))
+                                st.warning(f"영상이 {len(video_paths)}개뿐입니다. 일부 문장은 마지막 클립을 재사용합니다.")
+                                if video_paths:
+                                    video_paths += [video_paths[-1]] * (len(segments) - len(video_paths))
+
+                            # 6) 문장 단위 구간 그대로 사용(오디오/자막은 유지)
+                            segments_for_video = segments
                         else:
                             st.write(f"🖼️ '{media_query_final}' 관련 이미지 수집 중...")
                             image_paths = generate_images_for_topic(media_query_final, max(3, len(segments)))
