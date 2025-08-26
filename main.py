@@ -674,23 +674,67 @@ with st.sidebar:
                             # 6) 문장 단위 구간 그대로 사용(오디오/자막은 유지)
                             segments_for_video = segments
                         else:
-                            st.write(f"🖼️ '{media_query_final}' 관련 이미지 수집 중...")
-                            image_paths = generate_images_for_topic(media_query_final, max(3, len(segments)))
-                            if not image_paths:
-                                st.warning("이미지 생성 실패. 기본 이미지를 사용합니다.")
-                                default_image_path = "assets/default_image.jpg"
-                                if not os.path.exists(default_image_path):
-                                    try:
-                                        generic_image_url = "https://images.pexels.com/photos/936043/pexels-photo-936043.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2"
-                                        image_data = requests.get(generic_image_url).content
-                                        os.makedirs("assets", exist_ok=True)
-                                        with open(default_image_path, "wb") as f:
-                                            f.write(image_data)
-                                    except Exception as img_dl_e:
-                                        st.error(f"기본 이미지 다운로드 실패: {img_dl_e}")
-                                        st.stop()
-                                image_paths = [default_image_path] * max(3, len(segments))
-                            st.success(f"이미지 {len(image_paths)}장 확보")
+                            st.write("🖼️ 문장별로 페르소나 기반 키워드를 만들어 이미지 1장씩 생성/검색합니다.")
+
+                            # 1) 문장 리스트(오디오/영상 기준) — 위에서 segments를 문장 단위로 만들었음(split_mode='kss' 또는 regex)
+                            sentence_units = [s['text'] for s in segments]
+
+                            # 2) 페르소나 지시문 확보(선택된 스크립트 페르소나)
+                            persona_text = ""
+                            try:
+                                pidx = st.session_state.get("selected_script_persona_index", None)
+                                if pidx is not None:
+                                    persona_text = st.session_state.persona_blocks[pidx]["text"]
+                            except Exception:
+                                persona_text = ""
+
+                            # 3) 문장별 키워드 생성(페르소나 반영) → 영어화
+                            per_sentence_queries = []
+                            scene_chain = get_default_chain(system_prompt="당신은 숏폼 비주얼(이미지/영상) 장면 키워드 생성 전문가입니다.")
+                            for i, snt in enumerate(sentence_units, start=1):
+                                prompt = f"""너는 숏폼 비디오/이미지의 '장면 검색 키워드'를 만드는 도우미다.
+
+                        [페르소나]
+                        {persona_text}
+
+                        [문장]
+                        {snt}
+
+                        [요구]
+                        - 인물/배경/행동/분위기가 드러나는 '장면 키워드' 1~3개
+                        - 각 키워드는 3~6단어의 짧은 영어 구문
+                        - 쉼표로 구분된 한 줄만 응답 (예: "a frustrated editor, dark room, editing timeline")
+                        키워드:"""
+                                kw = scene_chain.invoke({"question": prompt, "chat_history": []}).strip() or snt
+                                try:
+                                    kw_en = GoogleTranslator(source='auto', target='en').translate(kw)
+                                except Exception:
+                                    kw_en = kw
+                                per_sentence_queries.append(kw_en)
+                                st.write(f"🧩 문장 {i} 키워드: {kw_en}")
+
+                            # 4) 문장별로 이미지 1장씩 가져오기(한 문장 = 한 이미지)
+                            image_paths = []
+                            for i, q in enumerate(per_sentence_queries):
+                                st.write(f"🖼️ 문장 {i+1} 검색: {q}")
+                                got = generate_images_for_topic(q, 1)
+                                if got:
+                                    image_paths.extend(got)
+                                else:
+                                    # 폴백: 전체 주제 키워드로라도 1장 채움
+                                    fallback = generate_images_for_topic(media_query_final or q, 1)
+                                    if fallback:
+                                        image_paths.extend(fallback)
+
+                            # 5) 길이 안 맞으면 마지막 이미지를 반복/자르기
+                            if len(image_paths) < len(segments):
+                                st.warning(f"이미지가 {len(image_paths)}장뿐입니다. 일부 문장은 마지막 이미지를 재사용합니다.")
+                                if image_paths:
+                                    image_paths += [image_paths[-1]] * (len(segments) - len(image_paths))
+                            elif len(image_paths) > len(segments):
+                                image_paths = image_paths[:len(segments)]
+
+                            st.success(f"이미지 {len(image_paths)}장 확보 (문장 수: {len(segments)})")
 
                     # --- 합성 ---
                     video_output_dir = "assets"
