@@ -223,6 +223,53 @@ def _save_unique_image(src_path_or_url: str, idx: int) -> str:
 
     return dst
 
+def get_scene_keywords_batch(sentence_units, persona_text: str):
+    """
+    여러 문장을 한 번에 LLM에 보내서, 문장 수만큼 키워드 라인으로 받아옵니다.
+    출력 형식(중요): i번째 문장은 'i. keyword1, keyword2, keyword3' 한 줄
+    """
+    scene_chain = get_default_chain(system_prompt="당신은 숏폼 비주얼 장면 키워드 생성 전문가입니다.")
+
+    numbered = "\n".join(f"{i+1}. {s}" for i, s in enumerate(sentence_units))
+    prompt = f"""너는 숏폼 비디오/이미지의 '장면 검색 키워드'를 만드는 도우미다.
+
+[페르소나]
+{persona_text}
+
+[문장들]
+{numbered}
+
+[요구]
+- 각 문장에 대해 1줄의 키워드만 생성
+- i번째 줄은 'i. a short phrase, another phrase, third phrase' 형식
+- 각 키워드는 3~6단어의 영어 구문
+- 반드시 키워드만, 라벨/설명/따옴표/줄바꿈 추가 금지
+응답:"""
+
+    raw = scene_chain.invoke({"question": prompt, "chat_history": []}).strip()
+    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+
+    # 문장 수만큼 빈 리스트 준비
+    out = [""] * len(sentence_units)
+    for ln in lines:
+        m = re.match(r"^\s*(\d+)\.\s*(.+)$", ln)
+        if not m:
+            continue
+        idx = int(m.group(1)) - 1
+        if 0 <= idx < len(out):
+            out[idx] = _normalize_scene_query(m.group(2))
+
+    # 비어 있는 건 문장 원문을 영어로 번역해서 폴백
+    for i, val in enumerate(out):
+        if not val:
+            try:
+                t = GoogleTranslator(source='auto', target='en').translate(sentence_units[i])
+            except Exception:
+                t = sentence_units[i]
+            out[i] = _normalize_scene_query(t)
+
+    return out
+
 # ---------- 앱 기본 ----------
 st.set_page_config(page_title="Perfacto AI", page_icon="🤖")
 st.title("PerfactoAI")
@@ -597,7 +644,7 @@ with st.sidebar:
                             template=tmpl,
                             subtitle_lang="ko",
                             translate_only_if_english=False,
-                            tts_lang="en",
+                            tts_lang="en", #영어음성생성
                             split_mode="kss",               # ✅ 문장 단위로 분할
                             strip_trailing_punct_last=False
                         )
@@ -700,7 +747,7 @@ with st.sidebar:
                             {snt}
 
                             [요구]
-                            - 인물/배경/행동/분위기가 드러나는 '장면 키워드' 1~3개
+                            - 인물/배경/행동/분위기가 드러나는 '장면 키워드' 1개
                             - 각 키워드는 3~6단어의 짧은 영어 구문
                             - 반드시 키워드만, 쉼표로 구분, 라벨/설명/문장/줄바꿈/따옴표 금지
                             - 예: a frustrated editor, dark room, editing timeline
@@ -789,7 +836,7 @@ with st.sidebar:
                             {snt}
 
                             [요구]
-                            - 인물/배경/행동/분위기가 드러나는 '장면 키워드' 1~3개
+                            - 인물/배경/행동/분위기가 드러나는 '장면 키워드' 1개
                             - 각 키워드는 3~6단어의 짧은 영어 구문
                             - **반드시 키워드만, 쉼표로 구분, 라벨/설명/문장/줄바꿈/따옴표 금지**
                             - 예: a frustrated editor, dark room, editing timeline
