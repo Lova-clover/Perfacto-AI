@@ -319,7 +319,7 @@ def create_video_with_segments(image_paths, segments, audio_path, topic_title,
 
     if bgm_path and os.path.exists(bgm_path):
         bgm_raw = AudioFileClip(bgm_path)
-        bgm_array = bgm_raw.to_soundarray(fps=44100) * 0.08
+        bgm_array = bgm_raw.to_soundarray(fps=44100) * 0.05
         repeat_count = int(np.ceil(audio.duration / bgm_raw.duration))
         bgm_array = np.tile(bgm_array, (repeat_count, 1))
         bgm_array = bgm_array[:int(audio.duration * 44100)]
@@ -568,7 +568,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     # ===== 오디오 & 저장 =====
     final_audio = audio
     if bgm_path and os.path.exists(bgm_path):
-        bgm = AudioFileClip(bgm_path).volumex(0.08).with_duration(duration)
+        bgm = AudioFileClip(bgm_path).volumex(0.05).with_duration(duration)
         final_audio = CompositeAudioClip([audio, bgm])
 
     final_video = video.with_audio(final_audio).with_fps(24)
@@ -605,7 +605,7 @@ def create_video_from_videos(
     bgm_raw = None
     if bgm_path and os.path.exists(bgm_path):
         bgm_raw = AudioFileClip(bgm_path)
-        bgm_array = bgm_raw.to_soundarray(fps=44100) * 0.08
+        bgm_array = bgm_raw.to_soundarray(fps=44100) * 0.05
         repeat_count = int(np.ceil(audio.duration / max(bgm_raw.duration, 0.1)))
         bgm_array = np.tile(bgm_array, (repeat_count, 1))[:int(audio.duration * 44100)]
         bgm = AudioArrayClip(bgm_array, fps=44100).with_duration(audio.duration)
