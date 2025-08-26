@@ -566,19 +566,7 @@ with st.sidebar:
 
             with st.spinner("✨ 영상 제작 중입니다..."):
                 try:
-                    # --- 키워드 영어화 (이미지/영상 검색용) ---
-                    if not is_emotional:
-                        st.write("🌐 미디어 검색어를 영어로 변환 중...")
-                        try:
-                            image_query_english = GoogleTranslator(source='auto', target='en').translate(final_topic_for_video)
-                            st.success(f"변환 완료: '{image_query_english}'")
-                        except Exception as e:
-                            st.warning(f"검색어 번역 실패(원문 사용): {e}")
-                            image_query_english = final_topic_for_video
-                        media_query_final = image_query_english
-                    else:
-                        media_query_final = ""
-
+                    media_query_final = ""
                     audio_path = None
                     segments = []
                     ass_path = None
