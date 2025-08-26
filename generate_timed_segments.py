@@ -297,41 +297,73 @@ def generate_subtitle_from_script(
                           strip_trailing_punct_last=strip_trailing_punct_last)
     return segments, None, ass_path
 
-# === Auto-paced subtitle densifier (쉼표·세미콜론 우선, 길이면 보정) ===
+# === Auto-paced subtitle densifier (자연스러운 문맥 분할 우선) ===
 def _auto_split_for_tempo(text: str, tempo: str = "medium"):
     """
     tempo: fast(짧게) | medium | slow
-    - 1차: 쉼표/세미콜론/중점 등에서 우선 분할 (구두점은 앞 조각에 남김)
-    - 2차: 너무 길면 공백 근처로 잘라내기 (한국어 공백 기준, 없으면 길이로 강제 절단)
+    분할 우선순위:
+    1) 담화 표지(그리고/하지만/그래서/그런데/그러니까/즉/특히/반면에/게다가/또는/혹은 등) '뒤'에서 끊기
+    2) 연결 어미(고/지만/는데/면서/라면/면/니까/다가/으며/며 등) '뒤'에서 끊기
+    3) 쉼표/세미콜론/중점 등 구두점 뒤에서 끊기
+    4) 여전히 길면 공백 근처로 길이 기반 분할
+    이후 너무 짧은 조각은 이웃과 병합
     """
     import re
+
+    # 길이 목표(상황 맞게 조절)
     max_len_map = {"fast": 12, "medium": 18, "slow": 24}
-    max_len = max_len_map.get(tempo, 16)
+    max_len = max_len_map.get(tempo, 18)
+    min_piece_chars = 2  # 너무 짧은 조각 병합 기준
 
-    # 1차: 부드러운 분할(쉼표류, ; : · 등)
-    parts = re.split(r'(?<=[,，、;:·])\s*', (text or "").strip())
-    parts = [p for p in parts if p]
+    t = (text or "").strip()
+    if not t:
+        return []
 
+    # 1) 담화 표지 후 분할(토큰은 앞 조각에 둠)
+    discourse = r"(그리고|하지만|근데|그런데|그래서|그러니까|즉|특히|게다가|한편|반면에|또는|혹은|다만)"
+    t = re.sub(rf"\b{discourse}\b\s*", r"\g<0>§", t)
+
+    # 2) 연결 어미 후 분할(어미는 앞 조각에 둠)
+    eomi = r"(고|지만|는데요?|면서|며|라면|면|니까|다가|으며|거나|든지)"
+    t = re.sub(rf"({eomi})(?=\s|\Z)", r"\1§", t)
+
+    # 3) 쉼표·세미콜론·중점 뒤 분할 (구두점은 앞 조각에)
+    t = re.sub(r"(?<=[,，、;:·])\s*", "§", t)
+
+    # 일차 분할
+    parts = [p.strip() for p in t.split("§") if p.strip()]
     chunks = []
+
+    # 4) 길이 보정: 너무 긴 건 공백 근처로 추가 분할
     for p in parts:
-        p = p.strip()
-        if not p:
-            continue
         if len(p) <= max_len:
             chunks.append(p)
             continue
 
-        # 2차: 길면 공백 근처로 분절(가까운 공백 찾기, 없으면 강제)
         cur = p
         while len(cur) > max_len:
-            window = cur[: max_len + 4]  # 살짝 여유
-            # 가장 오른쪽 공백 위치(가능하면 단어 경계에서 끊기)
-            spaces = [m.start() for m in re.finditer(r'\s', window)]
+            window = cur[: max_len + 6]  # 여유
+            spaces = [m.start() for m in re.finditer(r"\s", window)]
             split_pos = spaces[-1] if spaces else max_len
             chunks.append(cur[:split_pos].strip())
             cur = cur[split_pos:].strip()
         if cur:
             chunks.append(cur)
+
+    # 5) 너무 짧은 조각 병합(양 옆과 자연스러운 공백 처리)
+    def _wordish(ch: str) -> bool:
+        return ch.isalnum() or ('\uAC00' <= ch <= '\uD7A3')  # 영문/숫자/한글
+    i = 1
+    while i < len(chunks):
+        if len(chunks[i]) < min_piece_chars:
+            prev = chunks[i-1].rstrip()
+            cur  = chunks[i].lstrip()
+            sep = " " if (prev and cur and _wordish(prev[-1]) and _wordish(cur[0])) else ""
+            chunks[i-1] = (prev + sep + cur).strip()
+            chunks.pop(i)
+        else:
+            i += 1
+
     return chunks
 
 def auto_densify_for_subs(segments, tempo: str = "fast", strip_trailing_punct_each: bool = True):
