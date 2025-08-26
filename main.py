@@ -775,24 +775,25 @@ with st.sidebar:
                             except Exception:
                                 persona_text = ""
 
-                            # 3) 문장별 키워드 생성(페르소나 반영) → 영어화
+                            # 3) 문장별 키워드 생성 (페르소나 반영) → 영어화  ✅ 루프 안에서는 '키워드 목록'만 만든다
                             per_sentence_queries = []
                             scene_chain = get_default_chain(system_prompt="당신은 숏폼 비주얼(이미지/영상) 장면 키워드 생성 전문가입니다.")
-                            for i, snt in enumerate(sentence_units, start=1):
+
+                            for sen_idx, snt in enumerate(sentence_units, start=1):
                                 prompt = f"""너는 숏폼 비디오/이미지의 '장면 검색 키워드'를 만드는 도우미다.
 
-                        [페르소나]
-                        {persona_text}
+                            [페르소나]
+                            {persona_text}
 
-                        [문장]
-                        {snt}
+                            [문장]
+                            {snt}
 
-                        [요구]
-                        - 인물/배경/행동/분위기가 드러나는 '장면 키워드' 1~3개
-                        - 각 키워드는 3~6단어의 짧은 영어 구문
-                        - **반드시 키워드만, 쉼표로 구분, 라벨/설명/문장/줄바꿈/따옴표 금지**
-                        - 예: a frustrated editor, dark room, editing timeline
-                        키워드:"""
+                            [요구]
+                            - 인물/배경/행동/분위기가 드러나는 '장면 키워드' 1~3개
+                            - 각 키워드는 3~6단어의 짧은 영어 구문
+                            - **반드시 키워드만, 쉼표로 구분, 라벨/설명/문장/줄바꿈/따옴표 금지**
+                            - 예: a frustrated editor, dark room, editing timeline
+                            키워드:"""
                                 kw = scene_chain.invoke({"question": prompt, "chat_history": []}).strip() or snt
                                 try:
                                     kw_en = GoogleTranslator(source='auto', target='en').translate(kw)
@@ -801,41 +802,41 @@ with st.sidebar:
 
                                 kw_en = _normalize_scene_query(kw_en)
                                 if not kw_en:
-                                    # 완전 공백이면 문장 원문 기반 폴백
                                     try:
                                         kw_en = _normalize_scene_query(GoogleTranslator(source='auto', target='en').translate(snt))
                                     except Exception:
                                         kw_en = _normalize_scene_query(snt)
 
                                 per_sentence_queries.append(kw_en)
-                                st.write(f"🧩 문장 {i} 키워드(정규화): {kw_en}")
-                                # 4) 문장별로 이미지 1장씩 가져오기(한 문장 = 한 이미지)
-                                image_paths = []
+                                st.write(f"🧩 문장 {sen_idx} 키워드(정규화): {kw_en}")
 
-                                for i, q in enumerate(per_sentence_queries, start=1):
-                                    st.write(f"🖼️ 문장 {i} 검색: {q}")
+                            # 4) 문장별로 '이미지 1장'씩 가져오기 (한 문장 = 한 이미지)  ✅ 이 블록은 반드시 ③ '바깥'에 둔다
+                            image_paths = []
 
-                                    # 함수가 start_index를 지원하면 다양화되고, 미지원이면 TypeError → 재호출
-                                    got = None
+                            for idx, q in enumerate(per_sentence_queries, start=1):
+                                st.write(f"🖼️ 문장 {idx} 검색: {q}")
+
+                                # 라이브러리에 start_index 인자가 있으면 다양화, 없으면 TypeError → 재호출
+                                got = None
+                                try:
+                                    got = generate_images_for_topic(q, 1, start_index=idx)
+                                except TypeError:
+                                    got = generate_images_for_topic(q, 1)
+
+                                # 폴백: 전체 주제 키워드(정규화)로 재시도
+                                if not got:
+                                    fb = _normalize_scene_query(media_query_final or q)
                                     try:
-                                        got = generate_images_for_topic(q, 1, start_index=i)
+                                        got = generate_images_for_topic(fb, 1, start_index=idx)
                                     except TypeError:
-                                        got = generate_images_for_topic(q, 1)
+                                        got = generate_images_for_topic(fb, 1)
 
-                                    # 폴백: 주제 키워드(정규화)로 재시도
-                                    if not got:
-                                        fb = _normalize_scene_query(media_query_final or q)
-                                        try:
-                                            got = generate_images_for_topic(fb, 1, start_index=i)
-                                        except TypeError:
-                                            got = generate_images_for_topic(fb, 1)
+                                if got:
+                                    # 같은 파일명으로 덮어쓰는 문제 방지: 문장번호별 고유 파일명으로 저장/복사
+                                    unique_path = _save_unique_image(got[0], idx)
+                                    image_paths.append(unique_path)
 
-                                    if got:
-                                        # ★ 고유 파일명으로 저장/복사해서 넣기
-                                        unique_path = _save_unique_image(got[0], i)
-                                        image_paths.append(unique_path)
-                                        
-                            # 5) 길이 안 맞으면 마지막 이미지를 반복/자르기
+                            # 5) 이미지 수와 세그먼트 수 맞추기
                             if len(image_paths) < len(segments):
                                 st.warning(f"이미지가 {len(image_paths)}장뿐입니다. 일부 문장은 마지막 이미지를 재사용합니다.")
                                 if image_paths:
