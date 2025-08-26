@@ -370,39 +370,65 @@ def auto_densify_for_subs(
     segments,
     tempo: str = "fast",
     strip_trailing_punct_each: bool = True,
-    words_per_piece: int | None = 3,     # ← 2~3단어 템포용 기본값 3
-    min_tail_words: int = 2,             # ← 마지막이 너무 짧으면 앞과 병합
+    words_per_piece: int | None = 3,
+    min_tail_words: int = 2,
+    chunk_strategy: str | None = None,   # ✅ 추가: "period_2or3" 사용
 ):
-    """
-    각 세그먼트를 tempo 기반 1차 분할 → (옵션) 단어 수 기반 2차 마이크로 분할.
-    길이 비율로 시간을 배분해 오디오/영상 타이밍을 유지.
-    """
     dense = []
     for seg in segments:
         start, end = seg["start"], seg["end"]
         dur = max(0.01, end - start)
 
-        # 1차: 쉼표/담화표지/공백 등 문맥 기준 분할(현행 로직 사용)
-        pieces = _auto_split_for_tempo(seg.get("text", ""), tempo=tempo)
-
-        # 2차: 단어 수 기반 마이크로 분할(요청: 2~3 단어)
         final_pieces = []
-        for p in pieces:
-            if words_per_piece and words_per_piece > 0:
-                sub_chunks = _micro_split_by_words(p, words_per_piece, min_tail_words)
-                final_pieces.extend(sub_chunks if sub_chunks else [p.strip()])
-            else:
-                final_pieces.append(p.strip())
+        text = (seg.get("text") or "").strip()
 
-        # 꼬리 구두점 정리(각 조각별)
-        if strip_trailing_punct_each:
-            final_pieces = [_strip_last_punct_preserve_closers(x) for x in final_pieces]
+        if chunk_strategy == "period_2or3":   # ✅ 새 전략
+            # 1) 마침표(.)로 문장 분리
+            sentences = _sentence_split_by_dot(text) or [text]
+
+            for sent in sentences:
+                tokens = re.findall(r'\S+', sent)
+                wc = len(tokens)
+
+                # 2) 문장 길이에 따라 1/2/3 조각 결정(의미 해치지 않게 단어 경계만 사용)
+                if wc <= 4:
+                    chunks = [" ".join(tokens).strip()]
+                elif wc <= 10:
+                    chunks = _split_tokens_into_n(tokens, 2)   # 2조각
+                else:
+                    chunks = _split_tokens_into_n(tokens, 3)   # 3조각
+
+                # 3) 각 조각 꼬리 구두점 제거
+                if strip_trailing_punct_each:
+                    chunks = [_strip_last_punct_preserve_closers(c) for c in chunks]
+
+                # 4) 맨 끝 조각이 너무 짧으면 앞과 병합(예: '돼' 단독 방지)
+                if len(chunks) >= 2 and len(chunks[-1].split()) < 2:
+                    chunks[-2] = (chunks[-2] + " " + chunks[-1]).strip()
+                    chunks.pop()
+
+                final_pieces.extend(chunks)
+
+        else:
+            # 기존 경로(문맥→길이→(옵션)단어개수 기준)
+            pieces = _auto_split_for_tempo(text, tempo=tempo)
+            if words_per_piece and words_per_piece > 0:
+                tmp = []
+                for p in pieces:
+                    subs = _micro_split_by_words(p, words_per_piece, min_tail_words)
+                    tmp.extend(subs if subs else [p.strip()])
+                final_pieces = tmp
+            else:
+                final_pieces = [p.strip() for p in pieces]
+
+            if strip_trailing_punct_each:
+                final_pieces = [_strip_last_punct_preserve_closers(x) for x in final_pieces]
 
         if not final_pieces:
             dense.append(seg)
             continue
 
-        # 길이 비율로 시간 분배
+        # 시간 배분(문자 길이 비율)
         total_chars = sum(len(x) for x in final_pieces) or 1
         t = start
         for i, txt in enumerate(final_pieces):
@@ -429,3 +455,46 @@ def _micro_split_by_words(piece: str, target_words: int = 3, min_tail_words: int
         chunks[-2] = (chunks[-2] + " " + chunks[-1]).strip()
         chunks.pop()
     return chunks
+
+def _sentence_split_by_dot(text: str):
+    """'.' 뒤에서 문장 분리(공백 무시). 마침표가 없다면 전체를 한 문장으로."""
+    if not text or not text.strip():
+        return []
+    parts = re.split(r'(?<=\.)\s*', text.strip())
+    # 빈 조각 제거 + 원문 유지
+    return [p.strip() for p in parts if p and p.strip()]
+
+def _split_tokens_into_n(tokens, n, prefer_punct=True):
+    """
+    토큰 리스트를 n개로 균형 있게 자름.
+    prefer_punct=True면 경계 근처에서 쉼표/세미콜론 등 뒤를 우선 경계로 선택.
+    """
+    if n <= 1 or len(tokens) <= n:
+        return [" ".join(tokens).strip()]
+
+    desired = [round(len(tokens) * i / n) for i in range(1, n)]
+    boundaries = []
+    for idx in desired:
+        # 자르기 좋은 근처 후보 인덱스(토큰 사이 경계)
+        cand = list(range(max(1, idx - 2), min(len(tokens) - 1, idx + 2) + 1))
+        pick = None
+        if prefer_punct:
+            for j in cand:
+                if re.search(r'[,:;·…]$', tokens[j - 1]):
+                    pick = j
+                    break
+        if pick is None:
+            pick = min(cand, key=lambda j: abs(j - idx)) if cand else idx
+        # 단조 증가 보장
+        if boundaries and pick <= boundaries[-1]:
+            pick = boundaries[-1] + 1
+        pick = min(max(1, pick), len(tokens) - 1)
+        boundaries.append(pick)
+
+    # 경계로 분할
+    out = []
+    start = 0
+    for b in boundaries + [len(tokens)]:
+        out.append(" ".join(tokens[start:b]).strip())
+        start = b
+    return [x for x in out if x]

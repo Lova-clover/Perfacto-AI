@@ -530,10 +530,8 @@ with st.sidebar:
                         # ✅ 자막만 "자동-빠른 템포"로 더 쪼개서 덮어쓰기 (오디오/영상 타이밍 유지)
                         dense_events = auto_densify_for_subs(
                             segments,
-                            tempo="fast",
                             strip_trailing_punct_each=True,
-                            words_per_piece=3,      # 기본 3단어
-                            min_tail_words=2        # 끝이 너무 짧으면 앞과 합침 → '돼'만 덩그러니 X
+                            chunk_strategy="period_2or3"   # ✅ 마침표 먼저 → 2/3조각
                         )
 
                         # ✅ 마지막 조각의 꼬리 구두점 확실히 제거(따옴표/괄호는 보존)
