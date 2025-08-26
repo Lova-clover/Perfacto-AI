@@ -110,6 +110,23 @@ def _maybe_translate_lines(lines, target='ko', only_if_src_is_english=True):
         # 번역 실패 시 원문 유지 (크래시 방지)
         return lines
 
+def _validate_ssml(text: str) -> str:
+    """
+    Polly 호출 전 SSML 안전성 검사 및 보정
+    """
+    # 1) 빈 prosody 블록 제거
+    text = re.sub(r"<prosody[^>]*>\s*</prosody>", "", text)
+
+    # 2) 잘못된 중첩/닫힘 보정 (간단히)
+    # 열림과 닫힘 개수 안 맞으면 강제로 닫음
+    open_count = text.count("<prosody")
+    close_count = text.count("</prosody>")
+    while close_count < open_count:
+        text += "</prosody>"
+        close_count += 1
+
+    return text.strip()
+
 def generate_tts_per_line(script_lines, provider, template, polly_voice_key="korean_female1"):
     audio_paths = []
     temp_audio_dir = "temp_line_audios"
@@ -120,11 +137,13 @@ def generate_tts_per_line(script_lines, provider, template, polly_voice_key="kor
     for i, line in enumerate(script_lines):
         line_audio_path = os.path.join(temp_audio_dir, f"line_{i}.mp3")
         try:
+            line_ssml = _validate_ssml(line)
             generate_tts(
-                text=line,
+                text=line_ssml,
                 save_path=line_audio_path,
                 provider=provider,
-                template_name=template
+                template_name=template,
+                polly_voice_name_key=polly_voice_key
             )
             audio_paths.append(line_audio_path)
             print(f"디버그: 라인 {i+1} ('{line[:30]}...') TTS 생성 성공. 파일: {line_audio_path}")
