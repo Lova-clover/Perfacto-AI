@@ -192,7 +192,7 @@ def create_video_with_segments(image_paths, segments, audio_path, topic_title,
         current_segment_clips = [image_clip]
 
         if include_topic_title:
-            font_path = os.path.join("assets", "fonts", "Pretendard-Bold.ttf")
+            font_path = os.path.join("assets", "fonts", "BMJUA_ttf.ttf")
             line1, line2 = auto_split_title(topic_title)
             formatted_title = line1 + ("\n" + line2 if line2 else "")
             max_title_width = video_width - 40  # 좌우 여백
@@ -356,7 +356,7 @@ def add_subtitles_to_video(input_video_path, ass_path, output_path="assets/video
 
 def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path="", save_path="assets/dark_text_video.mp4"):
     video_width, video_height = 720, 1080
-    font_path = os.path.abspath(os.path.join("assets", "fonts", "Pretendard-Bold.ttf"))
+    font_path = os.path.abspath(os.path.join("assets", "fonts", "BMJUA_ttf.ttf"))
     if not os.path.exists(font_path):
         raise FileNotFoundError(f"폰트가 없습니다: {font_path}")
 
@@ -627,7 +627,7 @@ def create_video_from_videos(
 
     # 타이틀(align 제거, fontsize 사용)
     def build_title_overlay(duration):
-        font_path = os.path.join("assets", "fonts", "Pretendard-Bold.ttf")
+        font_path = os.path.join("assets", "fonts", "BMJUA_ttf.ttf")
         line1, line2 = auto_split_title(topic_title)
         formatted_title = line1 + ("\n" + line2 if line2 else "")
         max_title_width = video_width - 40

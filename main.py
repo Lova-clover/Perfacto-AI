@@ -244,7 +244,9 @@ def get_scene_keywords_batch(sentence_units, persona_text: str):
 - i번째 줄은 'i. a short phrase, another phrase, third phrase' 형식
 - 각 키워드는 3~6단어의 영어 구문
 - 반드시 키워드만, 라벨/설명/따옴표/줄바꿈 추가 금지
-응답:"""
+- 같은(혹은 거의 같은) 키워드/구를 여러 줄에 반복 사용하지 말 것. 유사 개념이면 스타일·시간대·로케이션을 바꿔 변주할 것.
+응답:
+"""
 
     raw = scene_chain.invoke({"question": prompt, "chat_history": []}).strip()
     lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
@@ -551,7 +553,16 @@ with st.sidebar:
             st.session_state.final_video_path = ""
             st.session_state.youtube_link = ""
             st.session_state.upload_clicked = False
-
+            # main.py — "영상 만들기" 버튼 안, 문장별 영상 검색 직전에 추가
+            if "seen_video_ids" not in st.session_state:
+                st.session_state.seen_video_ids = set()
+            if "query_page_cursor" not in st.session_state:
+                st.session_state.query_page_cursor = {}  # {query: next_page_int}
+            if "seen_photo_ids" not in st.session_state:
+                st.session_state.seen_photo_ids = set()
+            if "query_page_cursor_img" not in st.session_state:
+                st.session_state.query_page_cursor_img = {}  # {query: next_page_int}
+                
             final_script_for_video = st.session_state.edited_script_content
             final_title_for_video = st.session_state.video_title  # VIDEO_TEMPLATE이면 빈 문자열이어도 됨
 
@@ -689,28 +700,39 @@ with st.sidebar:
                             # 4) 문장별로 영상 1개씩 검색
                             video_paths = []
 
-                            def _try_search(query: str, page_seed: int):
-                                # 라이브러리 시그니처 차이를 대비해 TypeError 처리해도 무방
-                                try:
-                                    return generate_videos_for_topic(
-                                        query=query, num_videos=1, start_index=page_seed, orientation="portrait"
-                                    )
-                                except TypeError:
-                                    return generate_videos_for_topic(query, 1)
+                            def _try_search_once(q: str, clip_idx: int):
+                                # 키워드별 다음 페이지 커서 (기본 1)
+                                pg = st.session_state.query_page_cursor.get(q, 1)
+                                paths, ids = generate_videos_for_topic(
+                                    query=q,
+                                    num_videos=1,
+                                    start_index=clip_idx,           # 파일명 일관성 유지
+                                    orientation="portrait",
+                                    page=pg,                        # ✅ 이 키워드는 여기서부터
+                                    exclude_ids=st.session_state.seen_video_ids,  # ✅ 이미 쓴 건 건너뛰기
+                                    return_ids=True
+                                )
+                                if paths:
+                                    # 성공 → 다음에 같은 키워드 쓰면 다음 페이지부터
+                                    st.session_state.query_page_cursor[q] = pg + 1
+                                    st.session_state.seen_video_ids.update(ids)
+                                return paths
 
                             for clip_idx, q in enumerate(per_sentence_queries, start=1):
                                 st.write(f"🎞️ 문장 {clip_idx} 검색: {q}")
-                                got = _try_search(q, clip_idx)
 
-                                if not got and ("," in q):  # 콤마 조각 재시도
+                                got = _try_search_once(q, clip_idx)
+
+                                # 콤마로 나뉜 구문이면 조각별로도 재시도
+                                if not got and ("," in q):
                                     for piece in [p.strip() for p in q.split(",") if p.strip()]:
-                                        got = _try_search(piece, clip_idx)
-                                        if got:
-                                            break
+                                        got = _try_search_once(piece, clip_idx)
+                                        if got: break
 
+                                # 그래도 없으면 키워드 정규화 후 한 번 더
                                 if not got:
-                                    fb = _normalize_scene_query(media_query_final or q)
-                                    got = _try_search(fb, clip_idx)
+                                    fb = _normalize_scene_query(q)
+                                    got = _try_search_once(fb, clip_idx)
 
                                 if got:
                                     video_paths.extend(got)
@@ -747,10 +769,26 @@ with st.sidebar:
                             image_paths = []
 
                             def _img_search(q: str, idx: int):
+                                pg = st.session_state.query_page_cursor_img.get(q, 1)
                                 try:
-                                    return generate_images_for_topic(q, 1, start_index=idx)  # 다양화 seed
+                                    paths, ids = generate_images_for_topic(
+                                        q,
+                                        1,
+                                        start_index=idx,                       # 문장별 고유 파일명 시드
+                                        page=pg,                               # ★ 이 키워드는 여기서부터
+                                        exclude_ids=st.session_state.seen_photo_ids,  # ★ 이미 쓴 사진은 건너뛰기
+                                        return_ids=True                        # ★ 받은 사진 ID들을 회수
+                                    )
                                 except TypeError:
-                                    return generate_images_for_topic(q, 1)
+                                    # 구버전 시그니처 호환용
+                                    paths = generate_images_for_topic(q, 1, start_index=idx)
+                                    ids = []
+
+                                if paths:
+                                    st.session_state.query_page_cursor_img[q] = pg + 1
+                                    if ids:
+                                        st.session_state.seen_photo_ids.update(ids)
+                                return paths
 
                             for idx, q in enumerate(per_sentence_queries, start=1):
                                 st.write(f"🖼️ 문장 {idx} 검색: {q}")
