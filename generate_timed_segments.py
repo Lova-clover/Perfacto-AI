@@ -267,7 +267,7 @@ def generate_subtitle_from_script(
     full_audio_file_path: str,
     provider: str = "elevenlabs",
     template: str = "default",
-    polly_voice_key: str = "korean_female",
+    polly_voice_key: str = "default_male",
     subtitle_lang: str = "ko",
     translate_only_if_english: bool = False,
     tts_lang: str | None = None,
@@ -275,25 +275,36 @@ def generate_subtitle_from_script(
     strip_trailing_punct_last: bool = True
 ):
     # 1) 라인 분할
-    script_lines = split_script_to_lines(script_text, mode=split_mode) 
+    script_lines = split_script_to_lines(script_text, mode=split_mode)
     if not script_lines:
         return [], None, ass_path
 
+    # 2) 언어-보이스 키 동기화 (Polly 전용)
     if provider == "polly":
-        # 문장 단위로 prosody 블록만 생성 (speak 제거됨)
-        tts_lines = [convert_line_to_ssml(line) for line in script_lines]
+        if tts_lang == "en" and polly_voice_key.startswith("korean_"):
+            print(f"⚠️ 영어 모드인데 한국어 보이스({polly_voice_key}) 선택됨 → default_male로 교체")
+            polly_voice_key = "default_male"
+        elif tts_lang == "ko" and polly_voice_key.startswith("default_"):
+            print(f"⚠️ 한국어 모드인데 영어 보이스({polly_voice_key}) 선택됨 → korean_female1으로 교체")
+            polly_voice_key = "korean_female1"
+
+    # 3) TTS 라인 준비
+    if provider == "polly":
+        ssml_blocks = [convert_line_to_ssml(line) for line in script_lines]
+        # Polly는 하나의 <speak> 블록 안에서만 정상 처리됨
+        tts_lines = ["<speak>" + "".join(ssml_blocks) + "</speak>"]
     else:
         tts_lines = script_lines[:]
 
     # (선택) TTS 언어 강제 변환
-    if tts_lang in ("en", "ko"):
+    if tts_lang in ("en", "ko") and provider != "polly":
         tts_lines = _maybe_translate_lines(
             tts_lines,
             target=tts_lang,
             only_if_src_is_english=False
         )
 
-    # 3) 자막 라인 (화면 표시용) — 항상 SSML 금지
+    # 4) 자막 라인 (화면 표시용)
     if subtitle_lang in ("ko", "en"):
         subtitle_lines = _maybe_translate_lines(
             script_lines,
@@ -303,11 +314,17 @@ def generate_subtitle_from_script(
     else:
         subtitle_lines = script_lines[:]
 
-    # 4) 라인별 TTS 생성 및 병합
-    audio_paths = generate_tts_per_line(tts_lines, provider=provider, template=template)
+    # 5) 라인별 TTS 생성
+    audio_paths = generate_tts_per_line(
+        tts_lines,
+        provider=provider,
+        template=template,
+        polly_voice_key=polly_voice_key   # ✅ 보정된 보이스 키 반영
+    )
     if not audio_paths:
         return [], None, ass_path
 
+    # 6) 병합
     segments_raw = merge_audio_files(audio_paths, full_audio_file_path)
     segments = []
     for i, s in enumerate(segments_raw):
@@ -315,15 +332,16 @@ def generate_subtitle_from_script(
         segments.append({
             "start": s["start"],
             "end": s["end"],
-            "text": line_text,                # ✅ 자막용 텍스트 (SSML 없음)
+            "text": line_text,
             "pitch": _assign_pitch(line_text)
         })
 
-    # 5) ASS 생성
+    # 7) ASS 생성
     generate_ass_subtitle(
         segments, ass_path, template_name=template,
         strip_trailing_punct_last=strip_trailing_punct_last
     )
+
     return segments, None, ass_path
 
 # === Auto-paced subtitle densifier (자연스러운 문맥 분할 우선) ===
