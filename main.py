@@ -722,10 +722,10 @@ with st.sidebar:
                             # ✅ 문장 단위(segments)로 문장별 키워드 생성 → 영상 1개씩 매칭
                             st.write("🎯 문장별로 페르소나 기반 키워드를 만들어 개별 영상 검색을 수행합니다.")
 
-                            # 1) 문장 리스트(오디오/영상 기준) — split_mode='kss' 덕분에 문장 단위
+                            # 1) 문장 리스트
                             sentence_units = [s['text'] for s in segments]
 
-                            # 2) 페르소나 지시문 확보(선택된 스크립트 페르소나)
+                            # 2) 페르소나 지시문
                             persona_text = ""
                             try:
                                 pidx = st.session_state.get("selected_script_persona_index", None)
@@ -734,78 +734,47 @@ with st.sidebar:
                             except Exception:
                                 persona_text = ""
 
-                            # 3) 문장별 키워드 생성(페르소나 반영) → 영어화  (LOOP ①)
-                            per_sentence_queries = []
-                            scene_chain = get_default_chain(system_prompt="당신은 숏폼 비디오 장면 키워드 생성 전문가입니다.")
-                            for sen_idx, snt in enumerate(sentence_units, start=1):
-                                prompt = f"""너는 숏폼 비디오의 '장면 검색 키워드'를 만드는 도우미다.
+                            # 3) ✅ 문장별 키워드를 한 번에 받기 (배치)
+                            per_sentence_queries = get_scene_keywords_batch(sentence_units, persona_text)
+                            for i, q in enumerate(per_sentence_queries, start=1):
+                                st.write(f"🧩 문장 {i} 키워드(정규화): {q}")
 
-                            [페르소나]
-                            {persona_text}
-
-                            [문장]
-                            {snt}
-
-                            [요구]
-                            - 인물/배경/행동/분위기가 드러나는 '장면 키워드' 1개
-                            - 각 키워드는 3~6단어의 짧은 영어 구문
-                            - 반드시 키워드만, 쉼표로 구분, 라벨/설명/문장/줄바꿈/따옴표 금지
-                            - 예: a frustrated editor, dark room, editing timeline
-                            키워드:"""
-                                kw = scene_chain.invoke({"question": prompt, "chat_history": []}).strip() or snt
-                                try:
-                                    kw_en = GoogleTranslator(source='auto', target='en').translate(kw)
-                                except Exception:
-                                    kw_en = kw
-
-                                kw_en = _normalize_scene_query(kw_en)
-                                if not kw_en:
-                                    # 완전 공백이면 문장 원문 기반 폴백
-                                    try:
-                                        kw_en = _normalize_scene_query(GoogleTranslator(source='auto', target='en').translate(snt))
-                                    except Exception:
-                                        kw_en = _normalize_scene_query(snt)
-
-                                per_sentence_queries.append(kw_en)
-                                st.write(f"🧩 문장 {sen_idx} 키워드(정규화): {kw_en}")
-
-                            # 4) 문장별로 영상 1개씩 가져오기  (LOOP ②)  ←★ 이 루프가 바깥으로 이동
+                            # 4) 문장별로 영상 1개씩 검색
                             video_paths = []
 
                             def _try_search(query: str, page_seed: int):
-                                return generate_videos_for_topic(
-                                    query=query,
-                                    num_videos=1,
-                                    start_index=page_seed,     # 검색 페이지/시드 다양화
-                                    orientation="portrait"
-                                )
+                                # 라이브러리 시그니처 차이를 대비해 TypeError 처리해도 무방
+                                try:
+                                    return generate_videos_for_topic(
+                                        query=query, num_videos=1, start_index=page_seed, orientation="portrait"
+                                    )
+                                except TypeError:
+                                    return generate_videos_for_topic(query, 1)
 
                             for clip_idx, q in enumerate(per_sentence_queries, start=1):
                                 st.write(f"🎞️ 문장 {clip_idx} 검색: {q}")
                                 got = _try_search(q, clip_idx)
 
-                                if not got and ("," in q):
-                                    # 콤마 조각별 재시도
+                                if not got and ("," in q):  # 콤마 조각 재시도
                                     for piece in [p.strip() for p in q.split(",") if p.strip()]:
                                         got = _try_search(piece, clip_idx)
                                         if got:
                                             break
 
                                 if not got:
-                                    # 전체 주제 키워드 폴백 (정규화 권장)
                                     fb = _normalize_scene_query(media_query_final or q)
                                     got = _try_search(fb, clip_idx)
 
                                 if got:
                                     video_paths.extend(got)
 
-                            # 5) 길이 안 맞으면 마지막 클립 반복
+                            # 5) 길이 보정
                             if len(video_paths) < len(segments):
                                 st.warning(f"영상이 {len(video_paths)}개뿐입니다. 일부 문장은 마지막 클립을 재사용합니다.")
                                 if video_paths:
                                     video_paths += [video_paths[-1]] * (len(segments) - len(video_paths))
 
-                            # 6) 문장 단위 구간 그대로 사용(오디오/자막은 유지)
+                            # 6) 구간 그대로 사용
                             segments_for_video = segments
                         else:
                             st.write("🖼️ 문장별로 페르소나 기반 키워드를 만들어 이미지 1장씩 생성/검색합니다.")
@@ -813,7 +782,7 @@ with st.sidebar:
                             # 1) 문장 리스트(오디오/영상 기준) — 위에서 segments를 문장 단위로 만들었음(split_mode='kss' 또는 regex)
                             sentence_units = [s['text'] for s in segments]
 
-                            # 2) 페르소나 지시문 확보(선택된 스크립트 페르소나)
+                            # 2) 페르소나 지시문
                             persona_text = ""
                             try:
                                 pidx = st.session_state.get("selected_script_persona_index", None)
@@ -822,68 +791,34 @@ with st.sidebar:
                             except Exception:
                                 persona_text = ""
 
-                            # 3) 문장별 키워드 생성 (페르소나 반영) → 영어화  ✅ 루프 안에서는 '키워드 목록'만 만든다
-                            per_sentence_queries = []
-                            scene_chain = get_default_chain(system_prompt="당신은 숏폼 비주얼(이미지/영상) 장면 키워드 생성 전문가입니다.")
+                            # 3) ✅ 문장별 키워드를 한 번에 받기 (배치)
+                            per_sentence_queries = get_scene_keywords_batch(sentence_units, persona_text)
+                            for i, q in enumerate(per_sentence_queries, start=1):
+                                st.write(f"🧩 문장 {i} 키워드(정규화): {q}")
 
-                            for sen_idx, snt in enumerate(sentence_units, start=1):
-                                prompt = f"""너는 숏폼 비디오/이미지의 '장면 검색 키워드'를 만드는 도우미다.
-
-                            [페르소나]
-                            {persona_text}
-
-                            [문장]
-                            {snt}
-
-                            [요구]
-                            - 인물/배경/행동/분위기가 드러나는 '장면 키워드' 1개
-                            - 각 키워드는 3~6단어의 짧은 영어 구문
-                            - **반드시 키워드만, 쉼표로 구분, 라벨/설명/문장/줄바꿈/따옴표 금지**
-                            - 예: a frustrated editor, dark room, editing timeline
-                            키워드:"""
-                                kw = scene_chain.invoke({"question": prompt, "chat_history": []}).strip() or snt
-                                try:
-                                    kw_en = GoogleTranslator(source='auto', target='en').translate(kw)
-                                except Exception:
-                                    kw_en = kw
-
-                                kw_en = _normalize_scene_query(kw_en)
-                                if not kw_en:
-                                    try:
-                                        kw_en = _normalize_scene_query(GoogleTranslator(source='auto', target='en').translate(snt))
-                                    except Exception:
-                                        kw_en = _normalize_scene_query(snt)
-
-                                per_sentence_queries.append(kw_en)
-                                st.write(f"🧩 문장 {sen_idx} 키워드(정규화): {kw_en}")
-
-                            # 4) 문장별로 '이미지 1장'씩 가져오기 (한 문장 = 한 이미지)  ✅ 이 블록은 반드시 ③ '바깥'에 둔다
+                            # 4) 문장별 이미지 1장씩 검색
                             image_paths = []
+
+                            def _img_search(q: str, idx: int):
+                                try:
+                                    return generate_images_for_topic(q, 1, start_index=idx)  # 다양화 seed
+                                except TypeError:
+                                    return generate_images_for_topic(q, 1)
 
                             for idx, q in enumerate(per_sentence_queries, start=1):
                                 st.write(f"🖼️ 문장 {idx} 검색: {q}")
+                                got = _img_search(q, idx)
 
-                                # 라이브러리에 start_index 인자가 있으면 다양화, 없으면 TypeError → 재호출
-                                got = None
-                                try:
-                                    got = generate_images_for_topic(q, 1, start_index=idx)
-                                except TypeError:
-                                    got = generate_images_for_topic(q, 1)
-
-                                # 폴백: 전체 주제 키워드(정규화)로 재시도
                                 if not got:
                                     fb = _normalize_scene_query(media_query_final or q)
-                                    try:
-                                        got = generate_images_for_topic(fb, 1, start_index=idx)
-                                    except TypeError:
-                                        got = generate_images_for_topic(fb, 1)
+                                    got = _img_search(fb, idx)
 
                                 if got:
-                                    # 같은 파일명으로 덮어쓰는 문제 방지: 문장번호별 고유 파일명으로 저장/복사
+                                    # ✅ 문장별 고유 파일명으로 저장/복사
                                     unique_path = _save_unique_image(got[0], idx)
                                     image_paths.append(unique_path)
 
-                            # 5) 이미지 수와 세그먼트 수 맞추기
+                            # 5) 길이 보정
                             if len(image_paths) < len(segments):
                                 st.warning(f"이미지가 {len(image_paths)}장뿐입니다. 일부 문장은 마지막 이미지를 재사용합니다.")
                                 if image_paths:
