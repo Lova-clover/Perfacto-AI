@@ -7,8 +7,9 @@ import random
 import subprocess
 import numpy as np
 from moviepy.audio.AudioClip import AudioArrayClip
-import imageio_ffmpeg
 import gc
+import imageio_ffmpeg
+ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 
 def create_motion_clip(img_path, duration, width, height):
     base_clip_original_size = ImageClip(img_path)
@@ -583,7 +584,7 @@ def create_video_from_videos(
     """
     - video_paths: 내려받은 mp4 리스트
     - segments: [{start, end, text}] (오디오/자막 타이밍 기준)
-    - audio_path: 음성(영어) TTS mp3 경로
+    - audio_path: 음성 TTS mp3 경로 (없으면 무음으로 대체)
     - topic_title: 상단 타이틀 텍스트
     """
     import math
@@ -642,7 +643,6 @@ def create_video_from_videos(
             ).with_duration(duration)
             used_caption = True
         except TypeError:
-            # caption 미지원 → label 폴백
             def line_width(s: str) -> int:
                 if not s: return 0
                 c = TextClip(text=s, font=font_path, font_size=48, method="label")
@@ -682,7 +682,6 @@ def create_video_from_videos(
                 method="label",
             ).with_duration(duration)
 
-        # 높이 계산(dummy) — align 사용 금지
         pad_y = 16
         dummy = TextClip(
             text=formatted_title if used_caption else "\n".join(wrapped) if 'wrapped' in locals() else formatted_title,
@@ -743,7 +742,8 @@ def create_video_from_videos(
             codec="libx264", audio=False, fps=24,
             preset="ultrafast",
             threads=max(1, (os.cpu_count() or 2)//2),
-            ffmpeg_params=["-movflags", "+faststart"],
+            # ✅ 픽셀 포맷을 yuv420p로 고정(플레이어/concat 안정)
+            ffmpeg_params=["-pix_fmt","yuv420p","-movflags","+faststart"],
             logger=None
         )
 
@@ -757,17 +757,38 @@ def create_video_from_videos(
 
         segment_paths.append(os.path.abspath(seg_out))
 
-    # ✅ ffmpeg concat(영상만)
+    # ✅ 세그먼트 유효성 검사 (0바이트/누락 방지)
+    bad = []
+    for p in segment_paths:
+        if (not os.path.exists(p)) or os.path.getsize(p) < 1024:
+            bad.append(p)
+    if bad:
+        raise RuntimeError(f"잘못된 세그먼트 파일 발견: {bad}")
+
+    # ✅ concat 리스트(안전 인용)
     concat_list = os.path.join(os.path.dirname(save_path), "_concat.txt")
-    with open(concat_list, "w", encoding="utf-8") as f:
+    with open(concat_list, "w", encoding="utf-8", newline="\n") as f:
         for p in segment_paths:
-            f.write(f"file '{p}'\n")
+            safe_p = os.path.abspath(p).replace("\\","/")
+            # 작은따옴표 이스케이프: ' → '\''
+            safe_q = "'" + safe_p.replace("'", "'\\''") + "'"
+            f.write(f"file {safe_q}\n")
 
     temp_video = os.path.join(os.path.dirname(save_path), "_temp_video.mp4")
-    # 동일 코덱/해상도/fps로 저장했으니 copy 가능
+
+    # ✅ concat은 재인코딩으로 안전하게
     subprocess.run(
-        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list, "-c", "copy", temp_video],
-        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT
+        [
+            ffmpeg_path, "-y",
+            "-f", "concat", "-safe", "0", "-i", concat_list,
+            "-r", "24",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-preset", "ultrafast", "-crf", "23",
+            "-an",
+            temp_video
+        ],
+        check=True
+        # 실패 원인 보고 싶으면 stdout/stderr를 숨기지 말고 그대로 두세요.
     )
 
     # ✅ 오디오 파일로 추출 후 mux
@@ -775,13 +796,12 @@ def create_video_from_videos(
     try:
         final_audio.write_audiofile(audio_mix, fps=44100, codec="aac", bitrate="128k", logger=None)
     except Exception:
-        # MoviePy가 환경에 따라 codec 파라미터를 무시할 수 있으니, 실패 시 ffmpeg로 변환
         wav_tmp = os.path.join(os.path.dirname(save_path), "_mix_audio.wav")
         try:
             final_audio.write_audiofile(wav_tmp, fps=44100, logger=None)
             subprocess.run(
-                ["ffmpeg", "-y", "-i", wav_tmp, "-c:a", "aac", "-b:a", "128k", audio_mix],
-                check=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT
+                [ffmpeg_path, "-y", "-i", wav_tmp, "-c:a", "aac", "-b:a", "128k", audio_mix],
+                check=True
             )
             os.remove(wav_tmp)
         except Exception:
@@ -789,16 +809,15 @@ def create_video_from_videos(
 
     subprocess.run(
         [
-            "ffmpeg","-y",
+            ffmpeg_path, "-y",
             "-i", temp_video,
             "-i", audio_mix,
-            # ✅ 비디오는 temp_video의 첫 번째 비디오 스트림, 오디오는 audio_mix의 첫 번째 오디오 스트림만 사용
             "-map","0:v:0","-map","1:a:0",
-            "-c:v","copy","-c:a","aac",
-            "-shortest",
-            save_path
+            "-c:v","copy",                # 이미 temp_video를 재인코딩했으므로 copy OK
+            "-c:a","aac","-b:a","128k",
+            "-shortest", save_path
         ],
-        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT
+        check=True
     )
 
     print(f"✅ 영상(동영상 소스) 저장 완료: {save_path}")
