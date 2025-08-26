@@ -366,49 +366,66 @@ def _auto_split_for_tempo(text: str, tempo: str = "fast"):
 
     return chunks
 
-def auto_densify_for_subs(segments, tempo: str = "fast", strip_trailing_punct_each: bool = True):
+def auto_densify_for_subs(
+    segments,
+    tempo: str = "fast",
+    strip_trailing_punct_each: bool = True,
+    words_per_piece: int | None = 3,     # ← 2~3단어 템포용 기본값 3
+    min_tail_words: int = 2,             # ← 마지막이 너무 짧으면 앞과 병합
+):
     """
-    각 원 세그먼트(한 줄)를 tempo에 맞춰 여러 하위 자막 이벤트로 쪼갭니다.
-    오디오/영상 타이밍은 유지(문자 길이 비율로 시간 배분).
-    strip_trailing_punct_each=True 면 각 조각의 끝 구두점(.,!?… 등) 제거.
+    각 세그먼트를 tempo 기반 1차 분할 → (옵션) 단어 수 기반 2차 마이크로 분할.
+    길이 비율로 시간을 배분해 오디오/영상 타이밍을 유지.
     """
     dense = []
     for seg in segments:
         start, end = seg["start"], seg["end"]
         dur = max(0.01, end - start)
+
+        # 1차: 쉼표/담화표지/공백 등 문맥 기준 분할(현행 로직 사용)
         pieces = _auto_split_for_tempo(seg.get("text", ""), tempo=tempo)
-        if not pieces:
+
+        # 2차: 단어 수 기반 마이크로 분할(요청: 2~3 단어)
+        final_pieces = []
+        for p in pieces:
+            if words_per_piece and words_per_piece > 0:
+                sub_chunks = _micro_split_by_words(p, words_per_piece, min_tail_words)
+                final_pieces.extend(sub_chunks if sub_chunks else [p.strip()])
+            else:
+                final_pieces.append(p.strip())
+
+        # 꼬리 구두점 정리(각 조각별)
+        if strip_trailing_punct_each:
+            final_pieces = [_strip_last_punct_preserve_closers(x) for x in final_pieces]
+
+        if not final_pieces:
             dense.append(seg)
             continue
 
-        # ✅ 각 조각의 끝 구두점 제거(닫는 따옴표/괄호는 보존)
-        if strip_trailing_punct_each:
-            pieces = [_strip_last_punct_preserve_closers(p) for p in pieces]
-
-        total_chars = sum(len(x) for x in pieces) or 1
+        # 길이 비율로 시간 분배
+        total_chars = sum(len(x) for x in final_pieces) or 1
         t = start
-        for i, txt in enumerate(pieces):
-            if i == len(pieces) - 1:
-                t2 = end
-            else:
-                t2 = t + dur * (len(txt) / total_chars)
+        for i, txt in enumerate(final_pieces):
+            t2 = end if i == len(final_pieces) - 1 else t + dur * (len(txt) / total_chars)
             dense.append({"start": t, "end": t2, "text": txt})
             t = t2
+
     return dense
 
 def _strip_last_punct_preserve_closers(s: str) -> str:
-    s = (s or "").rstrip()
-    if not s:
-        return s
-    closers = '")\']”’)]}›»」』】〕〗〉》'
-    # ↓ 전각 마침표(．, ｡), 전각 느낌표/물음표(！, ？)까지 포함
-    puncts  = '.,!?…~·。．｡！？'
+    # 끝이 [. , ! ? …] 이고 그 뒤에는 공백/닫는 따옴표/괄호만 오는 경우 그 구두점만 제거
+    return re.sub(r'([.,!?…])(?=\s*(?:["\'”’)\]\}]|$))', '', s.strip())
 
-    tail = []
-    i = len(s) - 1
-    while i >= 0 and s[i] in closers:
-        tail.append(s[i]); i -= 1
-    j = i
-    while j >= 0 and (s[j] in puncts or s[j].isspace() or s[j] == '　'):
-        j -= 1
-    return s[:j+1] + ''.join(reversed(tail))
+# --- helper: 단어 단위 마이크로 분할 ---
+def _micro_split_by_words(piece: str, target_words: int = 3, min_tail_words: int = 2):
+    # 공백 기준 토큰화(토큰에 붙은 쉼표 등은 그대로 유지 → 중간의 구두점은 살림)
+    tokens = re.findall(r'\S+', piece.strip())
+    if not tokens:
+        return []
+    chunks = [" ".join(tokens[i:i+target_words]).strip()
+              for i in range(0, len(tokens), target_words)]
+    # 마지막 덩어리가 너무 짧으면 앞 덩어리로 합치기
+    if len(chunks) >= 2 and len(chunks[-1].split()) < min_tail_words:
+        chunks[-2] = (chunks[-2] + " " + chunks[-1]).strip()
+        chunks.pop()
+    return chunks
