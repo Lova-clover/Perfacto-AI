@@ -149,6 +149,34 @@ def patch_ass_center(ass_path: str):
     except Exception as e:
         print(f"ASS 중앙 정렬 패치 실패: {e}")
 
+def _normalize_scene_query(raw: str) -> str:
+    import re
+    if not raw:
+        return ""
+    s = raw.strip()
+
+    # 1) 프리앰블/라벨 제거
+    s = re.sub(r'(?i)^(here are .*?:)\s*', '', s)
+    s = re.sub(r'(?i)^(keywords?|키워드)\s*:\s*', '', s)
+
+    # 2) 줄바꿈/따옴표/백틱 제거
+    s = s.replace("\n", " ").replace("\r", " ")
+    s = re.sub(r'["“”‘’\'`]+', '', s)
+
+    # 3) 허용 문자만 남기고 공백 정리(영문/숫자/쉼표/하이픈/공백)
+    s = re.sub(r'[^A-Za-z0-9 ,\-]+', ' ', s)
+    s = re.sub(r'\s{2,}', ' ', s).strip(' ,').strip()
+
+    # 4) 쉼표 기준 최대 3조각까지만
+    parts = [p.strip() for p in s.split(',') if p.strip()]
+    if parts:
+        s = ', '.join(parts[:3])
+
+    # 5) 너무 길면 자르기
+    if len(s) > 90:
+        s = s[:90].rstrip(' ,')
+
+    return s
 
 # ---------- 앱 기본 ----------
 st.set_page_config(page_title="Perfacto AI", page_icon="🤖")
@@ -629,41 +657,52 @@ with st.sidebar:
                             [요구]
                             - 인물/배경/행동/분위기가 드러나는 '장면 키워드' 1~3개
                             - 각 키워드는 3~6단어의 짧은 영어 구문
-                            - 쉼표로 구분된 한 줄만 응답 (예: "a frustrated editor, dark room, editing timeline")
+                            - **반드시 키워드만, 쉼표로 구분, 라벨/설명/문장/줄바꿈/따옴표 금지**
+                            - 예: a frustrated editor, dark room, editing timeline
                             키워드:"""
-                                kw = scene_chain.invoke({"question": prompt, "chat_history": []}).strip()
-                                if not kw:
-                                    kw = snt
-                                # 영어 보정(혹시 한글 키워드가 섞여 나왔을 때 대비)
-                                try:
-                                    kw_en = GoogleTranslator(source='auto', target='en').translate(kw)
-                                except Exception:
-                                    kw_en = kw
-                                per_sentence_queries.append(kw_en)
-                                st.write(f"🧩 문장 {i} 키워드: {kw_en}")
+                            kw = scene_chain.invoke({"question": prompt, "chat_history": []}).strip() or snt
+                            try:
+                                kw_en = GoogleTranslator(source='auto', target='en').translate(kw)
+                            except Exception:
+                                kw_en = kw
 
+                            kw_en = _normalize_scene_query(kw_en)
+                            if not kw_en:
+                                # 완전 공백이면 문장 원문 기반 폴백
+                                try:
+                                    kw_en = _normalize_scene_query(GoogleTranslator(source='auto', target='en').translate(snt))
+                                except Exception:
+                                    kw_en = _normalize_scene_query(snt)
+
+                            per_sentence_queries.append(kw_en)
+                            st.write(f"🧩 문장 {i} 키워드(정규화): {kw_en}")
                             # 4) 문장별로 영상 1개씩 가져오기(한 문장 = 한 클립)
                             video_paths = []
                             for i, q in enumerate(per_sentence_queries):
                                 st.write(f"🎞️ 문장 {i+1} 검색: {q}")
-                                got = generate_videos_for_topic(
-                                    query=q,
-                                    num_videos=1,
-                                    start_index=i,
-                                    orientation="portrait"
-                                )
-                                if got:
-                                    video_paths.extend(got)
-                                else:
-                                    # 폴백: 전체 주제 키워드로라도 1개 채움
-                                    fallback = generate_videos_for_topic(
-                                        query=media_query_final or q,
+
+                                def _try_search(query: str):
+                                    return generate_videos_for_topic(
+                                        query=query,
                                         num_videos=1,
                                         start_index=i,
                                         orientation="portrait"
                                     )
-                                    if fallback:
-                                        video_paths.extend(fallback)
+
+                                got = _try_search(q)
+
+                                if not got and ("," in q):
+                                    for piece in [p.strip() for p in q.split(",") if p.strip()]:
+                                        got = _try_search(piece)
+                                        if got:
+                                            break
+
+                                if not got:
+                                    # 전체 주제 키워드 폴백
+                                    got = _try_search(media_query_final or q)
+
+                                if got:
+                                    video_paths.extend(got)
 
                             # 5) 길이 안 맞으면 마지막 클립 반복
                             if len(video_paths) < len(segments):
@@ -703,16 +742,25 @@ with st.sidebar:
                         [요구]
                         - 인물/배경/행동/분위기가 드러나는 '장면 키워드' 1~3개
                         - 각 키워드는 3~6단어의 짧은 영어 구문
-                        - 쉼표로 구분된 한 줄만 응답 (예: "a frustrated editor, dark room, editing timeline")
+                        - **반드시 키워드만, 쉼표로 구분, 라벨/설명/문장/줄바꿈/따옴표 금지**
+                        - 예: a frustrated editor, dark room, editing timeline
                         키워드:"""
                                 kw = scene_chain.invoke({"question": prompt, "chat_history": []}).strip() or snt
                                 try:
                                     kw_en = GoogleTranslator(source='auto', target='en').translate(kw)
                                 except Exception:
                                     kw_en = kw
-                                per_sentence_queries.append(kw_en)
-                                st.write(f"🧩 문장 {i} 키워드: {kw_en}")
 
+                                kw_en = _normalize_scene_query(kw_en)
+                                if not kw_en:
+                                    # 완전 공백이면 문장 원문 기반 폴백
+                                    try:
+                                        kw_en = _normalize_scene_query(GoogleTranslator(source='auto', target='en').translate(snt))
+                                    except Exception:
+                                        kw_en = _normalize_scene_query(snt)
+
+                                per_sentence_queries.append(kw_en)
+                                st.write(f"🧩 문장 {i} 키워드(정규화): {kw_en}")
                             # 4) 문장별로 이미지 1장씩 가져오기(한 문장 = 한 이미지)
                             image_paths = []
                             for i, q in enumerate(per_sentence_queries):
