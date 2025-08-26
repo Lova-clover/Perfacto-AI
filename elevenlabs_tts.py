@@ -160,12 +160,10 @@ def generate_polly_tts(
     save_path,
     polly_voice_name_key,
     *,
-    speed: float = 1.0,         # 0.5~1.5 권장
-    volume_db: int | float = 0  # -12~0 dB 권장(감쇄)
+    speed: float = 1.0,
+    volume_db: int | float = 0
 ):
     voice_id = TTS_POLLY_VOICES.get(polly_voice_name_key, "Seoyeon")
-
-    # 보이스 키 → 언어 매핑 보강
     VOICE_LANG = {
         "default_female":"en-US","default_male":"en-US",
         "eng_male":"en-US","eng_male2":"en-US",
@@ -179,13 +177,18 @@ def generate_polly_tts(
 
     rate = _rate_from_speed(speed)
     vol  = _volume_from_db(volume_db)
-    ssml = (
-        f"<speak>"
-        f"<prosody rate='{rate}' volume='{vol}'>"
-        f"<lang xml:lang='{lang}'>{escape(text)}</lang>"
-        f"</prosody>"
-        f"</speak>"
-    )
+
+    # ✅ SSML 여부 체크
+    if text.strip().startswith("<speak>"):
+        ssml = text  # 이미 SSML이면 그대로 사용
+    else:
+        ssml = (
+            f"<speak>"
+            f"<prosody rate='{rate}' volume='{vol}'>"
+            f"<lang xml:lang='{lang}'>{text}</lang>"
+            f"</prosody>"
+            f"</speak>"
+        )
 
     def synth(engine):
         args = dict(OutputFormat='mp3', VoiceId=voice_id, Engine=engine)
