@@ -178,6 +178,51 @@ def _normalize_scene_query(raw: str) -> str:
 
     return s
 
+def _save_unique_image(src_path_or_url: str, idx: int) -> str:
+    """
+    이미지가 같은 파일명으로 덮어쓰기 되는 문제를 막기 위해
+    문장 인덱스별로 고유 파일명으로 저장/복사합니다.
+    - 로컬 경로면 copy
+    - URL이면 다운로드
+    """
+    import os, shutil, mimetypes
+    import requests
+
+    os.makedirs("assets/scene_images", exist_ok=True)
+
+    def _guess_ext(p: str) -> str:
+        # 확장자 추정 (없으면 .jpg)
+        base, ext = os.path.splitext(p)
+        if ext and len(ext) <= 5:
+            return ext
+        # URL/헤더에서 MIME으로 추정
+        if p.startswith("http"):
+            try:
+                head = requests.head(p, timeout=10)
+                ctype = head.headers.get("Content-Type", "")
+                ext = mimetypes.guess_extension(ctype.split(";")[0].strip()) or ".jpg"
+                return ext
+            except Exception:
+                return ".jpg"
+        return ".jpg"
+
+    ext = _guess_ext(src_path_or_url)
+    dst = os.path.join("assets/scene_images", f"img_sent_{idx:02d}{ext}")
+
+    try:
+        if src_path_or_url.startswith("http"):
+            r = requests.get(src_path_or_url, timeout=30)
+            r.raise_for_status()
+            with open(dst, "wb") as f:
+                f.write(r.content)
+        else:
+            shutil.copyfile(src_path_or_url, dst)
+    except Exception:
+        # 실패 시라도 최소한 원본 경로를 반환
+        return src_path_or_url
+
+    return dst
+
 # ---------- 앱 기본 ----------
 st.set_page_config(page_title="Perfacto AI", page_icon="🤖")
 st.title("PerfactoAI")
@@ -764,19 +809,32 @@ with st.sidebar:
 
                                 per_sentence_queries.append(kw_en)
                                 st.write(f"🧩 문장 {i} 키워드(정규화): {kw_en}")
-                            # 4) 문장별로 이미지 1장씩 가져오기(한 문장 = 한 이미지)
-                            image_paths = []
-                            for i, q in enumerate(per_sentence_queries):
-                                st.write(f"🖼️ 문장 {i+1} 검색: {q}")
-                                got = generate_images_for_topic(q, 1)
-                                if got:
-                                    image_paths.extend(got)
-                                else:
-                                    # 폴백: 전체 주제 키워드로라도 1장 채움
-                                    fallback = generate_images_for_topic(media_query_final or q, 1)
-                                    if fallback:
-                                        image_paths.extend(fallback)
+                                # 4) 문장별로 이미지 1장씩 가져오기(한 문장 = 한 이미지)
+                                image_paths = []
 
+                                for i, q in enumerate(per_sentence_queries, start=1):
+                                    st.write(f"🖼️ 문장 {i} 검색: {q}")
+
+                                    # 함수가 start_index를 지원하면 다양화되고, 미지원이면 TypeError → 재호출
+                                    got = None
+                                    try:
+                                        got = generate_images_for_topic(q, 1, start_index=i)
+                                    except TypeError:
+                                        got = generate_images_for_topic(q, 1)
+
+                                    # 폴백: 주제 키워드(정규화)로 재시도
+                                    if not got:
+                                        fb = _normalize_scene_query(media_query_final or q)
+                                        try:
+                                            got = generate_images_for_topic(fb, 1, start_index=i)
+                                        except TypeError:
+                                            got = generate_images_for_topic(fb, 1)
+
+                                    if got:
+                                        # ★ 고유 파일명으로 저장/복사해서 넣기
+                                        unique_path = _save_unique_image(got[0], i)
+                                        image_paths.append(unique_path)
+                                        
                             # 5) 길이 안 맞으면 마지막 이미지를 반복/자르기
                             if len(image_paths) < len(segments):
                                 st.warning(f"이미지가 {len(image_paths)}장뿐입니다. 일부 문장은 마지막 이미지를 재사용합니다.")
