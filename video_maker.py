@@ -319,7 +319,7 @@ def create_video_with_segments(image_paths, segments, audio_path, topic_title,
 
     if bgm_path and os.path.exists(bgm_path):
         bgm_raw = AudioFileClip(bgm_path)
-        bgm_array = bgm_raw.to_soundarray(fps=44100) * 0.2
+        bgm_array = bgm_raw.to_soundarray(fps=44100) * 0.08
         repeat_count = int(np.ceil(audio.duration / bgm_raw.duration))
         bgm_array = np.tile(bgm_array, (repeat_count, 1))
         bgm_array = bgm_array[:int(audio.duration * 44100)]
