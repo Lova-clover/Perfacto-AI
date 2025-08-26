@@ -298,7 +298,7 @@ def generate_subtitle_from_script(
     return segments, None, ass_path
 
 # === Auto-paced subtitle densifier (자연스러운 문맥 분할 우선) ===
-def _auto_split_for_tempo(text: str, tempo: str = "medium"):
+def _auto_split_for_tempo(text: str, tempo: str = "fast"):
     """
     tempo: fast(짧게) | medium | slow
     분할 우선순위:
