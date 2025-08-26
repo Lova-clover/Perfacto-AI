@@ -19,7 +19,7 @@ from upload import upload_to_youtube
 from best_subtitle_extractor import load_best_subtitles_documents
 from text_scraper import get_links, clean_html_parallel, filter_noise
 from langchain_core.documents import Document
-
+from ssml_converter import convert_script_to_ssml
 import os
 import requests
 import re
@@ -530,6 +530,13 @@ with st.sidebar:
                         key="polly_voice_select"
                     )
 
+        st.session_state.selected_tts_lang = st.radio(
+            "🎙️ 음성 언어 선택:",
+            options=["ko", "en"],
+            index=0,  # 기본 한국어
+            key="tts_lang_select"
+        )
+        
         if not is_emotional:
             st.session_state.selected_subtitle_template = st.selectbox(
                 "자막 템플릿 선택",
@@ -594,15 +601,17 @@ with st.sidebar:
                         provider = "elevenlabs" if st.session_state.selected_tts_provider == "ElevenLabs" else "polly"
                         tmpl = st.session_state.selected_tts_template if provider == "elevenlabs" else st.session_state.selected_polly_voice_key
 
+                        ssml_script = convert_script_to_ssml(final_script_for_video)
+                        
                         segments, audio_clips, ass_path = generate_subtitle_from_script(
-                            script_text=final_script_for_video,
+                            script_text=ssml_script,
                             ass_path=os.path.join("assets", "generated_subtitle.ass"),
                             full_audio_file_path=audio_path,
                             provider=provider,
                             template=tmpl,
                             subtitle_lang="ko",
                             translate_only_if_english=False,
-                            tts_lang="en", #영어음성생성
+                            tts_lang=st.session_state.selected_tts_lang,
                             split_mode="kss",               # ✅ 문장 단위로 분할
                             strip_trailing_punct_last=False
                         )

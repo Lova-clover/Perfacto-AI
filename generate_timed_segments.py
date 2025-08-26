@@ -175,21 +175,27 @@ def get_segments_from_audio(audio_paths, script_lines):
             continue
     return segments
 
+# --- pitch 할당 함수 ---
+def _assign_pitch(text: str) -> int:
+    if text.endswith("?"):
+        return 20     # 질문/경고
+    if text.endswith("습니다") or text.endswith("합니다"):
+        return -5     # 일반 설명
+    if text.endswith("이다") or text.endswith("없습니다"):
+        return -18    # 결론/단정
+    return 0
 
 def generate_ass_subtitle(segments, ass_path, template_name="default",
                           strip_trailing_punct_last=True):
     settings = SUBTITLE_TEMPLATES.get(template_name, SUBTITLE_TEMPLATES["default"])
 
     def _escape_ass_text(s: str) -> str:
-        # ASS에서 개행은 \N, 역슬래시는 이스케이프, 중괄호는 태그로 오인될 수 있음
         s = s.replace("\\", r"\\")
         s = s.replace("\r", "")
         s = s.replace("\n", r"\N")
-        # 필요시 특수문자 추가 이스케이프 가능
         return s
 
     with open(ass_path, "w", encoding="utf-8") as f:
-        # 헤더
         f.write("[Script Info]\n")
         f.write("ScriptType: v4.00+\n\n")
 
@@ -197,27 +203,25 @@ def generate_ass_subtitle(segments, ass_path, template_name="default",
         f.write("Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
         f.write(f"Style: Bottom,{settings['Fontname']},{settings['Fontsize']},{settings['PrimaryColour']},{settings['OutlineColour']},1,{settings['Outline']},0,2,10,10,{settings['MarginV']},1\n\n")
 
-        # 이벤트(여기서 포맷과 Dialogue 필드 개수를 반드시 일치시켜야 함)
         f.write("[Events]\n")
         f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
 
         for i, seg in enumerate(segments):
             start, end = seg['start'], seg['end']
             text = (seg.get('text') or "").strip()
-
             if strip_trailing_punct_last and i == len(segments) - 1:
                 text = _strip_last_punct_preserve_closers(text)
-
-            # ASS 안전 이스케이프 + 줄바꿈 변환
             text = _escape_ass_text(text)
 
             start_ts = format_ass_timestamp(start)
             end_ts   = format_ass_timestamp(end)
 
-            # 🔴 핵심: Name, Effect 컬럼을 비워두더라도 "자리"는 채워야 함
-            # Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-            # 예:     0,     0:00:00.00,0:00:02.10,Bottom, ,0,0,0, ,여기가텍스트
-            f.write(f"Dialogue: 0,{start_ts},{end_ts},Bottom,,0,0,0,,{text}\n")
+            # ✅ pitch 조건 → 색상 반영
+            colour_tag = ""
+            if "pitch" in seg and seg["pitch"] <= -15:
+                colour_tag = "{\\c&H0000FF&}"  # 빨강
+
+            f.write(f"Dialogue: 0,{start_ts},{end_ts},Bottom,,0,0,0,,{colour_tag}{text}\n")
 
 
 def format_ass_timestamp(seconds):
@@ -290,7 +294,12 @@ def generate_subtitle_from_script(
     segments = []
     for i, s in enumerate(segments_raw):
         line_text = subtitle_lines[i] if i < len(subtitle_lines) else tts_lines[i]
-        segments.append({"start": s["start"], "end": s["end"], "text": line_text})
+        segments.append({
+            "start": s["start"],
+            "end": s["end"],
+            "text": line_text,
+            "pitch": _assign_pitch(line_text)   # ✅ pitch 추가
+        })
 
     # 5) ASS 생성 (마지막 자막 구두점 제거 옵션 전달)
     generate_ass_subtitle(segments, ass_path, template_name=template,
