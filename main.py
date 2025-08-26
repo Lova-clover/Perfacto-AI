@@ -19,7 +19,6 @@ from upload import upload_to_youtube
 from best_subtitle_extractor import load_best_subtitles_documents
 from text_scraper import get_links, clean_html_parallel, filter_noise
 from langchain_core.documents import Document
-from ssml_converter import convert_script_to_ssml
 import os
 import requests
 import re
