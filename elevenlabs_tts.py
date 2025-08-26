@@ -2,6 +2,21 @@ import requests
 import os
 import streamlit as st
 import boto3 # Import the boto3 library for AWS services
+from html import escape
+
+def _rate_from_speed(speed: float) -> str:
+    # speed=1.0 -> "100%", 0.9 -> "90%", 1.1 -> "110%"
+    pct = max(20, min(200, int(round(speed * 100))))
+    return f"{pct}%"
+
+def _volume_from_db(db: int | float | None) -> str:
+    # Polly는 "x dB" 혹은 "medium/soft" 등 지원. -6 dB 정도가 무난
+    if db is None or db == 0:
+        return "medium"
+    s = int(round(db))
+    if s > 0: s = 0        # 양수 증폭은 왜곡 위험 → 0으로 클램프
+    if s < -20: s = -20    # 과도한 감쇄 방지
+    return f"{s}dB"
 
 # Load API keys from Streamlit secrets
 ELEVEN_API_KEY = st.secrets["ELEVEN_API_KEY"]
@@ -140,33 +155,50 @@ def generate_elevenlabs_tts(text, save_path, template_name, voice_id):
     else:
         raise RuntimeError(f"ElevenLabs TTS 생성 실패: {response.status_code} {response.text}")
 
-def generate_polly_tts(text, save_path, polly_voice_name_key):
-    voice_id = TTS_POLLY_VOICES.get(polly_voice_name_key, "Matthew")  # 안전 폴백을 영어로
-    # 보이스 키 → 언어 매핑(필요한 것만)
+def generate_polly_tts(
+    text,
+    save_path,
+    polly_voice_name_key,
+    *,
+    speed: float = 1.0,         # 0.5~1.5 권장
+    volume_db: int | float = 0  # -12~0 dB 권장(감쇄)
+):
+    voice_id = TTS_POLLY_VOICES.get(polly_voice_name_key, "Seoyeon")
+
+    # 보이스 키 → 언어 매핑 보강
     VOICE_LANG = {
         "default_female":"en-US","default_male":"en-US",
+        "eng_male":"en-US","eng_male2":"en-US",
         "english_female_uk":"en-GB","english_male_uk":"en-GB",
         "korean_female1":"ko-KR","korean_female2":"ko-KR",
+        "japanese_male":"ja-JP","japanese_female":"ja-JP",
+        "spanish_male":"es-ES","spanish_female":"es-ES",
+        "french_male":"fr-FR","french_female":"fr-FR",
     }
     lang = VOICE_LANG.get(polly_voice_name_key, "en-US")
-    use_ssml = lang.startswith("en")  # 영어 보이스면 SSML로 감싸 정확도 ↑
+
+    rate = _rate_from_speed(speed)
+    vol  = _volume_from_db(volume_db)
+    ssml = (
+        f"<speak>"
+        f"<prosody rate='{rate}' volume='{vol}'>"
+        f"<lang xml:lang='{lang}'>{escape(text)}</lang>"
+        f"</prosody>"
+        f"</speak>"
+    )
 
     def synth(engine):
         args = dict(OutputFormat='mp3', VoiceId=voice_id, Engine=engine)
-        if use_ssml:
-            ssml = f"<speak><lang xml:lang='{lang}'>{text}</lang></speak>"
-            return polly_client.synthesize_speech(Text=ssml, TextType='ssml', **args)
-        else:
-            return polly_client.synthesize_speech(Text=text, TextType='text', **args)
+        return polly_client.synthesize_speech(Text=ssml, TextType='ssml', **args)
 
     try:
-        resp = synth('neural')
-    except Exception as e:
-        # neural 미지원 등 → standard로 재시도
-        resp = synth('standard')
+        resp = synth("neural")
+    except Exception:
+        resp = synth("standard")
 
-    with open(save_path, 'wb') as f:
-        f.write(resp['AudioStream'].read())
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    with open(save_path, "wb") as f:
+        f.write(resp["AudioStream"].read())
     return save_path
 
 
@@ -194,19 +226,12 @@ def generate_tts(
         except Exception:
             sess_key = None
 
-        key = polly_voice_name_key or sess_key or "default_female"  # Joanna를 안전 기본값으로
-
-        # 3) 사용자가 VoiceId("Matthew")를 넘긴 경우도 처리
-        from elevenlabs_tts import TTS_POLLY_VOICES
-        if key not in TTS_POLLY_VOICES:
-            # 값이 VoiceId라면 역매핑 시도
-            rev = {v: k for k, v in TTS_POLLY_VOICES.items()}
-            key = rev.get(key, "default_female")
-
-        # (선택) 디버그 로그
-        # print(f"[TTS] provider=polly, key={key}, voiceId={TTS_POLLY_VOICES.get(key)}")
-
-        return generate_polly_tts(text, save_path, key)
+        key = polly_voice_name_key or sess_key or "default_female"
+        # 새 인자 추출(세션 or 기본)
+        polly_speed = getattr(st.session_state, "polly_speed", 1.0)
+        polly_vol_db = getattr(st.session_state, "polly_volume_db", -4)
+        return generate_polly_tts(text, save_path, key, speed=polly_speed, volume_db=polly_vol_db)
 
     else:
         raise ValueError(f"Unsupported TTS provider: {provider}. Choose 'elevenlabs' or 'polly'.")
+
