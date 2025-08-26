@@ -158,12 +158,42 @@ def generate_videos_for_topic(
             save_path = f"assets/video_{start_index + len(saved)}.mp4"
             tmp_path = save_path + ".part"
 
-            # ... (기존 HEAD/GET/저장 로직 그대로) ...
+            # --- robust download to tmp (.part) then atomically rename ---
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            try:
+                with sess.get(url, stream=True, timeout=(5, 30)) as r:
+                    r.raise_for_status()
+                    with open(tmp_path, "wb") as f:
+                        for chunk in r.iter_content(1024 * 64):
+                            if chunk:
+                                f.write(chunk)
 
-            os.replace(tmp_path, save_path)
-            saved.append(save_path)
-            if vid:
-                chosen_ids.append(vid)
+                # sanity check: too-small file은 버림
+                if os.path.getsize(tmp_path) < 10 * 1024:  # 10KB 미만이면 실패로 간주
+                    raise IOError(f"Downloaded file too small: {tmp_path}")
+
+                # 원자적 치환 → 완성본으로 승격
+                os.replace(tmp_path, save_path)
+
+                # 해상도/코덱 정리(선택): 9:16 720x1080 커버로 재인코딩
+                try:
+                    _shrink_to_720_inplace(save_path)
+                except Exception as _:
+                    pass
+
+                saved.append(save_path)
+                if vid:
+                    chosen_ids.append(vid)
+
+            except Exception as e:
+                # 실패 시 .part 깨끗이 정리
+                try:
+                    if os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+                except:
+                    pass
+                print(f"⚠️ 영상 다운로드 실패: {e} | {url}")
+                # 다음 후보/다음 비디오로 계속 진행
             if len(saved) >= num_videos:
                 break
 
