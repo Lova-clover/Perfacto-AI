@@ -294,7 +294,6 @@ def _init_session():
         retriever=None,
         system_prompt="당신은 유능한 AI 어시스턴트입니다.",
         last_user_query="",
-        video_topic="",
         video_title="",
         auto_video_title="",
         title_locked=False,
@@ -471,18 +470,6 @@ with st.sidebar:
                 key="script_editor_editable"
             )
 
-            # 키워드/제목 자동 추출 (제목은 VIDEO_TEMPLATE일 땐 건너뜀)
-            with st.spinner("스크립트에서 미디어 키워드 추출 중..."):
-                topic_prompt = f"""다음 스크립트에서 이미지를 생성하기 위한 2~3개의 키워드 또는 간결한 구문(10단어 이하)을 추출하세요. 키워드만 응답하세요.
-
-스크립트:
-{selected_script}
-
-키워드:"""
-                topic_llm_chain = get_default_chain(system_prompt="당신은 텍스트에서 핵심 키워드를 뽑아내는 전문가입니다.")
-                topic = topic_llm_chain.invoke({"question": topic_prompt, "chat_history": []}).strip()
-                st.session_state.video_topic = topic
-
             if not is_video_template:
                 with st.spinner("스크립트에서 영상 제목을 추출 중..."):
                     title_prompt = f"""다음 스크립트에 기반해 매력적이고 임팩트 있는 짧은 한국어 영상 제목을 생성하세요. 제목만 응답하세요.
@@ -498,14 +485,6 @@ with st.sidebar:
                         st.session_state.video_title = title
         else:
             st.warning("사용 가능한 페르소나 결과가 없습니다. 먼저 페르소나 실행을 통해 결과를 생성해 주세요.")
-
-        # 키워드 입력(감성 텍스트 제외)
-        if not is_emotional:
-            st.session_state.video_topic = st.text_input(
-                "이미지/영상 검색에 사용될 키워드",
-                value=st.session_state.video_topic,
-                key="video_topic_input_final"
-            )
 
         # 제목 입력칸: VIDEO_TEMPLATE에서는 숨김
         if not is_video_template:
@@ -574,31 +553,11 @@ with st.sidebar:
             st.session_state.upload_clicked = False
 
             final_script_for_video = st.session_state.edited_script_content
-            final_topic_for_video = st.session_state.video_topic
             final_title_for_video = st.session_state.video_title  # VIDEO_TEMPLATE이면 빈 문자열이어도 됨
 
             if not final_script_for_video.strip():
                 st.error("스크립트 내용이 비어있습니다.")
                 st.stop()
-
-            # 키워드 자동 보정(없으면 스크립트에서 추출)
-            if (not is_emotional) and (not final_topic_for_video.strip()):
-                with st.spinner("스크립트에서 검색 키워드 자동 추출 중..."):
-                    topic_prompt = f"""다음 스크립트에서 Pexels 검색에 쓸 2~3개의 간결한 키워드 또는 짧은 구문(영/한)만 쉼표로 구분해 주세요.
-
-스크립트:
-{final_script_for_video}
-
-키워드:"""
-                    topic_chain = get_default_chain(system_prompt="이미지/영상 검색 키워드 생성 보조자")
-                    extracted = topic_chain.invoke({"question": topic_prompt, "chat_history": []}).strip()
-                    if extracted:
-                        st.session_state.video_topic = extracted
-                        final_topic_for_video = extracted
-                        st.success(f"자동 키워드: {extracted}")
-                    else:
-                        st.error("영상 주제가 비어있습니다.")
-                        st.stop()
 
             # 제목은 VIDEO_TEMPLATE일 때 필수 아님
             if (not is_video_template) and (not final_title_for_video.strip()):
@@ -983,18 +942,6 @@ if user_input := st.chat_input("메시지를 입력해 주세요 (예: 최근 AI
 
     # 채팅 답변을 곧바로 스크립트/주제로 반영
     st.session_state.edited_script_content = ai_answer
-    with st.spinner("답변에서 영상 주제를 자동 추출 중..."):
-        topic_extraction_prompt = f"""다음 스크립트에서 이미지를 생성하기 위한 2-3개의 간결한 키워드 또는 아주 짧은 구문(최대 10단어)으로 메인 주제를 추출해주세요. 키워드/구문만 응답하세요.
-
-스크립트:
-{ai_answer}
-
-키워드/주제:"""
-        topic_llm_chain = get_default_chain(system_prompt="당신은 주어진 텍스트에서 키워드를 추출하는 유용한 조수입니다.")
-        extracted_topic_for_ui = topic_llm_chain.invoke({"question": topic_extraction_prompt, "chat_history": []}).strip()
-        if extracted_topic_for_ui:
-            st.session_state.video_topic = extracted_topic_for_ui
-
     if st.session_state.video_style != VIDEO_TEMPLATE:
         with st.spinner("답변에서 영상 제목을 자동 추출 중..."):
             title_extraction_prompt = f"""당신은 TikTok, YouTube Shorts, Instagram Reels용 **매력적이고 바이럴성 있는 숏폼 비디오 제목**을 작성하는 전문가입니다.
