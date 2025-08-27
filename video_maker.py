@@ -768,11 +768,13 @@ def create_video_from_videos(
     # ✅ concat 리스트(안전 인용)
     concat_list = os.path.join(os.path.dirname(save_path), "_concat.txt")
     with open(concat_list, "w", encoding="utf-8", newline="\n") as f:
+        # 헤더를 넣으면 특수문자 처리 등에서 더 안전합니다.
+        f.write("ffconcat version 1.0\n")
         for p in segment_paths:
-            safe_p = os.path.abspath(p).replace("\\","/")
-            # 작은따옴표 이스케이프: ' → '\''
-            safe_q = "'" + safe_p.replace("'", "'\\''") + "'"
-            f.write(f"file {safe_q}\n")
+            safe_p = os.path.abspath(p).replace("\\", "/")
+            # ffconcat에서 따옴표는 역슬래시로 이스케이프: ' → \'
+            safe_p_escaped = safe_p.replace("'", r"\'")
+            f.write(f"file '{safe_p_escaped}'\n")
 
     temp_video = os.path.join(os.path.dirname(save_path), "_temp_video.mp4")
 
