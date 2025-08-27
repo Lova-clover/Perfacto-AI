@@ -3,20 +3,7 @@ import os
 import streamlit as st
 import boto3 # Import the boto3 library for AWS services
 from html import escape
-
-def _rate_from_speed(speed: float) -> str:
-    # speed=1.0 -> "100%", 0.9 -> "90%", 1.1 -> "110%"
-    pct = max(20, min(200, int(round(speed * 100))))
-    return f"{pct}%"
-
-def _volume_from_db(db: int | float | None) -> str:
-    # Polly는 "x dB" 혹은 "medium/soft" 등 지원. -6 dB 정도가 무난
-    if db is None or db == 0:
-        return "medium"
-    s = int(round(db))
-    if s > 0: s = 0        # 양수 증폭은 왜곡 위험 → 0으로 클램프
-    if s < -20: s = -20    # 과도한 감쇄 방지
-    return f"{s}dB"
+from botocore.exceptions import BotoCoreError, ClientError
 
 # Load API keys from Streamlit secrets
 ELEVEN_API_KEY = st.secrets["ELEVEN_API_KEY"]
@@ -155,23 +142,36 @@ def generate_elevenlabs_tts(text, save_path, template_name, voice_id):
     else:
         raise RuntimeError(f"ElevenLabs TTS 생성 실패: {response.status_code} {response.text}")
 
+def _rate_from_speed(speed: float) -> str:
+    pct = max(20, min(200, int(round((speed or 1.0) * 100))))
+    return f"{pct}%"
+
+def _volume_from_db(db: int | float | None) -> str:
+    if db is None or db == 0:
+        return "medium"
+    s = int(round(db))
+    if s > 0:
+        return f"+{s}dB"
+    return f"{s}dB"
+
 def generate_polly_tts(
     text,
     save_path,
     polly_voice_name_key,
     speed: float = 1.0,
     volume_db: float | int = -4,
+    **_
 ):
     voice_id = TTS_POLLY_VOICES.get(polly_voice_name_key, "Seoyeon")
 
     raw = (text or "").strip()
     looks_ssml = raw.startswith("<speak") or ("<prosody" in raw) or ("<break" in raw)
 
-    rate = _rate_from_speed(speed)        # 예: "100%"
-    vol  = _volume_from_db(volume_db)     # 예: "-4dB" 또는 "medium"
+    rate = _rate_from_speed(speed)
+    vol  = _volume_from_db(volume_db)
 
     if looks_ssml:
-        # 조각 SSML이면 <speak> 보장 + 최상단에 prosody 입히기
+        # 이미 SSML이면 <speak> 보장 + 최상단에 prosody 한번 입힘
         if not raw.startswith("<speak"):
             raw = f"<speak>{raw}</speak>"
         payload = raw.replace(
@@ -179,7 +179,7 @@ def generate_polly_tts(
         ).replace("</speak>", "</prosody></speak>", 1)
         text_type = "ssml"
     else:
-        # 평문은 안전 이스케이프 후 SSML로 래핑
+        # 평문은 안전 이스케이프 후 prosody로 감싸기
         payload = f"<speak><prosody rate=\"{rate}\" volume=\"{vol}\">{escape(raw)}</prosody></speak>"
         text_type = "ssml"
 
@@ -193,9 +193,13 @@ def generate_polly_tts(
         )
 
     try:
-        resp = _synth("neural")
-    except Exception:
-        resp = _synth("standard")
+        try:
+            resp = _synth("neural")
+        except (ClientError, BotoCoreError) as e:
+            print(f"[Polly] neural 실패: {getattr(e, 'response', {}).get('Error', {}) or e}")
+            resp = _synth("standard")
+    except (ClientError, BotoCoreError) as e:
+        raise RuntimeError(f"Polly 실패(voice={voice_id}): {getattr(e, 'response', {}).get('Error', {}) or e}")
 
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     with open(save_path, "wb") as f:
