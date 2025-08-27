@@ -6,7 +6,6 @@ import os
 import re
 from elevenlabs_tts import generate_tts
 from pydub import AudioSegment
-from moviepy import AudioFileClip
 import kss
 
 SUBTITLE_TEMPLATES = {
@@ -205,19 +204,20 @@ def generate_tts_per_line(script_lines, provider, template, polly_voice_key="kor
 def merge_audio_files(audio_paths, output_path):
     merged = AudioSegment.empty()
     segments = []
-    current_time = 0
+    current_time = 0.0
 
-    for i, path in enumerate(audio_paths):
-        audio = AudioSegment.from_file(path)
-        duration = audio.duration_seconds
+    for path in audio_paths:
+        a = AudioSegment.from_file(path)
+        d = a.duration_seconds
+        segments.append({"start": current_time, "end": current_time + d})
+        merged += a
+        current_time += d
 
-        segments.append({
-            "start": current_time,
-            "end": current_time + duration
-        })
-
-        merged += audio
-        current_time += duration
+    # ✅ 끊김 방지용 꼬리 무음
+    tail = AudioSegment.silent(duration=120)
+    merged += tail
+    if segments:
+        segments[-1]["end"] += 0.12
 
     merged.export(output_path, format="mp3")
     return segments
@@ -287,7 +287,7 @@ def generate_ass_subtitle(segments, ass_path, template_name="default",
             pitch_val = seg.get("pitch")
             if pitch_val is None:
                 pitch_val = _assign_pitch(text)   # ← 텍스트로 피치 재계산
-            if pitch_val <= -15:
+            if pitch_val <= -5:
                 colour_tag = "{\\c&H0000FF&}"     # 빨강(BGR = 0000FF)
 
             f.write(f"Dialogue: 0,{start_ts},{end_ts},Bottom,,0,0,0,,{colour_tag}{text}\n")
@@ -327,6 +327,19 @@ def generate_subtitle_from_script(
 ):
     # 1) 라인 분할
     script_lines = split_script_to_lines(script_text, mode=split_mode)
+    def _strip_punct_and_quotes(s: str) -> str:
+        if not s: return ""
+        # 전각 포함 모든 따옴표/느낌표/물음표 제거
+        s = s.translate(str.maketrans({
+            "“": "", "”": "", "„": "", "‟": "", '"': "",
+            "‘": "", "’": "", "‚": "", "‛": "", "'": "",
+            "！": "!", "？": "?"
+        }))
+        s = re.sub(r'[!?]+', '', s)      # ! ? 일괄 제거
+        s = re.sub(r'\s{2,}', ' ', s)    # 공백 정리
+        return s.strip()
+
+    script_lines = [_strip_punct_and_quotes(l) for l in script_lines]
     if not script_lines:
         return [], None, ass_path
 
@@ -399,11 +412,20 @@ def generate_subtitle_from_script(
             "pitch": _assign_pitch(line_text)
         })
 
-    # 7) ASS 생성
-    generate_ass_subtitle(
-        segments, ass_path, template_name=template,
-        strip_trailing_punct_last=strip_trailing_punct_last
+    # 7) ASS 생성  ← 조각화 ON 버전
+    dense = auto_densify_for_subs(
+        segments,
+        tempo="fast",
+        strip_trailing_punct_each=True,
+        words_per_piece=3,
+        min_tail_words=2,
+        chunk_strategy="period_2or3",  # 원하면 None로 꺼도 됨
     )
+    generate_ass_subtitle(
+        dense, ass_path, template_name=template,
+        strip_trailing_punct_last=True
+    )
+
 
     return segments, None, ass_path
 
@@ -550,7 +572,7 @@ def auto_densify_for_subs(
         t = start
         for i, txt in enumerate(final_pieces):
             t2 = end if i == len(final_pieces) - 1 else t + dur * (len(txt) / total_chars)
-            dense.append({"start": t, "end": t2, "text": txt})
+            dense.append({'start': t, 'end': t2, 'text': txt, 'pitch': seg.get('pitch')})
             t = t2
 
     return dense
