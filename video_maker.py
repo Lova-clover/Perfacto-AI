@@ -9,7 +9,6 @@ import numpy as np
 from moviepy.audio.AudioClip import AudioArrayClip
 import gc
 import imageio_ffmpeg
-ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 
 def create_motion_clip(img_path, duration, width, height):
     base_clip_original_size = ImageClip(img_path)
@@ -765,33 +764,73 @@ def create_video_from_videos(
     if bad:
         raise RuntimeError(f"잘못된 세그먼트 파일 발견: {bad}")
 
-    # ✅ concat 리스트(안전 인용)
+    # ✅ concat 리스트(안전하게: 특수문자 경로 임시복사 → 인용 불필요)
+    import re, tempfile, shutil
     concat_list = os.path.join(os.path.dirname(save_path), "_concat.txt")
-    with open(concat_list, "w", encoding="utf-8", newline="\n") as f:
-        # 헤더를 넣으면 특수문자 처리 등에서 더 안전합니다.
-        f.write("ffconcat version 1.0\n")
-        for p in segment_paths:
-            safe_p = os.path.abspath(p).replace("\\", "/")
-            # ffconcat에서 따옴표는 역슬래시로 이스케이프: ' → \'
-            safe_p_escaped = safe_p.replace("'", r"\'")
-            f.write(f"file '{safe_p_escaped}'\n")
+
+    def _sanitize_for_concat(paths):
+        """경로에 공백/따옴표/비ASCII 등이 있을 때 ffconcat 파싱 문제를 피하기 위해
+        임시 폴더에 안전한 이름으로 복사합니다."""
+        safe = []
+        tmp_dir = None
+        for p in paths:
+            ap = os.path.abspath(p).replace("\\", "/").replace("\r", "").replace("\n", "")
+            # 안전 문자셋만 허용: / A-Z a-z 0-9 . _ -
+            if re.search(r"[^A-Za-z0-9._/\-]", ap):
+                if tmp_dir is None:
+                    tmp_dir = tempfile.mkdtemp(prefix="_concat_safe_")
+                base = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(ap))
+                safe_ap = os.path.join(tmp_dir, base)
+                if not os.path.exists(safe_ap):
+                    shutil.copy2(ap, safe_ap)
+                ap = os.path.abspath(safe_ap).replace("\\", "/")
+            safe.append(ap)
+        return safe
+
+    safe_segment_paths = _sanitize_for_concat(segment_paths)
+
+    # ⚠️ 인코딩 이슈(보이지 않는 문자) 방지를 위해 바이너리 모드로 UTF-8(무 BOM) 강제
+    with open(concat_list, "wb") as f:
+        f.write(b"ffconcat version 1.0\n")
+        for ap in safe_segment_paths:
+            line = f"file '{ap}'\n"
+            f.write(line.encode("utf-8"))
 
     temp_video = os.path.join(os.path.dirname(save_path), "_temp_video.mp4")
 
-    # ✅ concat은 재인코딩으로 안전하게
-    subprocess.run(
-        [
-            ffmpeg_path, "-y",
-            "-f", "concat", "-safe", "0", "-i", concat_list,
+    # ✅ 1차: concat demuxer (리스트 파일 사용)
+    try:
+        subprocess.run(
+            [
+                ffmpeg_path, "-y",
+                "-f", "concat", "-safe", "0",
+                "-i", concat_list,
+                "-r", "24",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                "-preset", "ultrafast", "-crf", "23",
+                "-an",
+                temp_video
+            ],
+            check=True
+        )
+    except subprocess.CalledProcessError:
+        print("⚠️ concat(list) 실패 → filter_complex 폴백 사용", flush=True)
+        # ✅ 2차: concat filter (각 세그먼트를 -i로 넣고 필터로 연결)
+        cmd = [ffmpeg_path, "-y"]
+        for p in safe_segment_paths:
+            cmd += ["-i", p]
+        n = len(safe_segment_paths)
+        filtergraph = "".join(f"[{i}:v]" for i in range(n)) + f"concat=n={n}:v=1:a=0[outv]"
+        cmd += [
+            "-filter_complex", filtergraph,
+            "-map", "[outv]",
             "-r", "24",
             "-c:v", "libx264", "-pix_fmt", "yuv420p",
             "-preset", "ultrafast", "-crf", "23",
             "-an",
             temp_video
-        ],
-        check=True
-        # 실패 원인 보고 싶으면 stdout/stderr를 숨기지 말고 그대로 두세요.
-    )
+        ]
+        subprocess.run(cmd, check=True)
 
     # ✅ 오디오 파일로 추출 후 mux
     audio_mix = os.path.join(os.path.dirname(save_path), "_mix_audio.m4a")
