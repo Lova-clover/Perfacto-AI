@@ -159,6 +159,9 @@ def generate_tts_per_line(script_lines, provider, template, polly_voice_key="kor
             continue
             
     print(f"디버그: 최종 생성된 오디오 파일 경로 수: {len(audio_paths)}")
+    if not audio_paths:
+        raise RuntimeError("라인별 TTS가 0건 생성됨 (각 라인의 실패 사유는 위 로그 참조)")
+    
     return audio_paths
 
 def merge_audio_files(audio_paths, output_path):

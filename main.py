@@ -613,6 +613,10 @@ with st.sidebar:
                             split_mode="kss",               # ✅ 문장 단위로 분할
                             strip_trailing_punct_last=False
                         )
+                        if not segments:
+                            st.error("TTS 생성에 실패하여 세그먼트가 비어 있습니다. (라인별 실패 사유는 로그 참고)")
+                            st.stop()
+                        
                         # ✅ 자막만 "자동-빠른 템포"로 더 쪼개서 덮어쓰기 (오디오/영상 타이밍 유지)
                         dense_events = auto_densify_for_subs(
                             segments,

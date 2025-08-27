@@ -155,26 +155,41 @@ def generate_elevenlabs_tts(text, save_path, template_name, voice_id):
     else:
         raise RuntimeError(f"ElevenLabs TTS 생성 실패: {response.status_code} {response.text}")
 
-def generate_polly_tts(text, save_path, polly_voice_name_key):
+def generate_polly_tts(
+    text,
+    save_path,
+    polly_voice_name_key,
+    speed: float = 1.0,
+    volume_db: float | int = -4,
+):
     voice_id = TTS_POLLY_VOICES.get(polly_voice_name_key, "Seoyeon")
 
     raw = (text or "").strip()
-    # SSML 여부 감지
     looks_ssml = raw.startswith("<speak") or ("<prosody" in raw) or ("<break" in raw)
 
-    # 조각이라도 SSML 태그가 보이면 <speak>로 감싸기
-    if looks_ssml and not raw.startswith("<speak"):
-        payload = f"<speak>{raw}</speak>"
-    else:
-        payload = raw
+    rate = _rate_from_speed(speed)          # 예: "100%"
+    vol  = _volume_from_db(volume_db)       # 예: "-4dB" 또는 "medium"
 
-    # TextType 설정
-    text_type = "ssml" if looks_ssml else "text"
+    if looks_ssml:
+        if raw.startswith("<speak"):
+            # <speak> 바로 안쪽에 rate/volume 적용
+            payload = raw.replace(
+                "<speak>",
+                f"<speak><prosody rate=\"{rate}\" volume=\"{vol}\">",
+                1
+            ).replace("</speak>", "</prosody></speak>", 1)
+        else:
+            payload = f"<speak><prosody rate=\"{rate}\" volume=\"{vol}\">{raw}</prosody></speak>"
+        text_type = "ssml"
+    else:
+        # 평문 → 안전 이스케이프 후 prosody로 감싸기
+        payload = f"<speak><prosody rate=\"{rate}\" volume=\"{vol}\">{escape(raw)}</prosody></speak>"
+        text_type = "ssml"
 
     def _synth(engine: str):
         return polly_client.synthesize_speech(
             Text=payload,
-            TextType=text_type,       # ★ 핵심
+            TextType=text_type,
             OutputFormat="mp3",
             VoiceId=voice_id,
             Engine=engine
@@ -183,7 +198,6 @@ def generate_polly_tts(text, save_path, polly_voice_name_key):
     try:
         resp = _synth("neural")
     except Exception:
-        # 해당 보이스/리전에 neural 미지원일 수 있으므로 standard 폴백
         resp = _synth("standard")
 
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
