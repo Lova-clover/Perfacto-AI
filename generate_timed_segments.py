@@ -137,9 +137,16 @@ def generate_tts_per_line(script_lines, provider, template, polly_voice_key="kor
     for i, line in enumerate(script_lines):
         line_audio_path = os.path.join(temp_audio_dir, f"line_{i}.mp3")
         try:
+            # Polly면 한 번 더 안전 체크(빈 prosody 제거 등)
             line_ssml = _validate_ssml(line)
+
+            # 완전체가 아니면 <speak> 래핑(혹시 상위 단계에서 못 감싼 경우 대비)
+            ls = line_ssml.strip()
+            if provider == "polly" and not ls.startswith("<speak"):
+                ls = f"<speak>{ls}</speak>"
+
             generate_tts(
-                text=line_ssml,
+                text=ls,
                 save_path=line_audio_path,
                 provider=provider,
                 template_name=template,
