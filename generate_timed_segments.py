@@ -11,29 +11,22 @@ import boto3, json
 from elevenlabs_tts import TTS_POLLY_VOICES 
 
 def dedupe_adjacent_texts(segs):
-    """연속 동일 텍스트 자막 병합(시간은 이어 붙임)"""
-    out, prev = [], None
+    out = []
+    prev_clean = None
     for s in segs:
-        txt = strip_ssml_tags((s.get("text") or "").strip())
-        if prev and strip_ssml_tags((prev.get("text") or "").strip()) == txt:
-            # 같은 문구가 연속이면 이전 세그먼트의 end만 늘려 붙임
-            prev["end"] = max(prev["end"], s["end"])
+        t = (s.get("text") or "").strip()
+        t_clean = re.sub(r"\s+", " ", strip_ssml_tags(t)).strip()
+        if out and t_clean == prev_clean:
+            # 바로 이전과 동일하면 시간만 이어붙임
+            out[-1]["end"] = max(out[-1]["end"], s["end"])
         else:
-            cur = dict(s)
-            cur["text"] = txt
-            out.append(cur)
-            prev = cur
+            out.append(dict(s))
+            prev_clean = t_clean
     return out
 
 TAG_RE = re.compile(r"<[^>]+>")
 def strip_ssml_tags(s: str) -> str:
-    # 1) 태그를 '빈문자'가 아니라 '공백'으로 바꿔 단어가 붙는 걸 방지
-    t = TAG_RE.sub(" ", s or "")
-    # 2) 연속 공백 → 단일 공백
-    t = re.sub(r"\s+", " ", t)
-    # 3) 문장부호 앞의 공백 제거: "단어 ," → "단어,"
-    t = re.sub(r"\s+([,!?])", r"\1", t)
-    return t.strip()
+    return TAG_RE.sub(" ", s or "")
 
 # --- SSML guard helpers (원문≠SSML 불일치/중복 방지) ---
 import re as _re_guard
@@ -341,8 +334,6 @@ def generate_ass_subtitle(segments, ass_path, template_name="default",
         s = s.replace("\r", "")
         s = s.replace("\n", r"\N")
         return s
-    
-    text = re.sub(r"\s+", " ", text)
 
     with open(ass_path, "w", encoding="utf-8") as f:
         f.write("[Script Info]\n")
@@ -356,25 +347,32 @@ def generate_ass_subtitle(segments, ass_path, template_name="default",
         f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
 
         for i, seg in enumerate(segments):
-            start, end = seg['start'], seg['end']
-            text = (seg.get('text') or "").strip()
-            text = strip_ssml_tags(text) 
+            start, end = float(seg.get('start', 0.0)), float(seg.get('end', 0.0))
+
+            # ① 텍스트를 '먼저' 안전하게 뽑고
+            raw = seg.get('text') or ""
+            # ② SSML 태그는 공백으로 대체 → 경계가 붙지 않도록
+            txt = strip_ssml_tags(raw)          # 예: "<prosody>안녕</prosody>세상" → "안녕 세상"
+            # ③ 공백 정규화(2칸 이상 → 1칸)
+            txt = re.sub(r"\s+", " ", txt).strip()
+
+            # (선택) 마지막 줄 꼬리 구두점 다듬기
             if strip_trailing_punct_last and i == len(segments) - 1:
-                text = _strip_last_punct_preserve_closers(text)
-            text = _escape_ass_text(text)
+                txt = _strip_last_punct_preserve_closers(txt)
+
+            # 색상(피치) 판단은 정규화 이후 텍스트 기준
+            pitch_val = seg.get("pitch")
+            if pitch_val is None:
+                pitch_val = _assign_pitch(txt)
+            colour_tag = "{\\c&H0000FF&}" if pitch_val <= -10 else ""
+
+            # ASS 이스케이프는 마지막
+            txt = txt.replace("\\", r"\\").replace("\r", "").replace("\n", r"\N")
 
             start_ts = format_ass_timestamp(start)
             end_ts   = format_ass_timestamp(end)
 
-            # ✅ pitch 조건 → 색상 반영
-            colour_tag = ""
-            pitch_val = seg.get("pitch")
-            if pitch_val is None:
-                pitch_val = _assign_pitch(text)   # ← 텍스트로 피치 재계산
-            if pitch_val <= -15:
-                colour_tag = "{\\c&H0000FF&}"     # 빨강(BGR = 0000FF)
-
-            f.write(f"Dialogue: 0,{start_ts},{end_ts},Bottom,,0,0,0,,{colour_tag}{text}\n")
+            f.write(f"Dialogue: 0,{start_ts},{end_ts},Bottom,,0,0,0,,{colour_tag}{txt}\n")
 
 def format_ass_timestamp(seconds):
     h = int(seconds // 3600)
