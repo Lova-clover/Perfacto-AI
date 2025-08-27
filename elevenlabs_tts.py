@@ -167,22 +167,19 @@ def generate_polly_tts(
     raw = (text or "").strip()
     looks_ssml = raw.startswith("<speak") or ("<prosody" in raw) or ("<break" in raw)
 
-    rate = _rate_from_speed(speed)          # 예: "100%"
-    vol  = _volume_from_db(volume_db)       # 예: "-4dB" 또는 "medium"
+    rate = _rate_from_speed(speed)        # 예: "100%"
+    vol  = _volume_from_db(volume_db)     # 예: "-4dB" 또는 "medium"
 
     if looks_ssml:
-        if raw.startswith("<speak"):
-            # <speak> 바로 안쪽에 rate/volume 적용
-            payload = raw.replace(
-                "<speak>",
-                f"<speak><prosody rate=\"{rate}\" volume=\"{vol}\">",
-                1
-            ).replace("</speak>", "</prosody></speak>", 1)
-        else:
-            payload = f"<speak><prosody rate=\"{rate}\" volume=\"{vol}\">{raw}</prosody></speak>"
+        # 조각 SSML이면 <speak> 보장 + 최상단에 prosody 입히기
+        if not raw.startswith("<speak"):
+            raw = f"<speak>{raw}</speak>"
+        payload = raw.replace(
+            "<speak>", f"<speak><prosody rate=\"{rate}\" volume=\"{vol}\">", 1
+        ).replace("</speak>", "</prosody></speak>", 1)
         text_type = "ssml"
     else:
-        # 평문 → 안전 이스케이프 후 prosody로 감싸기
+        # 평문은 안전 이스케이프 후 SSML로 래핑
         payload = f"<speak><prosody rate=\"{rate}\" volume=\"{vol}\">{escape(raw)}</prosody></speak>"
         text_type = "ssml"
 
