@@ -1,7 +1,7 @@
 import requests
 import os
 import streamlit as st
-import boto3 # Import the boto3 library for AWS services
+import boto3, io # Import the boto3 library for AWS services
 import re
 from html import escape
 from botocore.exceptions import BotoCoreError, ClientError
@@ -155,57 +155,54 @@ def _volume_from_db(db: int | float | None) -> str:
         return f"+{s}dB"
     return f"{s}dB"
 
+# --- 가장 위쪽 import 근처에 필요시 추가 ---
+import re as _re
+
+def _strip_ssml_tags_local(s: str) -> str:
+    return _re.sub(r"<[^>]+>", "", s or "")
+
 def generate_polly_tts(
     text,
     save_path,
     polly_voice_name_key,
-    speed: float = 1.0,
-    volume_db: float | int = -4,
-    **_
+    *,                      # ← keyword-only
+    speed=1.0,              # (SSML에서만 쓰이므로 여기선 무시)
+    volume_db=0             # (SSML에서만 쓰이므로 여기선 무시)
 ):
-    voice_id = TTS_POLLY_VOICES.get(polly_voice_name_key, "Seoyeon")
+    """
+    Polly에 **항상 SSML**로 보냄. (TextType='ssml')
+    - 들어온 text가 <speak>로 안 감싸져 있으면 여기서 래핑만 함.
+    - 그 외 가공/이스케이프/치환 일절 금지!
+    """
+    voice_id = TTS_POLLY_VOICES.get(polly_voice_name_key, TTS_POLLY_VOICES.get("korean_female2", "Seoyeon"))
 
-    raw = (text or "").strip()
-    looks_ssml = raw.startswith("<speak") or ("<prosody" in raw) or ("<break" in raw)
+    payload = (text or "").strip()
+    if not payload.startswith("<speak"):
+        payload = f"<speak>{payload}</speak>"
 
-    # 내부 편의 인자 → SSML로만 반영한다
-    rate = _rate_from_speed(speed)
-    vol  = _volume_from_db(volume_db)
+    polly = boto3.client("polly", region_name="ap-northeast-2")
 
-    if looks_ssml:
-        # ⚠️ 이미 SSML이면 '추가 prosody'는 넣지 않는다 (중복 prosody로 인한 오류 방지)
-        payload = raw if raw.lstrip().startswith("<speak") else f"<speak>{raw}</speak>"
-    else:
-        # 평문인 경우에만 안전 래핑
-        payload = f'<speak><prosody rate="{rate}" volume="{vol}">{escape(raw)}</prosody></speak>'
-
-    # 속성 따옴표 표준화(단일→쌍따옴표)
-    payload = re.sub(r"(\b[a-zA-Z-]+)='([^']*)'", r'\1="\2"', payload)
-
-    # Neural 엔진에서는 pitch 제거(오류 예방)
-    payload_neural = re.sub(r'\s+pitch="[^"]*"', '', payload)
-
-    def _synth(engine: str, text_payload: str):
-        return polly_client.synthesize_speech(
-            Text=text_payload,
-            TextType="ssml",
+    def _synth(engine="neural"):
+        return polly.synthesize_speech(
+            Text=payload,
+            TextType="ssml",          # ✅ 핵심: SSML 고정
             OutputFormat="mp3",
             VoiceId=voice_id,
             Engine=engine
         )
 
     try:
-        # 1차: Neural (pitch 제거본)
-        try:
-            resp = _synth("neural", payload_neural)
-        except (ClientError, BotoCoreError) as e:
-            print(f"[Polly] neural 실패: {getattr(e, 'response', {}).get('Error', {}) or e}")
-            # 2차: Standard (사용자 SSML 원본 유지)
-            resp = _synth("standard", payload)
-    except (ClientError, BotoCoreError) as e:
-        raise RuntimeError(f"Polly 실패(voice={voice_id}): {getattr(e, 'response', {}).get('Error', {}) or e}")
+        resp = _synth("neural")
+    except polly.exceptions.InvalidSsmlException:
+        # 아주 예외적인 SSML 오류 폴백: 텍스트로 재요청
+        resp = polly.synthesize_speech(
+            Text=_strip_ssml_tags_local(payload),
+            TextType="text",
+            OutputFormat="mp3",
+            VoiceId=voice_id,
+            Engine="neural"
+        )
 
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
     with open(save_path, "wb") as f:
         f.write(resp["AudioStream"].read())
     return save_path
@@ -213,32 +210,35 @@ def generate_polly_tts(
 def generate_tts(
     text,
     save_path="assets/audio.mp3",
-    provider="polly",               # 기본값을 polly로 통일(라벨 혼동 최소화)
+    provider="polly",
     template_name="default",
     voice_id=None,
-    polly_voice_name_key=None       # 기본값 None → 내부에서 결정
+    polly_voice_name_key=None
 ):
-    """
-    Generates text-to-speech using either ElevenLabs or Amazon Polly based on the provider.
-    """
-    # 1) provider 정규화 (여러 라벨 대응)
     prov = (provider or "").strip().lower()
     if prov in ("elevenlabs", "eleven labs"):
         return generate_elevenlabs_tts(text, save_path, template_name, voice_id)
 
     elif prov in ("polly", "amazon polly", "amazon_polly", "aws polly", "aws_polly"):
-        # 2) Polly 보이스 키 결정: 세션값 → 인자 → 안전 기본값
         try:
             import streamlit as st
             sess_key = getattr(st.session_state, "selected_polly_voice_key", None)
+            polly_speed = getattr(st.session_state, "polly_speed", 1.0)
+            polly_vol_db = getattr(st.session_state, "polly_volume_db", -4)
         except Exception:
             sess_key = None
+            polly_speed = 1.0
+            polly_vol_db = 0
 
         key = polly_voice_name_key or sess_key or "default_female"
-        # 새 인자 추출(세션 or 기본)
-        polly_speed = getattr(st.session_state, "polly_speed", 1.0)
-        polly_vol_db = getattr(st.session_state, "polly_volume_db", -4)
-        return generate_polly_tts(text, save_path, key, speed=polly_speed, volume_db=polly_vol_db)
+        # ✅ SSML은 상위에서 이미 만들어져 text로 들어옵니다.
+        return generate_polly_tts(
+            text,
+            save_path,
+            key,
+            speed=polly_speed,
+            volume_db=polly_vol_db
+        )
 
     else:
         raise ValueError(f"Unsupported TTS provider: {provider}. Choose 'elevenlabs' or 'polly'.")

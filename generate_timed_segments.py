@@ -10,6 +10,10 @@ import kss
 import boto3, json
 from elevenlabs_tts import TTS_POLLY_VOICES 
 
+TAG_RE = re.compile(r"<[^>]+>")
+def strip_ssml_tags(s: str) -> str:
+    return TAG_RE.sub("", s or "")
+
 # --- SSML guard helpers (원문≠SSML 불일치/중복 방지) ---
 import re as _re_guard
 
@@ -331,6 +335,7 @@ def generate_ass_subtitle(segments, ass_path, template_name="default",
         for i, seg in enumerate(segments):
             start, end = seg['start'], seg['end']
             text = (seg.get('text') or "").strip()
+            text = strip_ssml_tags(text) 
             if strip_trailing_punct_last and i == len(segments) - 1:
                 text = _strip_last_punct_preserve_closers(text)
             text = _escape_ass_text(text)
@@ -395,7 +400,7 @@ def generate_subtitle_from_script(
         s = re.sub(r'\s{2,}', ' ', s)
         return s.strip()
 
-    script_lines_sub = [_strip_punct_and_quotes(l) for l in script_lines_raw]
+    script_lines_sub = [strip_ssml_tags(_strip_punct_and_quotes(l)) for l in script_lines_raw]
     if not script_lines_raw:
         return [], None, ass_path
 
@@ -469,42 +474,64 @@ def generate_subtitle_from_script(
         })
 
     # === SpeechMarks 기반 정확 타이밍 ===
+    MIN_SEG_DUR = 0.35  # 최소 0.35초로 합리적 합침(필요시 0.3~0.5 사이로 조정)
+
+    def _merge_short_pieces(pieces, min_dur=MIN_SEG_DUR):
+        if not pieces: return []
+        merged = []
+        cur = dict(pieces[0])
+        for p in pieces[1:]:
+            # cur 조각이 아직 짧으면 다음 조각과 합침
+            if (cur["end"] - cur["start"]) < min_dur:
+                cur["end"]  = p["end"]
+                cur["text"] = (cur["text"] + " " + p["text"]).strip()
+            else:
+                merged.append(cur)
+                cur = dict(p)
+        merged.append(cur)
+        # 맨 마지막도 너무 짧으면 앞과 합치기 시도
+        if len(merged) >= 2 and (merged[-1]["end"] - merged[-1]["start"]) < min_dur:
+            merged[-2]["end"]  = merged[-1]["end"]
+            merged[-2]["text"] = (merged[-2]["text"] + " " + merged[-1]["text"]).strip()
+            merged.pop()
+        return merged
+
     exact_segments = []
     for i, s in enumerate(segments_raw):
-        # ✅ 오디오 생성 때 사용한 안전 SSML 그대로 사용
-        line_ssml = tts_lines[i]
+        line_ssml = tts_lines[i]             # 오디오에 쓴 SSML 그대로
+        voice_id  = resolve_polly_voice_id(polly_voice_key)
+        marks     = get_polly_speechmarks(line_ssml, voice_id, types=("sentence",))
+        if not marks:
+            # ✅ 문장 마크가 없으면 단어 마크로 폴백
+            marks = get_polly_speechmarks(line_ssml, voice_id, types=("word",))
 
-        voice_id = resolve_polly_voice_id(polly_voice_key)  # 필요시 resolve_polly_voice_id(polly_voice_key, tts_lang or "ko")
-        marks = get_polly_speechmarks(line_ssml, voice_id, types=("sentence",))  # 또는 ("word",)
-
-        line_offset = s["start"]
-        line_end    = s["end"]
+        line_offset = s["start"]; line_end = s["end"]
 
         if marks:
-            # 문장 시작 시각들 → 구간(시작,끝)으로 변환
+            pieces = []
             for j, mk in enumerate(marks):
                 st = line_offset + (mk["time"] / 1000.0)
-                en = line_end if j == len(marks) - 1 else (line_offset + marks[j + 1]["time"] / 1000.0)
-
-                # 자막 텍스트(규칙대로 기호 제거)
-                val = _strip_punct_and_quotes(mk.get("value", ""))
-                if not val:
+                en = line_end if j == len(marks)-1 else (line_offset + marks[j+1]["time"] / 1000.0)
+                # 정리된 텍스트(SSML 제거 포함)
+                raw_val = mk.get("value","")
+                val = strip_ssml_tags(_strip_punct_and_quotes(raw_val))
+                if not val: 
                     continue
+                # 경계 안전
+                st = max(line_offset, min(st, line_end))
+                en = max(st,            min(en, line_end))
+                pieces.append({"start": st, "end": en, "text": val, "pitch": _assign_pitch(val)})
 
-                exact_segments.append({
-                    "start": max(line_offset, st),
-                    "end":   min(line_end, en),
-                    "text":  val,
-                    "pitch": _assign_pitch(val)
-                })
+            pieces = _merge_short_pieces(pieces, MIN_SEG_DUR)
+            exact_segments.extend(pieces)
+
         else:
-            # 폴백: 문장마크가 없으면 라인 통짜로 (자막용 기호 제거본 사용)
+            # 폴백: 라인 통짜(자막용 정리본 사용) — SSML 절대 없음
             line_text = subtitle_lines[i] if i < len(subtitle_lines) else script_lines_sub[i]
+            line_text = strip_ssml_tags(line_text)
             exact_segments.append({
-                "start": s["start"],
-                "end":   s["end"],
-                "text":  line_text,
-                "pitch": _assign_pitch(line_text)
+                "start": s["start"], "end": s["end"],
+                "text": line_text, "pitch": _assign_pitch(line_text)
             })
 
     # 이미 ‘정확 타임’이니 조각화 없이 바로 ASS 생성
