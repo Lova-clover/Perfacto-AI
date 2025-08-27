@@ -288,11 +288,23 @@ def generate_subtitle_from_script(
             print(f"⚠️ 한국어 모드인데 영어 보이스({polly_voice_key}) 선택됨 → korean_female1으로 교체")
             polly_voice_key = "korean_female1"
 
-    # 3) TTS 라인 준비
+    # 3) TTS 라인 준비  (★ 라인별로 <speak> 감싸서 Polly에 보냄)
     if provider == "polly":
-        ssml_blocks = [convert_line_to_ssml(line) for line in script_lines]
-        # Polly는 하나의 <speak> 블록 안에서만 정상 처리됨
-        tts_lines = ["<speak>" + "".join(ssml_blocks) + "</speak>"]
+        tts_lines = []
+        for line in script_lines:
+            l = (line or "").strip()
+            if l.startswith("<speak"):
+                safe = l  # 이미 완전 SSML
+            elif ("<prosody" in l) or ("<break" in l):
+                safe = f"<speak>{l}</speak>"  # SSML 조각 → 래핑
+            else:
+                # 평문 → 변환(조각; <speak> 제거됨) → 래핑
+                try:
+                    frag = convert_line_to_ssml(l)
+                except Exception:
+                    frag = f"<prosody rate='145%' pitch='+2%'>{l}</prosody>"
+                safe = f"<speak>{frag}</speak>"
+            tts_lines.append(safe)
     else:
         tts_lines = script_lines[:]
 

@@ -155,50 +155,41 @@ def generate_elevenlabs_tts(text, save_path, template_name, voice_id):
     else:
         raise RuntimeError(f"ElevenLabs TTS 생성 실패: {response.status_code} {response.text}")
 
-def generate_polly_tts(
-    text,
-    save_path,
-    polly_voice_name_key,
-    *,
-    speed: float = 1.0,
-    volume_db: int | float = 0
-):
+def generate_polly_tts(text, save_path, polly_voice_name_key):
     voice_id = TTS_POLLY_VOICES.get(polly_voice_name_key, "Seoyeon")
-    VOICE_LANG = {
-        "default_female":"en-US","default_male":"en-US",
-        "eng_male":"en-US","eng_male2":"en-US",
-        "english_female_uk":"en-GB","english_male_uk":"en-GB",
-        "korean_female1":"ko-KR","korean_female2":"ko-KR",
-        "japanese_male":"ja-JP","japanese_female":"ja-JP",
-        "spanish_male":"es-ES","spanish_female":"es-ES",
-        "french_male":"fr-FR","french_female":"fr-FR",
-    }
-    lang = VOICE_LANG.get(polly_voice_name_key, "en-US")
 
-    rate = _rate_from_speed(speed)
-    vol  = _volume_from_db(volume_db)
+    raw = (text or "").strip()
+    # SSML 여부 감지
+    looks_ssml = raw.startswith("<speak") or ("<prosody" in raw) or ("<break" in raw)
 
-    # ✅ SSML 여부 체크
-    if text.strip().startswith("<speak>"):
-        ssml = text
+    # 조각이라도 SSML 태그가 보이면 <speak>로 감싸기
+    if looks_ssml and not raw.startswith("<speak"):
+        payload = f"<speak>{raw}</speak>"
     else:
-        # 여러 prosody 블록(문장별 변환 결과)을 하나의 <speak>로 감쌈
-        ssml = f"<speak>{text}</speak>"
+        payload = raw
 
-    def synth(engine):
-        args = dict(OutputFormat='mp3', VoiceId=voice_id, Engine=engine)
-        return polly_client.synthesize_speech(Text=ssml, TextType='ssml', **args)
+    # TextType 설정
+    text_type = "ssml" if looks_ssml else "text"
+
+    def _synth(engine: str):
+        return polly_client.synthesize_speech(
+            Text=payload,
+            TextType=text_type,       # ★ 핵심
+            OutputFormat="mp3",
+            VoiceId=voice_id,
+            Engine=engine
+        )
 
     try:
-        resp = synth("neural")
+        resp = _synth("neural")
     except Exception:
-        resp = synth("standard")
+        # 해당 보이스/리전에 neural 미지원일 수 있으므로 standard 폴백
+        resp = _synth("standard")
 
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     with open(save_path, "wb") as f:
         f.write(resp["AudioStream"].read())
     return save_path
-
 
 def generate_tts(
     text,
