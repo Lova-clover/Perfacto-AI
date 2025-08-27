@@ -438,9 +438,10 @@ def generate_subtitle_from_script(
     split_mode: str = "newline",
     strip_trailing_punct_last: bool = True
 ):
-    # 1) 라인 분할 (원문/자막 분리 보관)
+    # 0) 입력 분할 및 자막용 텍스트 정리
     script_lines_raw = split_script_to_lines(script_text, mode=split_mode)
-    script_lines_raw = [l for l in script_lines_raw if l.strip()]   # 완전 빈 줄 제거
+    script_lines_raw = [l for l in script_lines_raw if l and l.strip()]
+
     def _strip_punct_and_quotes(s: str) -> str:
         if not s: return ""
         s = s.translate(str.maketrans({
@@ -448,176 +449,91 @@ def generate_subtitle_from_script(
             "‘": "", "’": "", "‚": "", "‛": "", "'": "",
             "！": "!", "？": "?"
         }))
-        s = re.sub(r'[!?]+', '', s)
-        s = re.sub(r'\s{2,}', ' ', s)
+        s = re.sub(r'[!?]+', '', s)      # 물음표/느낌표 다중 제거
+        s = re.sub(r'\s{2,}', ' ', s)    # 이중 공백 정리
         return s.strip()
 
-    script_lines_sub = [strip_ssml_tags(_strip_punct_and_quotes(l)) for l in script_lines_raw]
     if not script_lines_raw:
         return [], None, ass_path
 
-    # 2) 언어-보이스 키 동기화 (Polly 전용)
-    if provider == "polly":
-        if tts_lang == "en" and polly_voice_key.startswith("korean_"):
-            print(f"⚠️ 영어 모드인데 한국어 보이스({polly_voice_key}) 선택됨 → default_male로 교체")
-            polly_voice_key = "default_male"
-        elif tts_lang == "ko" and polly_voice_key.startswith("default_"):
-            print(f"⚠️ 한국어 모드인데 영어 보이스({polly_voice_key}) 선택됨 → korean_female1으로 교체")
-            polly_voice_key = "korean_female1"
+    script_lines_sub = [strip_ssml_tags(_strip_punct_and_quotes(l)) for l in script_lines_raw]
 
-    # 3) TTS 라인 준비 (Polly는 원문 사용 + 안전 가드)
-    if provider == "polly":
-        tts_src_lines = script_lines_raw
-        tts_lines = []
-        for orig in tts_src_lines:
-            try:
-                frag = convert_line_to_ssml(orig)  # LLM 생성
-            except Exception:
-                frag = f'<prosody rate="150%" volume="medium">{_xml_escape(orig)}</prosody>'
-            frag, _fell_back = _ssml_safe_or_fallback(orig, frag)  # ✅ 원문 불일치/중복 차단
-            safe = _validate_ssml(frag)
-            if not safe.strip().startswith("<speak"):
-                safe = f"<speak>{safe}</speak>"
-            tts_lines.append(safe)
-    else:
-        # (Polly 외 엔진이면 자막 정리본을 그대로 사용)
-        tts_lines = script_lines_sub[:]
+    # 0-1) 보조 유틸
+    def _median(xs):
+        xs = sorted([x for x in xs if x is not None])
+        if not xs: return 0.0
+        n = len(xs)
+        return xs[n//2] if n % 2 else (xs[n//2-1] + xs[n//2]) / 2.0
 
-    # (선택) TTS 언어 강제 변환
-    if tts_lang in ("en", "ko") and provider != "polly":
-        tts_lines = _maybe_translate_lines(
-            tts_lines,
-            target=tts_lang,
-            only_if_src_is_english=False
-        )
+    def _phraseify_from_word_marks(
+        marks, line_offset, line_end,
+        max_pieces=3,          # 한 문장 최대 3조각
+        target_words=3,        # 빠른 템포: 3~4 추천
+        min_piece_dur=0.40     # 각 조각 최소 길이(초)
+    ):
+        # word 마크만 뽑기 (Polly speechmarks)
+        words = []
+        for mk in marks or []:
+            if mk.get("type") != "word": 
+                continue
+            t = line_offset + (mk.get("time", 0) / 1000.0)
+            words.append((t, mk.get("value", "")))
+        if not words:
+            return []
 
-    # 4) 자막 라인 (화면 표시용: 기호 제거본 기준)
-    if subtitle_lang in ("ko", "en"):
-        subtitle_lines = _maybe_translate_lines(
-            script_lines_sub,
-            target=subtitle_lang,
-            only_if_src_is_english=translate_only_if_english
-        )
-    else:
-        subtitle_lines = script_lines_sub[:]
+        # 단어 간 간격 기반 분절 임계
+        times = [w[0] for w in words]
+        gaps  = [max(0.0, times[i+1]-times[i]) for i in range(len(times)-1)]
+        med   = _median(gaps)
+        BREAK_GAP = max(0.28, (med * 2.2) if med > 0 else 0.28)
 
-    # 5) 라인별 TTS 생성
-    audio_paths = generate_tts_per_line(
-        tts_lines,
-        provider=provider,
-        template=template,
-        polly_voice_key=polly_voice_key   # ✅ 보정된 보이스 키 반영
-    )
-    if not audio_paths:
-        return [], None, ass_path
+        pieces = []
+        cur_words = []
+        cur_start = words[0][0]
 
-    # 6) 병합
-    segments_raw = merge_audio_files(audio_paths, full_audio_file_path)
+        for idx, (t, w) in enumerate(words):
+            if not cur_words:
+                cur_start = t
+            cur_words.append(w)
 
-    segments = []
-    for i, s in enumerate(segments_raw):
-        # ✅ 자막용 기호 제거본으로 폴백
-        line_text = subtitle_lines[i] if i < len(subtitle_lines) else script_lines_sub[i]
-        segments.append({
-            "start": s["start"],
-            "end": s["end"],
-            "text": line_text,
-            "pitch": _assign_pitch(line_text)
-        })
+            next_t = (words[idx+1][0] if idx+1 < len(words) else line_end)
+            cur_end = min(line_end, max(cur_start, next_t))
+            gap_to_next = (next_t - t) if idx+1 < len(words) else 0.0
 
-    # === SpeechMarks 기반 정확 타이밍 ===
-    MIN_SEG_DUR = 0.35  # 최소 0.35초로 합리적 합침(필요시 0.3~0.5 사이로 조정)
+            # 끊기 조건: (단어 수 충족 & 최소길이) or (긴 무음 간격) or (마지막 단어)
+            should_break = False
+            if len(cur_words) >= target_words and (cur_end - cur_start) >= min_piece_dur:
+                should_break = True
+            if gap_to_next >= BREAK_GAP and (cur_end - cur_start) >= min_piece_dur * 0.8:
+                should_break = True
+            if idx == len(words) - 1:
+                should_break = True
 
-    def _merge_short_pieces(pieces, min_dur=MIN_SEG_DUR):
-        if not pieces: return []
-        merged = []
-        cur = dict(pieces[0])
-        for p in pieces[1:]:
-            # cur 조각이 아직 짧으면 다음 조각과 합침
-            if (cur["end"] - cur["start"]) < min_dur:
-                cur["end"]  = p["end"]
-                cur["text"] = _join_no_repeat(cur["text"], p["text"])
-            else:
-                merged.append(cur)
-                cur = dict(p)
-        merged.append(cur)
-        # 맨 마지막도 너무 짧으면 앞과 합치기 시도
-        if len(merged) >= 2 and (merged[-1]["end"] - merged[-1]["start"]) < min_dur:
-            merged[-2]["end"]  = merged[-1]["end"]
-            merged[-2]["text"] = _join_no_repeat(merged[-2]["text"], merged[-1]["text"])
-            merged.pop()
-        return merged
+            if should_break:
+                txt = " ".join(cur_words).strip()
+                txt = re.sub(r"\s+", " ", strip_ssml_tags(_strip_punct_and_quotes(txt))).strip()
+                if txt:
+                    pieces.append({
+                        "start": cur_start,
+                        "end":   cur_end,
+                        "text":  txt,
+                        "pitch": _assign_pitch(txt)
+                    })
+                cur_words = []
 
-    exact_segments = []
-    for i, s in enumerate(segments_raw):
-        line_ssml = tts_lines[i]             # 오디오에 쓴 SSML 그대로
-        voice_id  = resolve_polly_voice_id(polly_voice_key)
-        marks     = get_polly_speechmarks(line_ssml, voice_id, types=("sentence",))
-        if not marks:
-            # ✅ 문장 마크가 없으면 단어 마크로 폴백
-            marks = get_polly_speechmarks(line_ssml, voice_id, types=("word",))
+        # 조각이 3개 초과면, 가장 짧은 인접쌍부터 합쳐 3개로 제한
+        def _dur(p): return max(0.0, p["end"] - p["start"])
+        while len(pieces) > max_pieces:
+            best_i, best_sum = 0, 1e9
+            for i in range(len(pieces) - 1):
+                dsum = _dur(pieces[i]) + _dur(pieces[i+1])
+                if dsum < best_sum:
+                    best_sum, best_i = dsum, i
+            pieces[best_i]["end"]  = pieces[best_i+1]["end"]
+            pieces[best_i]["text"] = _join_no_repeat(pieces[best_i]["text"], pieces[best_i+1]["text"])
+            pieces.pop(best_i+1)
+        return pieces
 
-        line_offset = s["start"]; line_end = s["end"]
-
-        if marks:
-            pieces = []
-            prev_text = None  # ← 추가
-            for j, mk in enumerate(marks):
-                st = line_offset + (mk["time"] / 1000.0)
-                en = line_end if j == len(marks)-1 else (line_offset + marks[j+1]["time"] / 1000.0)
-
-                raw_val = mk.get("value", "")
-                val = strip_ssml_tags(_strip_punct_and_quotes(raw_val))
-                val_norm = re.sub(r"\s+", " ", val).strip()
-                if not val_norm:
-                    continue
-                # 🔒 인접 중복 방지
-                if val_norm == (prev_text or ""):
-                    continue
-                prev_text = val_norm
-
-                st = max(line_offset, min(st, line_end))
-                en = max(st,            min(en, line_end))
-
-                if pieces:
-                    prev_txt = pieces[-1]["text"]
-                    prev_norm = re.sub(r"\s+", " ", prev_txt).strip()
-                    # 완전 동일, 접미/접두가 겹치면 현재 조각은 붙이지 않고 시간만 늘리거나 대체
-                    if val_norm == prev_norm or prev_norm.endswith(val_norm) or val_norm.endswith(prev_norm):
-                        if len(val_norm) <= len(prev_norm):
-                            pieces[-1]["end"] = en     # 이전 조각 시간만 늘림
-                            continue
-                        else:
-                            pieces[-1]["text"] = val_norm
-                            pieces[-1]["end"]  = en
-                            continue
-                
-                pieces.append({"start": st, "end": en, "text": val_norm, "pitch": _assign_pitch(val_norm)})
-
-            pieces = _merge_short_pieces(pieces, MIN_SEG_DUR)
-            exact_segments.extend(pieces)
-
-        else:
-            # 폴백: 라인 통짜(자막용 정리본 사용) — SSML 절대 없음
-            line_text = subtitle_lines[i] if i < len(subtitle_lines) else script_lines_sub[i]
-            line_text = strip_ssml_tags(line_text)
-            exact_segments.append({
-                "start": s["start"], "end": s["end"],
-                "text": line_text, "pitch": _assign_pitch(line_text)
-            })
-
-    exact_segments = dedupe_adjacent_texts(exact_segments)
-    
-    # --- 빠른 템포 자막용 densify: ASS에만 적용, 영상 컷은 exact_segments 그대로 ---
-    dense_events = auto_densify_for_subs(
-        exact_segments,
-        tempo="fast",
-        words_per_piece=3,    # 2~4 취향
-        min_tail_words=2,
-        chunk_strategy=None   # period_2or3 끔
-    )
-
-    # (선택) 너무 짧은 덩어리 최소 길이 보정
     def _enforce_min_duration_local(segs, min_dur=0.35):
         out, cur = [], None
         for s in segs:
@@ -625,8 +541,7 @@ def generate_subtitle_from_script(
                 cur = dict(s); continue
             if (cur["end"] - cur["start"]) < min_dur:
                 cur["end"]  = s["end"]
-                # 텍스트 겹침 방지 결합
-                cur["text"] = _join_no_repeat(cur["text"], s["text"])
+                cur["text"] = _join_no_repeat(cur["text"], s["text"])  # 텍스트 겹침 방지 결합
             else:
                 out.append(cur); cur = dict(s)
         if cur: out.append(cur)
@@ -636,12 +551,91 @@ def generate_subtitle_from_script(
             out.pop()
         return out
 
-    dense_events = _enforce_min_duration_local(dense_events, 0.35)
+    # 1) (Polly 전용) 언어-보이스 키 동기화
+    if provider == "polly":
+        if tts_lang == "en" and polly_voice_key.startswith("korean_"):
+            print(f"⚠️ 영어 모드인데 한국어 보이스({polly_voice_key}) 선택됨 → default_male로 교체")
+            polly_voice_key = "default_male"
+        elif tts_lang == "ko" and polly_voice_key.startswith("default_"):
+            print(f"⚠️ 한국어 모드인데 영어 보이스({polly_voice_key}) 선택됨 → korean_female1으로 교체")
+            polly_voice_key = "korean_female1"
 
-    # ✅ 자막은 dense_events로 생성(영상 컷은 exact_segments 그대로 유지)
-    generate_ass_subtitle(dense_events, ass_path, template_name=template, strip_trailing_punct_last=True)
+    # 2) TTS 라인 준비 (Polly는 SSML, 그 외는 정리 텍스트)
+    if provider == "polly":
+        tts_lines = []
+        for orig in script_lines_raw:
+            try:
+                frag = convert_line_to_ssml(orig)  # LLM 생성
+            except Exception:
+                frag = f'<prosody rate="150%" volume="medium">{_xml_escape(orig)}</prosody>'
+            frag, _ = _ssml_safe_or_fallback(orig, frag)     # 원문 불일치/중복 차단
+            safe = _validate_ssml(frag)
+            if not safe.strip().startswith("<speak"):
+                safe = f"<speak>{safe}</speak>"
+            tts_lines.append(safe)
+    else:
+        tts_lines = script_lines_sub[:]
+        if tts_lang in ("en", "ko"):
+            tts_lines = _maybe_translate_lines(tts_lines, target=tts_lang, only_if_src_is_english=False)
 
-    # 메인에는 '컷용' 구간만 돌려줍니다(= 비-덴스)
+    # 3) 화면 자막용 라인 (필요시만 번역)
+    if subtitle_lang in ("ko", "en"):
+        subtitle_lines = _maybe_translate_lines(
+            script_lines_sub, target=subtitle_lang, only_if_src_is_english=translate_only_if_english
+        )
+    else:
+        subtitle_lines = script_lines_sub[:]
+
+    # 4) 라인별 TTS 생성 → 병합해 full 오디오 구성, 라인별 rough 타임 구간 획득
+    audio_paths = generate_tts_per_line(
+        tts_lines,
+        provider=provider,
+        template=template,
+        polly_voice_key=polly_voice_key
+    )
+    if not audio_paths:
+        return [], None, ass_path
+
+    segments_raw = merge_audio_files(audio_paths, full_audio_file_path)  # [{"start","end"}, ...]
+
+    # 5) Polly word speechmarks로 '자연 분절(1~3조각)' 구간 생성
+    exact_segments = []
+    for i, s in enumerate(segments_raw):
+        line_ssml  = tts_lines[i]
+        voice_id   = resolve_polly_voice_id(polly_voice_key)
+        line_start = s["start"]; line_end = s["end"]
+
+        # word 마크로 음성 타이밍 기반 분할
+        marks  = get_polly_speechmarks(line_ssml, voice_id, types=("word",))
+        pieces = _phraseify_from_word_marks(
+            marks, line_start, line_end,
+            max_pieces=3, target_words=3, min_piece_dur=0.40
+        )
+
+        if pieces:
+            exact_segments.extend(pieces)
+        else:
+            # 폴백: 한 덩어리(자막용 정리본)
+            line_text = subtitle_lines[i] if i < len(subtitle_lines) else script_lines_sub[i]
+            line_text = strip_ssml_tags(line_text)
+            exact_segments.append({
+                "start": line_start, "end": line_end,
+                "text": line_text, "pitch": _assign_pitch(line_text)
+            })
+
+    # 6) 최소 길이 보정 + 인접 중복 텍스트 병합
+    exact_segments = _enforce_min_duration_local(exact_segments, 0.35)
+    exact_segments = dedupe_adjacent_texts(exact_segments)
+
+    # 7) ASS 자막 생성 (음성 타이밍과 동일한 세그먼트로)
+    generate_ass_subtitle(
+        exact_segments,
+        ass_path,
+        template_name=template,
+        strip_trailing_punct_last=strip_trailing_punct_last
+    )
+
+    # 비디오 컷/동기화용으로 exact_segments만 반환
     return exact_segments, None, ass_path
 
 # === Auto-paced subtitle densifier (자연스러운 문맥 분할 우선) ===
