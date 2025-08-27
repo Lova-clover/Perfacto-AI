@@ -10,9 +10,30 @@ import kss
 import boto3, json
 from elevenlabs_tts import TTS_POLLY_VOICES 
 
+def dedupe_adjacent_texts(segs):
+    """연속 동일 텍스트 자막 병합(시간은 이어 붙임)"""
+    out, prev = [], None
+    for s in segs:
+        txt = strip_ssml_tags((s.get("text") or "").strip())
+        if prev and strip_ssml_tags((prev.get("text") or "").strip()) == txt:
+            # 같은 문구가 연속이면 이전 세그먼트의 end만 늘려 붙임
+            prev["end"] = max(prev["end"], s["end"])
+        else:
+            cur = dict(s)
+            cur["text"] = txt
+            out.append(cur)
+            prev = cur
+    return out
+
 TAG_RE = re.compile(r"<[^>]+>")
 def strip_ssml_tags(s: str) -> str:
-    return TAG_RE.sub("", s or "")
+    # 1) 태그를 '빈문자'가 아니라 '공백'으로 바꿔 단어가 붙는 걸 방지
+    t = TAG_RE.sub(" ", s or "")
+    # 2) 연속 공백 → 단일 공백
+    t = re.sub(r"\s+", " ", t)
+    # 3) 문장부호 앞의 공백 제거: "단어 ," → "단어,"
+    t = re.sub(r"\s+([,!?])", r"\1", t)
+    return t.strip()
 
 # --- SSML guard helpers (원문≠SSML 불일치/중복 방지) ---
 import re as _re_guard
@@ -320,6 +341,8 @@ def generate_ass_subtitle(segments, ass_path, template_name="default",
         s = s.replace("\r", "")
         s = s.replace("\n", r"\N")
         return s
+    
+    text = re.sub(r"\s+", " ", text)
 
     with open(ass_path, "w", encoding="utf-8") as f:
         f.write("[Script Info]\n")
@@ -352,7 +375,6 @@ def generate_ass_subtitle(segments, ass_path, template_name="default",
                 colour_tag = "{\\c&H0000FF&}"     # 빨강(BGR = 0000FF)
 
             f.write(f"Dialogue: 0,{start_ts},{end_ts},Bottom,,0,0,0,,{colour_tag}{text}\n")
-
 
 def format_ass_timestamp(seconds):
     h = int(seconds // 3600)
@@ -509,18 +531,25 @@ def generate_subtitle_from_script(
 
         if marks:
             pieces = []
+            prev_text = None  # ← 추가
             for j, mk in enumerate(marks):
                 st = line_offset + (mk["time"] / 1000.0)
                 en = line_end if j == len(marks)-1 else (line_offset + marks[j+1]["time"] / 1000.0)
-                # 정리된 텍스트(SSML 제거 포함)
-                raw_val = mk.get("value","")
+
+                raw_val = mk.get("value", "")
                 val = strip_ssml_tags(_strip_punct_and_quotes(raw_val))
-                if not val: 
+                val_norm = re.sub(r"\s+", " ", val).strip()
+                if not val_norm:
                     continue
-                # 경계 안전
+                # 🔒 인접 중복 방지
+                if val_norm == (prev_text or ""):
+                    continue
+                prev_text = val_norm
+
                 st = max(line_offset, min(st, line_end))
                 en = max(st,            min(en, line_end))
-                pieces.append({"start": st, "end": en, "text": val, "pitch": _assign_pitch(val)})
+
+                pieces.append({"start": st, "end": en, "text": val_norm, "pitch": _assign_pitch(val_norm)})
 
             pieces = _merge_short_pieces(pieces, MIN_SEG_DUR)
             exact_segments.extend(pieces)
@@ -534,6 +563,8 @@ def generate_subtitle_from_script(
                 "text": line_text, "pitch": _assign_pitch(line_text)
             })
 
+    exact_segments = dedupe_adjacent_texts(exact_segments)
+    
     # 이미 ‘정확 타임’이니 조각화 없이 바로 ASS 생성
     generate_ass_subtitle(exact_segments, ass_path, template_name=template, strip_trailing_punct_last=True)
     

@@ -6,7 +6,7 @@ from RAG.chain_builder import get_conversational_rag_chain, get_default_chain
 from persona import generate_response_from_persona
 from image_generator import generate_images_for_topic, generate_videos_for_topic
 from elevenlabs_tts import TTS_ELEVENLABS_TEMPLATES, TTS_POLLY_VOICES
-from generate_timed_segments import generate_subtitle_from_script, generate_ass_subtitle, SUBTITLE_TEMPLATES, _auto_split_for_tempo, auto_densify_for_subs, _strip_last_punct_preserve_closers
+from generate_timed_segments import generate_subtitle_from_script, generate_ass_subtitle, SUBTITLE_TEMPLATES, _auto_split_for_tempo, auto_densify_for_subs, _strip_last_punct_preserve_closers, dedupe_adjacent_texts
 from video_maker import (
     create_video_with_segments,
     create_video_from_videos,
@@ -665,6 +665,8 @@ with st.sidebar:
                             chunk_strategy=None      # ← 이게 포인트! (period_2or3 끄기)
                         )
                         dense_events = enforce_min_duration(dense_events, 0.35)
+                        
+                        dense_events = dedupe_adjacent_texts(dense_events)
 
                         # ✅ 자막은 dense_events로 생성(영상 컷은 여전히 segments 사용)
                         generate_ass_subtitle(
