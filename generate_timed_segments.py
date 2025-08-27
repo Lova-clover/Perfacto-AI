@@ -9,6 +9,7 @@ from pydub import AudioSegment
 import kss
 import boto3, json
 from elevenlabs_tts import TTS_POLLY_VOICES 
+from botocore.exceptions import ClientError
 
 def _join_no_repeat(a: str, b: str) -> str:
     import re
@@ -73,17 +74,32 @@ def _ssml_safe_or_fallback(orig_line: str, ssml_fragment: str):
 
 def get_polly_speechmarks(ssml: str, voice_id: str, region: str = "ap-northeast-2", types=("sentence",)):
     polly = boto3.client("polly", region_name=region)
-    resp = polly.synthesize_speech(
-        Text=ssml, TextType="ssml",
-        VoiceId=voice_id,
-        OutputFormat="json",
-        SpeechMarkTypes=list(types)
-    )
-    # 스트림은 JSONL 형태(줄마다 하나의 JSON)
+
+    # 1) SSML → 평문
+    plain = _plain_text_from_ssml(ssml)         # 태그 제거 + 공백 정규화
+    if not plain.strip():
+        return []
+
+    # 2) Polly 제한 보호(너무 긴 입력 방지)
+    if len(plain) > 2800:
+        plain = plain[:2800].rstrip()
+
+    try:
+        resp = polly.synthesize_speech(
+            Text=plain,                  # ← 평문으로
+            TextType="text",             # ← text 로
+            VoiceId=voice_id,
+            OutputFormat="json",
+            SpeechMarkTypes=list(types)  # ("sentence",) 또는 ("word",)
+        )
+    except ClientError as e:
+        print(f"[SpeechMarks] Polly error: {e}")
+        return []
+
     payload = resp["AudioStream"].read().decode("utf-8", errors="ignore")
     marks = [json.loads(line) for line in payload.splitlines() if line.strip()]
-    # 각 항목 예시: {"time": 1234, "type": "sentence", "value": "문장 텍스트", ...}
     return marks
+
 
 def resolve_polly_voice_id(polly_voice_key: str, tts_lang: str | None = "ko") -> str:
     """
@@ -592,9 +608,40 @@ def generate_subtitle_from_script(
 
     exact_segments = dedupe_adjacent_texts(exact_segments)
     
-    # 이미 ‘정확 타임’이니 조각화 없이 바로 ASS 생성
-    generate_ass_subtitle(exact_segments, ass_path, template_name=template, strip_trailing_punct_last=True)
-    
+    # --- 빠른 템포 자막용 densify: ASS에만 적용, 영상 컷은 exact_segments 그대로 ---
+    dense_events = auto_densify_for_subs(
+        exact_segments,
+        tempo="fast",
+        words_per_piece=3,    # 2~4 취향
+        min_tail_words=2,
+        chunk_strategy=None   # period_2or3 끔
+    )
+
+    # (선택) 너무 짧은 덩어리 최소 길이 보정
+    def _enforce_min_duration_local(segs, min_dur=0.35):
+        out, cur = [], None
+        for s in segs:
+            if cur is None:
+                cur = dict(s); continue
+            if (cur["end"] - cur["start"]) < min_dur:
+                cur["end"]  = s["end"]
+                # 텍스트 겹침 방지 결합
+                cur["text"] = _join_no_repeat(cur["text"], s["text"])
+            else:
+                out.append(cur); cur = dict(s)
+        if cur: out.append(cur)
+        if len(out) >= 2 and (out[-1]["end"] - out[-1]["start"]) < min_dur:
+            out[-2]["end"]  = out[-1]["end"]
+            out[-2]["text"] = _join_no_repeat(out[-2]["text"], out[-1]["text"])
+            out.pop()
+        return out
+
+    dense_events = _enforce_min_duration_local(dense_events, 0.35)
+
+    # ✅ 자막은 dense_events로 생성(영상 컷은 exact_segments 그대로 유지)
+    generate_ass_subtitle(dense_events, ass_path, template_name=template, strip_trailing_punct_last=True)
+
+    # 메인에는 '컷용' 구간만 돌려줍니다(= 비-덴스)
     return exact_segments, None, ass_path
 
 # === Auto-paced subtitle densifier (자연스러운 문맥 분할 우선) ===
