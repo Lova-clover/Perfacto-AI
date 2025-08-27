@@ -854,9 +854,8 @@ def create_video_from_videos(
             "-i", temp_video,
             "-i", audio_mix,
             "-map","0:v:0","-map","1:a:0",
-            "-c:v","copy",                # 이미 temp_video를 재인코딩했으므로 copy OK
-            "-c:a","aac","-b:a","128k",
-            "-shortest", save_path
+            "-c:v","copy","-c:a","aac","-b:a","128k",
+            save_path
         ],
         check=True
     )

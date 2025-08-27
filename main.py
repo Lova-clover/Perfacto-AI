@@ -656,8 +656,14 @@ with st.sidebar:
                             st.error(f"TTS 생성 실패: 오디오 파일 용량이 비정상적입니다 ({sz} bytes).")
                             st.stop()
                         
-                        # 🔥 자막용으로만 고밀도 분할 + 최소 길이 보정
-                        dense_events = auto_densify_for_subs(segments, tempo="fast", chunk_strategy="period_2or3")
+                        # ✅ period_2or_3 대신 단어 개수 기준 + 빠른 템포
+                        dense_events = auto_densify_for_subs(
+                            segments,
+                            tempo="fast",
+                            words_per_piece=3,       # 2~4 사이에서 취향대로
+                            min_tail_words=2,
+                            chunk_strategy=None      # ← 이게 포인트! (period_2or3 끄기)
+                        )
                         dense_events = enforce_min_duration(dense_events, 0.35)
 
                         # ✅ 자막은 dense_events로 생성(영상 컷은 여전히 segments 사용)
