@@ -10,6 +10,22 @@ import kss
 import boto3, json
 from elevenlabs_tts import TTS_POLLY_VOICES 
 
+def _join_no_repeat(a: str, b: str) -> str:
+    import re
+    A = re.sub(r"\s+", " ", (a or "")).strip()
+    B = re.sub(r"\s+", " ", (b or "")).strip()
+    if not A: return B
+    if not B: return A
+    if B in A: return A             # b가 a에 완전히 포함 → a만
+    if A in B: return B             # a가 b에 완전히 포함 → b만
+    A_toks, B_toks = A.split(), B.split()
+    k = min(len(A_toks), len(B_toks))
+    for n in range(k, 0, -1):
+        # a의 접미 == b의 접두 → 겹친 부분 빼고 붙이기
+        if A_toks[-n:] == B_toks[:n]:
+            return " ".join(A_toks + B_toks[n:])
+    return A + " " + B
+
 def dedupe_adjacent_texts(segs):
     out = []
     prev_clean = None
@@ -504,7 +520,7 @@ def generate_subtitle_from_script(
             # cur 조각이 아직 짧으면 다음 조각과 합침
             if (cur["end"] - cur["start"]) < min_dur:
                 cur["end"]  = p["end"]
-                cur["text"] = (cur["text"] + " " + p["text"]).strip()
+                cur["text"] = _join_no_repeat(cur["text"], p["text"])
             else:
                 merged.append(cur)
                 cur = dict(p)
@@ -547,6 +563,19 @@ def generate_subtitle_from_script(
                 st = max(line_offset, min(st, line_end))
                 en = max(st,            min(en, line_end))
 
+                if pieces:
+                    prev_txt = pieces[-1]["text"]
+                    prev_norm = re.sub(r"\s+", " ", prev_txt).strip()
+                    # 완전 동일, 접미/접두가 겹치면 현재 조각은 붙이지 않고 시간만 늘리거나 대체
+                    if val_norm == prev_norm or prev_norm.endswith(val_norm) or val_norm.endswith(prev_norm):
+                        if len(val_norm) <= len(prev_norm):
+                            pieces[-1]["end"] = en     # 이전 조각 시간만 늘림
+                            continue
+                        else:
+                            pieces[-1]["text"] = val_norm
+                            pieces[-1]["end"]  = en
+                            continue
+                
                 pieces.append({"start": st, "end": en, "text": val_norm, "pitch": _assign_pitch(val_norm)})
 
             pieces = _merge_short_pieces(pieces, MIN_SEG_DUR)
