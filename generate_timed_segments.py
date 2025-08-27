@@ -7,6 +7,62 @@ import re
 from elevenlabs_tts import generate_tts
 from pydub import AudioSegment
 import kss
+import boto3, json
+from elevenlabs_tts import TTS_POLLY_VOICES 
+
+# --- SSML guard helpers (원문≠SSML 불일치/중복 방지) ---
+import re as _re_guard
+
+def _plain_text_from_ssml(ssml: str) -> str:
+    t = _re_guard.sub(r"<[^>]+>", " ", ssml)  # 태그 제거
+    return _re_guard.sub(r"\s+", " ", t).strip()
+
+def _tokenize_ko_en(s: str):
+    # 한글/영문/숫자만 토큰화(기호/공백 무시)
+    return _re_guard.findall(r"[0-9A-Za-z\uac00-\ud7a3]+", s or "")
+
+def _ssml_safe_or_fallback(orig_line: str, ssml_fragment: str):
+    """원문과 LLM-SSML 불일치/중복이면 결정적 SSML로 폴백"""
+    plain = _plain_text_from_ssml(ssml_fragment)
+    tok_o = _tokenize_ko_en(orig_line)
+    tok_s = _tokenize_ko_en(plain)
+
+    # 새 단어 삽입 탐지
+    inserted = [t for t in tok_s if t not in tok_o]
+    # 연속 중복 탐지(“어떻게 어떻게” 등)
+    repeated = any(tok_s[i] == tok_s[i-1] for i in range(1, len(tok_s)))
+
+    if inserted or repeated or len(tok_s) < max(1, len(tok_o)//3):
+        safe = f'<prosody rate="150%" volume="medium">{_xml_escape(orig_line)}</prosody>'
+        return safe, True
+    return ssml_fragment, False
+
+def get_polly_speechmarks(ssml: str, voice_id: str, region: str = "ap-northeast-2", types=("sentence",)):
+    polly = boto3.client("polly", region_name=region)
+    resp = polly.synthesize_speech(
+        Text=ssml, TextType="ssml",
+        VoiceId=voice_id,
+        OutputFormat="json",
+        SpeechMarkTypes=list(types)
+    )
+    # 스트림은 JSONL 형태(줄마다 하나의 JSON)
+    payload = resp["AudioStream"].read().decode("utf-8", errors="ignore")
+    marks = [json.loads(line) for line in payload.splitlines() if line.strip()]
+    # 각 항목 예시: {"time": 1234, "type": "sentence", "value": "문장 텍스트", ...}
+    return marks
+
+def resolve_polly_voice_id(polly_voice_key: str, tts_lang: str | None = "ko") -> str:
+    """
+    polly_voice_key: 코드에서 쓰는 키("korean_female1" 등)
+    tts_lang: 'ko' | 'en' 등, 키가 없을 때의 기본값 선택에만 사용
+    """
+    v = TTS_POLLY_VOICES.get(polly_voice_key)
+    if v:
+        return v
+    # 키가 없을 때 안전 폴백
+    if tts_lang == "ko":
+        return TTS_POLLY_VOICES.get("korean_female2", "Seoyeon")  # ko-KR
+    return TTS_POLLY_VOICES.get("default_female", "Joanna")       # en-US
 
 SUBTITLE_TEMPLATES = {
     "educational": {
@@ -316,7 +372,7 @@ def generate_subtitle_from_script(
     script_text: str,
     ass_path: str,
     full_audio_file_path: str,
-    provider: str = "elevenlabs",
+    provider: str = "polly",
     template: str = "default",
     polly_voice_key: str = "default_male",
     subtitle_lang: str = "ko",
@@ -325,22 +381,22 @@ def generate_subtitle_from_script(
     split_mode: str = "newline",
     strip_trailing_punct_last: bool = True
 ):
-    # 1) 라인 분할
-    script_lines = split_script_to_lines(script_text, mode=split_mode)
+    # 1) 라인 분할 (원문/자막 분리 보관)
+    script_lines_raw = split_script_to_lines(script_text, mode=split_mode)
+    script_lines_raw = [l for l in script_lines_raw if l.strip()]   # 완전 빈 줄 제거
     def _strip_punct_and_quotes(s: str) -> str:
         if not s: return ""
-        # 전각 포함 모든 따옴표/느낌표/물음표 제거
         s = s.translate(str.maketrans({
             "“": "", "”": "", "„": "", "‟": "", '"': "",
             "‘": "", "’": "", "‚": "", "‛": "", "'": "",
             "！": "!", "？": "?"
         }))
-        s = re.sub(r'[!?]+', '', s)      # ! ? 일괄 제거
-        s = re.sub(r'\s{2,}', ' ', s)    # 공백 정리
+        s = re.sub(r'[!?]+', '', s)
+        s = re.sub(r'\s{2,}', ' ', s)
         return s.strip()
 
-    script_lines = [_strip_punct_and_quotes(l) for l in script_lines]
-    if not script_lines:
+    script_lines_sub = [_strip_punct_and_quotes(l) for l in script_lines_raw]
+    if not script_lines_raw:
         return [], None, ass_path
 
     # 2) 언어-보이스 키 동기화 (Polly 전용)
@@ -352,25 +408,23 @@ def generate_subtitle_from_script(
             print(f"⚠️ 한국어 모드인데 영어 보이스({polly_voice_key}) 선택됨 → korean_female1으로 교체")
             polly_voice_key = "korean_female1"
 
-    # 3) TTS 라인 준비  (★ 라인별로 <speak> 감싸서 Polly에 보냄)
+    # 3) TTS 라인 준비 (Polly는 원문 사용 + 안전 가드)
     if provider == "polly":
+        tts_src_lines = script_lines_raw
         tts_lines = []
-        for line in script_lines:
-            l = (line or "").strip()
-            if l.startswith("<speak"):
-                safe = l  # 이미 완전 SSML
-            elif ("<prosody" in l) or ("<break" in l):
-                safe = f"<speak>{l}</speak>"  # SSML 조각 → 래핑
-            else:
-                # 평문 → 변환(조각; <speak> 제거됨) → 래핑
-                try:
-                    frag = convert_line_to_ssml(l)
-                except Exception:
-                    frag = f'<prosody rate="145%" volume="medium">{_xml_escape(l)}</prosody>'
-                safe = f"<speak>{frag}</speak>"
+        for orig in tts_src_lines:
+            try:
+                frag = convert_line_to_ssml(orig)  # LLM 생성
+            except Exception:
+                frag = f'<prosody rate="150%" volume="medium">{_xml_escape(orig)}</prosody>'
+            frag, _fell_back = _ssml_safe_or_fallback(orig, frag)  # ✅ 원문 불일치/중복 차단
+            safe = _validate_ssml(frag)
+            if not safe.strip().startswith("<speak"):
+                safe = f"<speak>{safe}</speak>"
             tts_lines.append(safe)
     else:
-        tts_lines = script_lines[:]
+        # (Polly 외 엔진이면 자막 정리본을 그대로 사용)
+        tts_lines = script_lines_sub[:]
 
     # (선택) TTS 언어 강제 변환
     if tts_lang in ("en", "ko") and provider != "polly":
@@ -380,15 +434,15 @@ def generate_subtitle_from_script(
             only_if_src_is_english=False
         )
 
-    # 4) 자막 라인 (화면 표시용)
+    # 4) 자막 라인 (화면 표시용: 기호 제거본 기준)
     if subtitle_lang in ("ko", "en"):
         subtitle_lines = _maybe_translate_lines(
-            script_lines,
+            script_lines_sub,
             target=subtitle_lang,
             only_if_src_is_english=translate_only_if_english
         )
     else:
-        subtitle_lines = script_lines[:]
+        subtitle_lines = script_lines_sub[:]
 
     # 5) 라인별 TTS 생성
     audio_paths = generate_tts_per_line(
@@ -402,9 +456,11 @@ def generate_subtitle_from_script(
 
     # 6) 병합
     segments_raw = merge_audio_files(audio_paths, full_audio_file_path)
+
     segments = []
     for i, s in enumerate(segments_raw):
-        line_text = subtitle_lines[i] if i < len(subtitle_lines) else script_lines[i]
+        # ✅ 자막용 기호 제거본으로 폴백
+        line_text = subtitle_lines[i] if i < len(subtitle_lines) else script_lines_sub[i]
         segments.append({
             "start": s["start"],
             "end": s["end"],
@@ -412,22 +468,49 @@ def generate_subtitle_from_script(
             "pitch": _assign_pitch(line_text)
         })
 
-    # 7) ASS 생성  ← 조각화 ON 버전
-    dense = auto_densify_for_subs(
-        segments,
-        tempo="fast",
-        strip_trailing_punct_each=True,
-        words_per_piece=3,
-        min_tail_words=2,
-        chunk_strategy="period_2or3",  # 원하면 None로 꺼도 됨
-    )
-    generate_ass_subtitle(
-        dense, ass_path, template_name=template,
-        strip_trailing_punct_last=True
-    )
+    # === SpeechMarks 기반 정확 타이밍 ===
+    exact_segments = []
+    for i, s in enumerate(segments_raw):
+        # ✅ 오디오 생성 때 사용한 안전 SSML 그대로 사용
+        line_ssml = tts_lines[i]
 
+        voice_id = resolve_polly_voice_id(polly_voice_key)  # 필요시 resolve_polly_voice_id(polly_voice_key, tts_lang or "ko")
+        marks = get_polly_speechmarks(line_ssml, voice_id, types=("sentence",))  # 또는 ("word",)
 
-    return segments, None, ass_path
+        line_offset = s["start"]
+        line_end    = s["end"]
+
+        if marks:
+            # 문장 시작 시각들 → 구간(시작,끝)으로 변환
+            for j, mk in enumerate(marks):
+                st = line_offset + (mk["time"] / 1000.0)
+                en = line_end if j == len(marks) - 1 else (line_offset + marks[j + 1]["time"] / 1000.0)
+
+                # 자막 텍스트(규칙대로 기호 제거)
+                val = _strip_punct_and_quotes(mk.get("value", ""))
+                if not val:
+                    continue
+
+                exact_segments.append({
+                    "start": max(line_offset, st),
+                    "end":   min(line_end, en),
+                    "text":  val,
+                    "pitch": _assign_pitch(val)
+                })
+        else:
+            # 폴백: 문장마크가 없으면 라인 통짜로 (자막용 기호 제거본 사용)
+            line_text = subtitle_lines[i] if i < len(subtitle_lines) else script_lines_sub[i]
+            exact_segments.append({
+                "start": s["start"],
+                "end":   s["end"],
+                "text":  line_text,
+                "pitch": _assign_pitch(line_text)
+            })
+
+    # 이미 ‘정확 타임’이니 조각화 없이 바로 ASS 생성
+    generate_ass_subtitle(exact_segments, ass_path, template_name=template, strip_trailing_punct_last=True)
+    
+    return exact_segments, None, ass_path
 
 # === Auto-paced subtitle densifier (자연스러운 문맥 분할 우선) ===
 def _auto_split_for_tempo(text: str, tempo: str = "fast"):
