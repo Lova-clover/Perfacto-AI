@@ -528,7 +528,7 @@ def generate_subtitle_from_script(
         # 맨 마지막도 너무 짧으면 앞과 합치기 시도
         if len(merged) >= 2 and (merged[-1]["end"] - merged[-1]["start"]) < min_dur:
             merged[-2]["end"]  = merged[-1]["end"]
-            merged[-2]["text"] = (merged[-2]["text"] + " " + merged[-1]["text"]).strip()
+            merged[-2]["text"] = _join_no_repeat(merged[-2]["text"], merged[-1]["text"])
             merged.pop()
         return merged
 
