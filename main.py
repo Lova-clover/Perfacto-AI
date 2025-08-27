@@ -627,23 +627,13 @@ with st.sidebar:
                             st.error(f"TTS 생성 실패: 오디오 파일 용량이 비정상적입니다 ({sz} bytes).")
                             st.stop()
                         
-                        # ✅ 자막만 "자동-빠른 템포"로 더 쪼개서 덮어쓰기 (오디오/영상 타이밍 유지)
-                        dense_events = auto_densify_for_subs(
-                            segments,
-                            strip_trailing_punct_each=True,
-                            chunk_strategy="period_2or3"   # ✅ 마침표 먼저 → 2/3조각
-                        )
-
-                        # ✅ 마지막 조각의 꼬리 구두점 확실히 제거(따옴표/괄호는 보존)
-                        if dense_events:
-                            dense_events[-1]["text"] = _strip_last_punct_preserve_closers(dense_events[-1]["text"])
-
                         generate_ass_subtitle(
-                            segments=dense_events,
+                            segments=segments,  # ← 그대로 사용
                             ass_path=ass_path,
                             template_name=st.session_state.selected_subtitle_template,
-                            strip_trailing_punct_last=False   # ✅ 이미 위에서 처리했으니 비활성
+                            strip_trailing_punct_last=True  # 꼬리 구두점 정리는 마지막만
                         )
+                        
                         try:
                             if audio_clips is not None:
                                 audio_clips.close()
