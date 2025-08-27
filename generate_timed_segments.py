@@ -343,7 +343,7 @@ def generate_ass_subtitle(segments, ass_path, template_name="default",
             pitch_val = seg.get("pitch")
             if pitch_val is None:
                 pitch_val = _assign_pitch(text)   # ← 텍스트로 피치 재계산
-            if pitch_val <= -5:
+            if pitch_val <= -15:
                 colour_tag = "{\\c&H0000FF&}"     # 빨강(BGR = 0000FF)
 
             f.write(f"Dialogue: 0,{start_ts},{end_ts},Bottom,,0,0,0,,{colour_tag}{text}\n")
