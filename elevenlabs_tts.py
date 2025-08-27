@@ -87,8 +87,8 @@ TTS_POLLY_VOICES = {
     "default_male": "Matthew",       # 영어 (미국) 남성 - 유명한 이름
     "default_female": "Joanna",      # 영어 (미국) 여성 - 유명한 이름
     # 한국어 남성은 제외 (Polly에는 한국어 남성 음성이 현재 없음)
-    "korean_female1": "Jihye",        
-    "korean_female2": "Seoyeon",      # 한국어 여성
+    "korean_female1": "Seoyeon",     
+    "korean_female2": "Jihye",      # 한국어 여성
     "eng_male" : "Joey",
     "eng_male2" : "Arthur",
     "english_male_uk": "Brian",      # 영어 (영국) 남성 - 유명한 이름
