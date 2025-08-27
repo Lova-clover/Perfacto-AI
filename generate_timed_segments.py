@@ -1,5 +1,6 @@
 from deep_translator import GoogleTranslator
 from ssml_converter import convert_line_to_ssml
+from html import escape as _xml_escape
 # generate_timed_segments.py
 import os
 import re
@@ -124,6 +125,12 @@ def _validate_ssml(text: str) -> str:
     while close_count < open_count:
         text += "</prosody>"
         close_count += 1
+        
+    # 3) 속성의 단일인용(') → 쌍따옴표(") 정규화
+    text = re.sub(r"(\b[a-zA-Z-]+)='([^']*)'", r'\1="\2"', text)
+
+    # 4) pitch 속성 제거 (Neural 엔진과의 호환을 위해 전역 제거)
+    text = re.sub(r'\s+pitch="[^"]*"', '', text)
 
     return text.strip()
 
@@ -312,7 +319,7 @@ def generate_subtitle_from_script(
                 try:
                     frag = convert_line_to_ssml(l)
                 except Exception:
-                    frag = f"<prosody rate='145%' pitch='+2%'>{l}</prosody>"
+                    frag = f'<prosody rate="145%" volume="medium">{_xml_escape(l)}</prosody>'
                 safe = f"<speak>{frag}</speak>"
             tts_lines.append(safe)
     else:

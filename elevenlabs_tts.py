@@ -2,6 +2,7 @@ import requests
 import os
 import streamlit as st
 import boto3 # Import the boto3 library for AWS services
+import re
 from html import escape
 from botocore.exceptions import BotoCoreError, ClientError
 
@@ -167,37 +168,40 @@ def generate_polly_tts(
     raw = (text or "").strip()
     looks_ssml = raw.startswith("<speak") or ("<prosody" in raw) or ("<break" in raw)
 
+    # 내부 편의 인자 → SSML로만 반영한다
     rate = _rate_from_speed(speed)
     vol  = _volume_from_db(volume_db)
 
     if looks_ssml:
-        # 이미 SSML이면 <speak> 보장 + 최상단에 prosody 한번 입힘
-        if not raw.startswith("<speak"):
-            raw = f"<speak>{raw}</speak>"
-        payload = raw.replace(
-            "<speak>", f"<speak><prosody rate=\"{rate}\" volume=\"{vol}\">", 1
-        ).replace("</speak>", "</prosody></speak>", 1)
-        text_type = "ssml"
+        # ⚠️ 이미 SSML이면 '추가 prosody'는 넣지 않는다 (중복 prosody로 인한 오류 방지)
+        payload = raw if raw.lstrip().startswith("<speak") else f"<speak>{raw}</speak>"
     else:
-        # 평문은 안전 이스케이프 후 prosody로 감싸기
-        payload = f"<speak><prosody rate=\"{rate}\" volume=\"{vol}\">{escape(raw)}</prosody></speak>"
-        text_type = "ssml"
+        # 평문인 경우에만 안전 래핑
+        payload = f'<speak><prosody rate="{rate}" volume="{vol}">{escape(raw)}</prosody></speak>'
 
-    def _synth(engine: str):
+    # 속성 따옴표 표준화(단일→쌍따옴표)
+    payload = re.sub(r"(\b[a-zA-Z-]+)='([^']*)'", r'\1="\2"', payload)
+
+    # Neural 엔진에서는 pitch 제거(오류 예방)
+    payload_neural = re.sub(r'\s+pitch="[^"]*"', '', payload)
+
+    def _synth(engine: str, text_payload: str):
         return polly_client.synthesize_speech(
-            Text=payload,
-            TextType=text_type,
+            Text=text_payload,
+            TextType="ssml",
             OutputFormat="mp3",
             VoiceId=voice_id,
             Engine=engine
         )
 
     try:
+        # 1차: Neural (pitch 제거본)
         try:
-            resp = _synth("neural")
+            resp = _synth("neural", payload_neural)
         except (ClientError, BotoCoreError) as e:
             print(f"[Polly] neural 실패: {getattr(e, 'response', {}).get('Error', {}) or e}")
-            resp = _synth("standard")
+            # 2차: Standard (사용자 SSML 원본 유지)
+            resp = _synth("standard", payload)
     except (ClientError, BotoCoreError) as e:
         raise RuntimeError(f"Polly 실패(voice={voice_id}): {getattr(e, 'response', {}).get('Error', {}) or e}")
 
