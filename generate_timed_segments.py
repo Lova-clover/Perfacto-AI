@@ -114,25 +114,56 @@ def _maybe_translate_lines(lines, target='ko', only_if_src_is_english=True):
 def _validate_ssml(text: str) -> str:
     """
     Polly 호출 전 SSML 안전성 검사 및 보정
+    - 허용 태그: speak, prosody, break
+    - Neural에서 문제되는 pitch 제거
+    - 속성은 쌍따옴표로 표준화
+    - 연속 break/과도한 time 보정
+    - 빈 prosody 제거, 태그 불일치 보정
     """
-    # 1) 빈 prosody 블록 제거
-    text = re.sub(r"<prosody[^>]*>\s*</prosody>", "", text)
+    if not text:
+        return ""
 
-    # 2) 잘못된 중첩/닫힘 보정 (간단히)
-    # 열림과 닫힘 개수 안 맞으면 강제로 닫음
-    open_count = text.count("<prosody")
-    close_count = text.count("</prosody>")
-    while close_count < open_count:
-        text += "</prosody>"
-        close_count += 1
-        
-    # 3) 속성의 단일인용(') → 쌍따옴표(") 정규화
-    text = re.sub(r"(\b[a-zA-Z-]+)='([^']*)'", r'\1="\2"', text)
+    t = text.strip().replace("\ufeff", "")
 
-    # 4) pitch 속성 제거 (Neural 엔진과의 호환을 위해 전역 제거)
-    text = re.sub(r'\s+pitch="[^"]*"', '', text)
+    # 0) 내부에 <speak> 조각이 있으면 걷어내기 (라인 단위)
+    t = re.sub(r"</?speak\s*>", "", t, flags=re.I)
 
-    return text.strip()
+    # 1) 허용 외 태그는 제거 (speak/prosody/break만 남김)
+    t = re.sub(r"</?(?!prosody\b|break\b)[a-zA-Z0-9:_-]+\b[^>]*>", "", t)
+
+    # 2) 단일인용 속성 → 쌍따옴표
+    t = re.sub(r'(\b[a-zA-Z:-]+)=\'([^\']*)\'', r'\1="\2"', t)
+
+    # 3) pitch 속성 제거 (Neural 호환)
+    t = re.sub(r'\s+pitch="[^"]*"', "", t)
+
+    # 4) break time 보정: 숫자ms만 허용, 2000ms 초과시 2000ms로 clamp
+    def _clamp_break(m):
+        val = m.group(2)
+        try:
+            n = int(val)
+        except Exception:
+            n = 200  # 이상치면 200ms로
+        n = max(0, min(n, 2000))
+        return f'{m.group(1)}{n}{m.group(3)}'
+    t = re.sub(r'(<break\b[^>]*\btime=")(\d+)(ms"[^>]*/?>)', _clamp_break, t, flags=re.I)
+
+    # 5) 연속 break → 하나만 남김
+    t = re.sub(r'(?:<break\b[^>]*/>\s*){2,}', lambda m: re.findall(r'<break\b[^>]*/>', m.group(0))[0], t, flags=re.I)
+
+    # 6) 빈 prosody 제거
+    t = re.sub(r"<prosody[^>]*>\s*</prosody>", "", t, flags=re.I)
+
+    # 7) prosody 닫힘 보정
+    open_count = len(re.findall(r"<prosody\b", t, flags=re.I))
+    close_count = len(re.findall(r"</prosody>", t, flags=re.I))
+    t += "</prosody>" * max(0, open_count - close_count)
+
+    # 8) prosody가 아예 없으면 기본 래핑 (안전 기본값)
+    if "<prosody" not in t:
+        t = f'<prosody rate="155%" volume="medium">{_xml_escape(t)}</prosody>'
+
+    return t.strip()
 
 def generate_tts_per_line(script_lines, provider, template, polly_voice_key="korean_female1"):
     audio_paths = []
