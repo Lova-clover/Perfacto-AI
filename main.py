@@ -607,14 +607,24 @@ with st.sidebar:
                             full_audio_file_path=audio_path,
                             provider=provider,
                             template=tmpl,
+                            polly_voice_key=st.session_state.selected_polly_voice_key,  # ✅ 실제 선택 보이스 반영
                             subtitle_lang="ko",
                             translate_only_if_english=False,
                             tts_lang=st.session_state.selected_tts_lang,
-                            split_mode="kss",               # ✅ 문장 단위로 분할
+                            split_mode="kss",
                             strip_trailing_punct_last=False
                         )
+                        # ✅ 생성 직후 '진짜로' 만들어졌는지 강제 검증
                         if not segments:
-                            st.error("TTS 생성에 실패하여 세그먼트가 비어 있습니다. (라인별 실패 사유는 로그 참고)")
+                            st.error("TTS 생성 실패: 세그먼트가 비어 있습니다. (라인별 실패 로그를 확인하세요)")
+                            st.stop()
+
+                        try:
+                            sz = os.path.getsize(audio_path)
+                        except Exception:
+                            sz = 0
+                        if sz < 5_000:  # 5KB 미만이면 사실상 실패로 간주
+                            st.error(f"TTS 생성 실패: 오디오 파일 용량이 비정상적입니다 ({sz} bytes).")
                             st.stop()
                         
                         # ✅ 자막만 "자동-빠른 템포"로 더 쪼개서 덮어쓰기 (오디오/영상 타이밍 유지)
