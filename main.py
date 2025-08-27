@@ -28,7 +28,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import FAISS
 import math 
-
+from moviepy import AudioFileClip
 nest_asyncio.apply()
 load_dotenv()
 
@@ -36,6 +36,24 @@ VIDEO_TEMPLATE = "영상(영어보이스+한국어자막·가운데)"
 
 
 # ---------- 유틸 ----------
+def enforce_min_duration(segs, min_dur=0.35):
+    out = []
+    cur = None
+    for s in segs:
+        if cur is None:
+            cur = dict(s); continue
+        if (cur["end"] - cur["start"]) < min_dur:
+            cur["end"]  = s["end"]
+            cur["text"] = (cur["text"] + " " + s["text"]).strip()
+        else:
+            out.append(cur); cur = dict(s)
+    if cur: out.append(cur)
+    if len(out) >= 2 and (out[-1]["end"] - out[-1]["start"]) < min_dur:
+        out[-2]["end"]  = out[-1]["end"]
+        out[-2]["text"] = (out[-2]["text"] + " " + out[-1]["text"]).strip()
+        out.pop()
+    return out
+
 def _tokenize_words_for_kr_en(text: str):
     """한/영 혼합 문장을 단어(또는 덩어리)+문장부호 수준으로 토큰화."""
     import re
@@ -611,9 +629,20 @@ with st.sidebar:
                             subtitle_lang="ko",
                             translate_only_if_english=False,
                             tts_lang=st.session_state.selected_tts_lang,
-                            split_mode="kss",
+                            split_mode="new_line",
                             strip_trailing_punct_last=False
                         )
+                        
+                        try:
+                            with AudioFileClip(audio_path) as aud:
+                                aud_dur = float(aud.duration or 0.0)
+                            if segments and aud_dur > 0:
+                                # 약간의 여유(20ms) 줘서 -shortest 트림 방지
+                                if aud_dur + 0.02 > segments[-1]["end"]:
+                                    segments[-1]["end"] = aud_dur + 0.02
+                        except Exception as e:
+                            print("Audio length check failed:", e)
+                        
                         # ✅ 생성 직후 '진짜로' 만들어졌는지 강제 검증
                         if not segments:
                             st.error("TTS 생성 실패: 세그먼트가 비어 있습니다. (라인별 실패 로그를 확인하세요)")
@@ -627,11 +656,16 @@ with st.sidebar:
                             st.error(f"TTS 생성 실패: 오디오 파일 용량이 비정상적입니다 ({sz} bytes).")
                             st.stop()
                         
+                        # 🔥 자막용으로만 고밀도 분할 + 최소 길이 보정
+                        dense_events = auto_densify_for_subs(segments, tempo="fast", chunk_strategy="period_2or3")
+                        dense_events = enforce_min_duration(dense_events, 0.35)
+
+                        # ✅ 자막은 dense_events로 생성(영상 컷은 여전히 segments 사용)
                         generate_ass_subtitle(
-                            segments=segments,  # ← 그대로 사용
+                            segments=dense_events,
                             ass_path=ass_path,
                             template_name=st.session_state.selected_subtitle_template,
-                            strip_trailing_punct_last=True  # 꼬리 구두점 정리는 마지막만
+                            strip_trailing_punct_last=True
                         )
                         
                         try:
