@@ -608,7 +608,7 @@ def create_video_from_videos(
         nframes = max(1, int(total_video_duration * 44100))
         silent = np.zeros((nframes, 2), dtype=np.float32)
         narration = AudioArrayClip(silent, fps=44100)
-        narration = narration.set_duration(total_video_duration)
+        narration = narration.with_duration(total_video_duration)
         print("🔊 음성 파일이 없어 무음 오디오 트랙을 생성했습니다.")
 
     # ── BGM 믹스(옵션)
@@ -678,10 +678,10 @@ def create_video_from_videos(
     # ── 리사이즈(cover)
     def _resize_cover(clip, W, H):
         scale = max(W / clip.w, H / clip.h)
-        resized = clip.resize(scale)
+        resized = clip.resized(scale)
         x = int(round((W - resized.w) / 2))
         y = int(round((H - resized.h) / 2))
-        return resized.set_position((x, y))
+        return resized.with_position((x, y))
 
     # ── 세그먼트별 파일 생성
     seg_files = []
@@ -693,7 +693,7 @@ def create_video_from_videos(
 
         if (not src_path) or (not os.path.exists(src_path)):
             # 비상: 색 배경
-            base = ColorClip(size=(video_width, video_height), color=(0, 0, 0)).set_duration(duration)
+            base = ColorClip(size=(video_width, video_height), color=(0, 0, 0)).with_duration(duration)
         else:
             raw = VideoFileClip(src_path).without_audio()
             try:
@@ -723,15 +723,15 @@ def create_video_from_videos(
             # bar 높이는 만들어진 clip 높이에 padding만 더함 (dummy 불필요)
             title_bar_h = int(title_clip.h + 32)
 
-            black_bar = ColorClip(size=(video_width, title_bar_h), color=(0, 0, 0)).set_duration(duration).set_position(("center", "top"))
+            black_bar = ColorClip(size=(video_width, title_bar_h), color=(0, 0, 0)).with_duration(duration).with_position(("center", "top"))
 
             tx = int(round((video_width - title_clip.w) / 2))
             ty = int(max(0, min(round((title_bar_h - title_clip.h) / 2) + 10, title_bar_h - title_clip.h)))
-            title_clip = title_clip.set_duration(duration).set_position((tx, ty))
+            title_clip = title_clip.with_duration(duration).with_position((tx, ty))
 
             overlays.extend([black_bar, title_clip])
 
-        seg_clip = CompositeVideoClip(overlays, size=(video_width, video_height)).set_duration(duration)
+        seg_clip = CompositeVideoClip(overlays, size=(video_width, video_height)).with_duration(duration)
 
         seg_out = os.path.join(os.path.dirname(save_path) or ".", f"_seg_{i:03d}.mp4")
         seg_clip.write_videofile(
