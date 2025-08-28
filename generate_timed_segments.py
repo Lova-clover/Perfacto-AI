@@ -11,6 +11,101 @@ import boto3, json
 from elevenlabs_tts import TTS_POLLY_VOICES 
 from botocore.exceptions import ClientError
 
+def _parse_ssml_pieces(ssml: str):
+    """<prosody ...>text</prosody> (+ 선택적 <break>) 를 순서대로 추출"""
+    if not ssml: return []
+    body = ssml
+    if body.strip().startswith("<speak"):
+        body = re.sub(r"^<speak[^>]*>|</speak>\s*$", "", body.strip(), flags=re.I)
+
+    pieces = []
+    pos = 0
+    tag_re = re.compile(r'<prosody\b([^>]*)>(.*?)</prosody\s*>', re.I|re.S)
+    brk_re = re.compile(r'<break\b[^>]*time="(\d+)ms"[^>]*/\s*>', re.I)
+
+    for m in tag_re.finditer(body):
+        attrs = m.group(1) or ""
+        text  = (m.group(2) or "").strip()
+        rate  = re.search(r'rate="([+\-]?\d+)%"', attrs)
+        pitch = re.search(r'pitch="([+\-]?\d+)%"', attrs)
+        rate_pct  = int(rate.group(1)) if rate else 150  # 기본 150%
+        pitch_pct = int(pitch.group(1)) if pitch else 0
+
+        # 이 prosody 뒤에 즉시 오는 break 1개를 소비(있으면)
+        tail = body[m.end():]
+        brk = brk_re.match(tail)
+        brk_ms = int(brk.group(1)) if brk else 0
+
+        if brk:  # 소비된 break는 본문에서 제거된다고 가정
+            pass
+
+        pieces.append({
+            "text": text,
+            "rate_pct": rate_pct,
+            "pitch_pct": pitch_pct,
+            "break_ms": brk_ms,
+        })
+    return [p for p in pieces if p["text"]]
+
+def _quantize_segments(segs, fps=24.0, clamp_start=None, clamp_end=None):
+    """ASS/비디오 타임라인(24fps)에 맞춰 시작/끝을 프레임 단위로 스냅."""
+    tick = 1.0 / float(fps)
+    out, prev_end = [], None
+    for s in segs:
+        st = round(s["start"] / tick) * tick
+        en = round(s["end"]   / tick) * tick
+        if prev_end is not None and st < prev_end:
+            st = prev_end
+        if en <= st:  # 최소 1프레임
+            en = st + tick
+        out.append({**s, "start": st, "end": en})
+        prev_end = en
+    if clamp_start is not None:
+        out[0]["start"] = max(clamp_start, out[0]["start"])
+    if clamp_end is not None:
+        out[-1]["end"]  = min(clamp_end,  out[-1]["end"])
+    return out
+
+def _build_dense_from_ssml(line_ssml: str, seg_start: float, seg_end: float, fps: float = 24.0):
+    """한 줄(오디오 한 파일) SSML을 조각 단위로 시간 분배 → dense events 반환"""
+    pcs = _parse_ssml_pieces(line_ssml)
+    if not pcs:
+        return []  # SSML이 없으면 호출측에서 기존 로직으로
+
+    dur = max(0.01, seg_end - seg_start)
+    # 브레이크 합(ms → s)
+    total_break = sum(p["break_ms"] for p in pcs) / 1000.0
+    speech_dur  = max(0.0, dur - total_break)
+
+    # rate 반영 가중치
+    weights = []
+    for p in pcs:
+        char_len = max(1, len(p["text"]))
+        rate_mul = max(0.1, p["rate_pct"] / 150.0)  # 150%를 기준
+        w = char_len / rate_mul
+        weights.append(w)
+    W = sum(weights) or 1.0
+
+    # 시간 배분
+    t = seg_start
+    events = []
+    for p, w in zip(pcs, weights):
+        span = speech_dur * (w / W)
+        t0 = t
+        t1 = t0 + span
+
+        # pitch를 seg에 싣어 ASS 색상 규칙과 연동(아래 1프레임 여유 확보)
+        events.append({"start": t0, "end": t1, "text": p["text"], "pitch": p["pitch_pct"]})
+
+        # prosody 다음 break
+        if p["break_ms"] > 0:
+            t = t1 + p["break_ms"]/1000.0
+        else:
+            t = t1
+
+    # 프레임 격자 스냅(24fps) + 겹침 방지
+    return _quantize_segments(events, fps=fps, clamp_start=seg_start, clamp_end=seg_end)
+
 def _clean_for_align(s: str) -> str:
     return re.sub(r"[^0-9A-Za-z\uac00-\ud7a3]+", "", s or "").strip()
 
@@ -677,76 +772,101 @@ def auto_densify_for_subs(
     strip_trailing_punct_each: bool = True,
     words_per_piece: int | None = 3,
     min_tail_words: int = 2,
-    chunk_strategy: str | None = None,   # ✅ 추가: "period_2or3" 사용
+    chunk_strategy: str | None = None,   # "period_2or3" 추천
+    marks_voice_key: str | None = None,  # ★ 추가: SpeechMarks용 Polly 보이스 키
 ):
+    """
+    각 라인 구간을 더 잘게 쪼개되, 시간 배분은 Polly SpeechMarks(단어 시작 시각)에 맞춰서 한다.
+    - seg["ssml"]가 있으면 SSML 그대로 SpeechMarks에 넣어 SSML의 rate/pitch/break 반영.
+    - 실패/부재 시 기존 글자수 비례 분할로 폴백.
+    """
+    def _period_split(text: str):
+        parts = re.split(r'(?<=\.)\s*', (text or "").strip())
+        return [p.strip() for p in parts if p.strip()]
+
+    def _strip_last_punct_preserve_closers(s: str) -> str:
+        return re.sub(r'([.,!?…])(?=\s*(?:["\'”’)\]\}]|$))', '', (s or "").strip())
+
     dense = []
+    voice_id = resolve_polly_voice_id(marks_voice_key or "korean_female2")
+
     for seg in segments:
-        start, end = seg["start"], seg["end"]
+        start, end = float(seg["start"]), float(seg["end"])
         dur = max(0.01, end - start)
-
-        final_pieces = []
-        text = (seg.get("text") or "").strip()
-
-        if chunk_strategy == "period_2or3":   # ✅ 새 전략
-            # 1) 마침표(.)로 문장 분리
-            sentences = _sentence_split_by_dot(text) or [text]
-
-            for sent in sentences:
-                tokens = re.findall(r'\S+', sent)
-                wc = len(tokens)
-
-                # 2) 문장 길이에 따라 1/2/3 조각 결정(의미 해치지 않게 단어 경계만 사용)
-                if wc <= 4:
-                    chunks = [" ".join(tokens).strip()]
-                elif wc <= 10:
-                    chunks = _split_tokens_into_n(tokens, 2)   # 2조각
-                else:
-                    chunks = _split_tokens_into_n(tokens, 3)   # 3조각
-
-                # 3) 각 조각 꼬리 구두점 제거
-                if strip_trailing_punct_each:
-                    chunks = [_strip_last_punct_preserve_closers(c) for c in chunks]
-
-                # 4) 맨 끝 조각이 너무 짧으면 앞과 병합(예: '돼' 단독 방지)
-                if len(chunks) >= 2 and len(chunks[-1].split()) < 2:
-                    chunks[-2] = (chunks[-2] + " " + chunks[-1]).strip()
-                    chunks.pop()
-
-                final_pieces.extend(chunks)
-
-        else:
-            # 기존 경로(문맥→길이→(옵션)단어개수 기준)
-            pieces = _auto_split_for_tempo(text, tempo=tempo)
-            if words_per_piece and words_per_piece > 0:
-                tmp = []
-                for p in pieces:
-                    subs = _micro_split_by_words(p, words_per_piece, min_tail_words)
-                    tmp.extend(subs if subs else [p.strip()])
-                final_pieces = tmp
-            else:
-                final_pieces = [p.strip() for p in pieces]
-
-            if strip_trailing_punct_each:
-                final_pieces = [_strip_last_punct_preserve_closers(x) for x in final_pieces]
-        
-        final_pieces = _smooth_chunks_by_flow(
-            final_pieces,
-            target_words=3,
-            min_words=2,
-            max_words=5
-        )
-        
-        if not final_pieces:
-            dense.append(seg)
+        line_text = (seg.get("text") or "").strip()
+        if not line_text:
             continue
 
-        # 시간 배분(문자 길이 비율)
-        total_chars = sum(len(x) for x in final_pieces) or 1
-        t = start
-        for i, txt in enumerate(final_pieces):
-            t2 = end if i == len(final_pieces) - 1 else t + dur * (len(txt) / total_chars)
-            dense.append({'start': t, 'end': t2, 'text': txt, 'pitch': seg.get('pitch')})
-            t = t2
+        # 1) 우선 "어떻게 쪼갤지"만 텍스트 기준으로 결정 (기존 로직 유지)
+        pieces = []
+        if chunk_strategy == "period_2or3":
+            # 마침표 우선 분할 후 2~3조각으로 자연스럽게
+            bases = _period_split(line_text) or [line_text]
+            for b in bases:
+                toks = re.findall(r"\S+", b)
+                if len(toks) <= 4:
+                    pieces.append(b.strip()); continue
+                # 2~3조각 권장
+                cut = 2 if len(toks) <= 9 else 3
+                span = max(1, round(len(toks) / cut))
+                for i in range(0, len(toks), span):
+                    pieces.append(" ".join(toks[i:i+span]).strip())
+        else:
+            toks = re.findall(r"\S+", line_text)
+            if not toks:
+                continue
+            step = max(1, words_per_piece or 3)
+            for i in range(0, len(toks), step):
+                pieces.append(" ".join(toks[i:i+step]).strip())
+
+        if strip_trailing_punct_each:
+            pieces = [_strip_last_punct_preserve_closers(p) for p in pieces if p.strip()]
+
+        # 2) 단어 SpeechMarks로 "시간 배분"
+        used_marks = False
+        try:
+            ssml = seg.get("ssml") or line_text
+            marks = get_polly_speechmarks(ssml, voice_id, types=("word",))
+            word_ms = [m["time"] for m in marks if m.get("type") == "word"]
+            if len(word_ms) >= 2:
+                # 라인 내부 기준(0초) → 전체 타임라인으로 변환
+                w_times = [start + (t/1000.0) for t in word_ms]
+                wN = len(w_times)
+
+                # 각 piece에 할당할 단어 수를 글자길이 비율로 대략 분배
+                lengths = [max(1, len(p)) for p in pieces]
+                total_len = sum(lengths)
+                # 누적 단어 인덱스(0..wN)
+                alloc = []
+                acc = 0.0
+                for L in lengths[:-1]:
+                    acc += wN * (L / max(1, total_len))
+                    alloc.append(int(round(acc)))
+                alloc = [0] + alloc + [wN]
+
+                # 시간으로 치환
+                for i in range(len(pieces)):
+                    idx0, idx1 = alloc[i], alloc[i+1]
+                    idx0 = max(0, min(idx0, wN-1))
+                    idx1 = max(idx0+1, min(idx1, wN))  # 최소 1단어 이상
+                    t0 = w_times[idx0]
+                    t1 = (w_times[idx1] if idx1 < wN else end)
+                    t0 = max(start, min(t0, end))
+                    t1 = max(t0 + 0.01, min(t1, end))
+                    dense.append({"start": t0, "end": t1, "text": pieces[i]})
+                used_marks = True
+        except Exception as e:
+            # 실패 시 아래 비례 분할로 폴백
+            print(f"[SpeechMarks 폴백] {e}")
+
+        # 3) 폴백: 글자수 비례
+        if not used_marks:
+            total_chars = sum(len(x) for x in pieces) or 1
+            t = start
+            for i, txt in enumerate(pieces):
+                t2 = end if i == len(pieces) - 1 else t + dur * (len(txt) / total_chars)
+                dense.append({"start": t, "end": t2, "text": txt})
+                t = t2
 
     return dense
 

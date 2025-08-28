@@ -36,6 +36,53 @@ VIDEO_TEMPLATE = "영상(영어보이스+한국어자막·가운데)"
 
 
 # ---------- 유틸 ----------
+def clamp_no_overlap(events, margin=0.05):
+    """
+    각 cue의 end가 반드시 다음 cue start - margin 이하가 되도록 클램프.
+    병합/텍스트 변경 없음. 시간만 조정.
+    """
+    if not events: 
+        return events
+    out = []
+    n = len(events)
+    for i, e in enumerate(events):
+        s = float(e["start"])
+        ed = float(e["end"])
+        if i + 1 < n:
+            next_s = float(events[i+1]["start"])
+            ed = min(ed, next_s - margin)  # 다음 cue 시작보다 조금(=margin) 일찍 끝내기
+        # 너무 짧아져도 20ms는 보장
+        if ed < s + 0.02:
+            ed = s + 0.02
+        out.append({**e, "start": round(s, 3), "end": round(ed, 3)})
+    # 단조성 최종 보정
+    for i in range(n - 1):
+        if out[i]["end"] > out[i+1]["start"] - margin:
+            out[i]["end"] = max(out[i]["start"] + 0.02, out[i+1]["start"] - margin)
+    return out
+
+def enforce_min_duration_non_merging(events, min_dur=0.35, margin=0.05):
+    """
+    cue를 병합하지 않고 '가능한 범위에서만' 길이를 늘립니다.
+    다음 cue의 start를 침범하지 않도록 margin을 남기고 확장.
+    """
+    if not events:
+        return events
+    out = []
+    for i, e in enumerate(events):
+        s, ed = float(e["start"]), float(e["end"])
+        dur = ed - s
+        if dur < min_dur:
+            target = s + min_dur
+            if i + 1 < len(events):
+                max_end = float(events[i+1]["start"]) - margin
+                ed = min(target, max_end)
+            else:
+                ed = target
+        out.append({**e, "start": round(s, 3), "end": round(ed, 3)})
+    # 마지막으로 겹침 방지
+    return clamp_no_overlap(out, margin=margin)
+
 def enforce_min_duration(segs, min_dur=0.35):
     out = []
     cur = None
@@ -656,17 +703,34 @@ with st.sidebar:
                             st.error(f"TTS 생성 실패: 오디오 파일 용량이 비정상적입니다 ({sz} bytes).")
                             st.stop()
                         
-                        # ✅ period_2or_3 대신 단어 개수 기준 + 빠른 템포
                         dense_events = auto_densify_for_subs(
                             segments,
                             tempo="fast",
-                            words_per_piece=3,       # 2~4 사이에서 취향대로
+                            words_per_piece=3,
                             min_tail_words=2,
-                            chunk_strategy=None      # ← 이게 포인트! (period_2or3 끄기)
+                            chunk_strategy=None,
+                            marks_voice_key=st.session_state.selected_polly_voice_key,  # ← 콤마 빠지지 않게!
                         )
-                        dense_events = enforce_min_duration(dense_events, 0.35)
-                        
                         dense_events = dedupe_adjacent_texts(dense_events)
+
+                        # 경계 먼저 정리(다음 시작보다 50ms 일찍 끝)
+                        dense_events = clamp_no_overlap(dense_events, margin=0.05)
+
+                        # 병합 없이 최소 길이 보정(겹침 방지)
+                        dense_events = enforce_min_duration_non_merging(
+                            dense_events, min_dur=0.35, margin=0.05
+                        )
+
+                        # 안전망(경계 다시 한 번)
+                        dense_events = clamp_no_overlap(dense_events, margin=0.05)
+
+                        # 마지막 cue는 오디오 길이 초과 금지(있다면 컷)
+                        try:
+                            aud = AudioFileClip(audio_path)
+                            dense_events[-1]["end"] = min(dense_events[-1]["end"], round(aud.duration, 3))
+                            aud.close()
+                        except Exception:
+                            pass
 
                         # ✅ 자막은 dense_events로 생성(영상 컷은 여전히 segments 사용)
                         generate_ass_subtitle(
