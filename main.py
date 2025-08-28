@@ -771,41 +771,33 @@ with st.sidebar:
                             st.error(f"TTS 생성 실패: 오디오 파일 용량이 비정상적입니다 ({sz} bytes).")
                             st.stop()
                         
+                        dense_events = harden_ko_sentence_boundaries(segments)
+
                         dense_events = auto_densify_for_subs(
-                            segments,
+                            dense_events,
                             tempo="fast",
-                            words_per_piece=4,
+                            words_per_piece=3,
                             min_tail_words=2,
-                            chunk_strategy=None,
                             marks_voice_key=st.session_state.selected_polly_voice_key,
-                        )
-                        dense_events = dedupe_adjacent_texts(dense_events)
-
-                        # 1) 한국어 경계 강화(말꼬리/숫자 덩어리 보호)
-                        dense_events = harden_ko_sentence_boundaries(dense_events)
-
-                        # 2) 겹침 제거 (살짝의 여유)
-                        dense_events = clamp_no_overlap(dense_events, margin=0.02)
-
-                        # 3) 읽기 속도 기반 최소 노출시간 보장 (합병 X)
-                        dense_events = enforce_reading_speed_non_merging(
-                            dense_events, min_cps=11.0, floor=0.60, margin=0.02
+                            min_dur=0.42,
+                            cps_max=14.0,
+                            hard_sentence_split=True,
                         )
 
-                        # 4) 프레임 격자 스냅(플리커/경계 떨림 방지)
+                        # 오디오 경계에 정확히 맞추기(겹침/틈 0)
+                        dense_events = clamp_no_overlap(dense_events, margin=0.0)
+
+                        # 프레임 격자 스냅(24fps 기준, 깜빡임/미세 드리프트 방지)
                         dense_events = quantize_events(dense_events, fps=24.0)
 
-                        # 5) 꼬리 줄바꿈 방지(NBSP)
-                        dense_events = apply_nbsp_tails(dense_events)
-
-                        # 6) 마지막 컷은 오디오 길이 초과 금지
+                        # 마지막은 오디오 총길이 초과 금지
                         try:
                             with AudioFileClip(audio_path) as aud:
                                 dense_events[-1]["end"] = min(dense_events[-1]["end"], round(aud.duration, 3))
                         except Exception:
                             pass
 
-                        # ✅ ASS 생성 및 비디오 세그먼트 통일
+                        # 자막 파일 생성 및 '영상 타임라인도 동일 구간' 사용
                         generate_ass_subtitle(
                             segments=dense_events,
                             ass_path=ass_path,
