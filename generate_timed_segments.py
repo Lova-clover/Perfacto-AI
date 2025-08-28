@@ -681,8 +681,6 @@ def generate_ass_subtitle(
             colour_tag = "{\\c&H0000FF&}" if pitch_val <= -6 else ""
             f.write(f"Dialogue: 0,{start_ts},{end_ts},Bottom,,0,0,0,,{colour_tag}{txt}\n")
 
-            f.write(f"Dialogue: 0,{start_ts},{end_ts},Bottom,,0,0,0,,{txt}\n")
-
     return ass_path
 
 def format_ass_timestamp(seconds):
