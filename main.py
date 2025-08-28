@@ -725,7 +725,6 @@ with st.sidebar:
                             st.error(f"TTS 생성 실패: 오디오 파일 용량이 비정상적입니다 ({sz} bytes).")
                             st.stop()
                         
-                        # 기존
                         dense_events = auto_densify_for_subs(
                             segments,
                             tempo="fast",
@@ -734,16 +733,15 @@ with st.sidebar:
                             chunk_strategy=None,
                             marks_voice_key=st.session_state.selected_polly_voice_key,
                         )
-                        dense_events = dedupe_adjacent_texts(dense_events)
-                        
+                        # ✅ 한국어 경계 보정 (리드 split + 말꼬리/지시사/단위 복원)
                         dense_events = harden_ko_sentence_boundaries(
                             dense_events,
                             enable_lead_split=True,
-                            max_lead_len=8,      # '이 숫자면', '만약 ~라면' 정도의 짧은 도입부만 분리
-                            fps_snap=None        # <- 여기선 스냅 생략, 아래에서 일괄 스냅
+                            max_lead_len=8,
+                            fps_snap=None,  # 스냅은 마지막에 한 번만
                         )
                         
-                        dense_events = quantize_events(dense_events, fps=24.0)
+                        dense_events = dedupe_adjacent_texts(dense_events)
 
                         # 시간 경계 보정(겹침 방지) — ★ 싱크를 정확히 맞출 땐 margin=0.0이 안전
                         dense_events = clamp_no_overlap(dense_events, margin=0.0)
@@ -752,6 +750,9 @@ with st.sidebar:
                         dense_events = enforce_min_duration_non_merging(
                             dense_events, min_dur=0.35, margin=0.0
                         )
+                        
+                        # ✅ 마지막에 프레임 스냅(24fps). 미세 선행/지연 방지
+                        dense_events = quantize_events(dense_events, fps=24.0)
 
                         # 마지막은 오디오 길이 넘지 않게 컷
                         try:
