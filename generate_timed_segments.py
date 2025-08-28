@@ -544,9 +544,10 @@ def generate_ass_subtitle(segments, ass_path, template_name="default",
     settings = SUBTITLE_TEMPLATES.get(template_name, SUBTITLE_TEMPLATES["default"])
 
     def _escape_ass_text(s: str) -> str:
+        # ※ 핵심: \N 은 반드시 "\\N" 으로!
         s = s.replace("\\", r"\\")
         s = s.replace("\r", "")
-        s = s.replace("\n", r"\N")
+        s = s.replace("\n", "\\N")
         return s
 
     with open(ass_path, "w", encoding="utf-8") as f:
@@ -555,7 +556,11 @@ def generate_ass_subtitle(segments, ass_path, template_name="default",
 
         f.write("[V4+ Styles]\n")
         f.write("Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
-        f.write(f"Style: Bottom,{settings['Fontname']},{settings['Fontsize']},{settings['PrimaryColour']},{settings['OutlineColour']},1,{settings['Outline']},0,2,10,10,{settings['MarginV']},1\n\n")
+        f.write(
+            f"Style: Bottom,{settings['Fontname']},{settings['Fontsize']},"
+            f"{settings['PrimaryColour']},{settings['OutlineColour']},"
+            f"1,{settings['Outline']},0,2,10,10,{settings['MarginV']},1\n\n"
+        )
 
         f.write("[Events]\n")
         f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
@@ -563,30 +568,32 @@ def generate_ass_subtitle(segments, ass_path, template_name="default",
         for i, seg in enumerate(segments):
             start, end = float(seg.get('start', 0.0)), float(seg.get('end', 0.0))
 
-            # ① 텍스트를 '먼저' 안전하게 뽑고
+            # ① 텍스트 원본 확보
             raw = seg.get('text') or ""
-            # ② SSML 태그는 공백으로 대체 → 경계가 붙지 않도록
-            txt = strip_ssml_tags(raw)          # 예: "<prosody>안녕</prosody>세상" → "안녕 세상"
-            # ③ 공백 정규화(2칸 이상 → 1칸)
+            # ② SSML 태그 → 공백으로 치환(붙어버리는 것 방지)
+            txt = strip_ssml_tags(raw)
+            # ③ 공백 정규화
             txt = re.sub(r"\s+", " ", txt).strip()
 
-            # (선택) 마지막 줄 꼬리 구두점 다듬기
+            # (옵션) 마지막 줄 꼬리 구두점 다듬기
             if strip_trailing_punct_last and i == len(segments) - 1:
                 txt = _strip_last_punct_preserve_closers(txt)
 
-            # 색상(피치) 판단은 정규화 이후 텍스트 기준
+            # 색상(피치) 규칙 그대로 유지 (필요 없으면 colour_tag = "" 로)
             pitch_val = seg.get("pitch")
             if pitch_val is None:
                 pitch_val = _assign_pitch(txt)
             colour_tag = "{\\c&H0000FF&}" if pitch_val <= -6 else ""
 
-            # ASS 이스케이프는 마지막
-            txt = txt.replace("\\", r"\\").replace("\r", "").replace("\n", r"\N")
+            # 마지막: ASS 이스케이프 & 줄바꿈
+            txt = _escape_ass_text(txt)
 
             start_ts = format_ass_timestamp(start)
             end_ts   = format_ass_timestamp(end)
 
             f.write(f"Dialogue: 0,{start_ts},{end_ts},Bottom,,0,0,0,,{colour_tag}{txt}\n")
+
+    return ass_path
 
 def format_ass_timestamp(seconds):
     h = int(seconds // 3600)
