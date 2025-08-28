@@ -547,9 +547,9 @@ def generate_ass_subtitle(
     max_chars_per_line: int = 16,
     max_lines: int = 2,
 ):
-    """
+    r"""
     segments: [{"start":s, "end":e, "text": "..."}]
-    - 너무 긴 텍스트는 \N으로 강제 줄바꿈하여 2줄 안으로 맞춘다.
+    - 너무 긴 텍스트는 \\N으로 강제 줄바꿈하여 2줄 안으로 맞춘다.
     - 빈칸/공백 보존, 한국어 단어 자연스러운 끊김(조사/말꼬리 보호).
     """
     tmpl = SUBTITLE_TEMPLATES.get(template_name) or SUBTITLE_TEMPLATES["educational"]
@@ -560,19 +560,20 @@ def generate_ass_subtitle(
 
     # 줄바꿈 알고리즘(문장 길이 기준, 조사/말꼬리 보호)
     TAIL_PROTECT_RE = re.compile(r'(?:[은는이가을를의도로과와]|입니다|니다|다|요|죠|겠죠|같죠\?)$')
+
     def _wrap_for_ass(text: str) -> str:
         t = re.sub(r'\s+', ' ', text or '').strip()
         if not t:
             return ''
         # 이미 매우 짧으면 그대로
         if len(t) <= max_chars_per_line:
-            return t
+            return _ass_escape(t)
         # 공백/쉼표 기준으로 토막
         tokens = re.findall(r'[^\s,]+[,\u3002\uFF0C\uFF1F\uFF01]?|\s+', t)
         lines, cur = [], ''
         for tok in tokens:
             candidate = (cur + tok)
-            if len(candidate.strip()) <= max_chars_per_line or len(cur.strip()) < (max_chars_per_line//2):
+            if len(candidate.strip()) <= max_chars_per_line or len(cur.strip()) < (max_chars_per_line // 2):
                 cur = candidate
                 continue
             # 줄바꿈 시도: 말꼬리 단독 방지
@@ -621,7 +622,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     with open(ass_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
     return ass_path
-
 
 def format_ass_timestamp(seconds):
     h = int(seconds // 3600)
