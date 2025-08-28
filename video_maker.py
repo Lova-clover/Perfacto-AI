@@ -703,7 +703,7 @@ def create_video_from_videos(
                     rep = concatenate_videoclips([raw] * repeat, method="chain").subclip(0, duration)
                     base = _resize_cover(rep, video_width, video_height)
                 else:
-                    base = _resize_cover(raw.subclip(0, duration), video_width, video_height)
+                    base = _resize_cover(raw.subclipped(0, duration), video_width, video_height)
             finally:
                 try:
                     raw.close()
