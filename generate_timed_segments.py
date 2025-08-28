@@ -541,152 +541,92 @@ def _assign_pitch(text: str) -> int:
 
 def generate_ass_subtitle(
     segments,
-    ass_path: str,
-    template_name: str = "educational",
-    strip_trailing_punct_last: bool = True,
-    font_path: str | None = os.path.join("assets", "fonts", "BMJUA_ttf.ttf"),
+    ass_path,
+    template_name="default",
+    strip_trailing_punct_last=True,
+    force_fontname="BM JUA",   # 폰트 깨짐 방지용 기본값
 ):
-    """
-    segments: [{"start": s, "end": e, "text": "..."}]
-    - 한국어 폰트 깨짐 방지: TTF 내부 '패밀리명'을 읽어 ASS 스타일 Fontname에 정확히 설정.
-    - 템플릿 키가 부족해도 안전 기본값을 채워 넣음.
-    - 텍스트는 SSML 제거 → 공백 정규화 → ASS 이스케이프 → 줄바꿈(\N) 처리.
-    """
-    import re, os
+    # 템플릿 로드(이전 포맷 호환: 대소문자 혼용 키 지원 + 안전 기본값)
+    settings_all = SUBTITLE_TEMPLATES if 'SUBTITLE_TEMPLATES' in globals() else {}
+    settings = settings_all.get(template_name) or settings_all.get("default") or {}
 
-    # 0) 템플릿 로드 + 안전한 기본값
-    #    (SUBTITLE_TEMPLATES가 키가 모자라면 기본 채움)
-    _fallback = {
-        "res": (720, 1080),
-        "fontname": "BM JUA",       # 폰트 읽기 실패 시 폴백
-        "fontsize": 48,
-        # BGR + Alpha(HHBBGGRR) 형식 (&HAA BB GG RR&) — libass 표준
-        "primary":  "&H00FFFFFF&",  # 흰색
-        "secondary":"&H00000000&",
-        "outline":  "&HAA000000&",  # 반투명 검정 외곽
-        "back":     "&H00000000&",
-        "align": 2,                 # 2=하단 중앙
-        "marginL": 10,
-        "marginR": 10,
-        "marginV": 20,
-    }
-    tmpl = (SUBTITLE_TEMPLATES.get(template_name) if 'SUBTITLE_TEMPLATES' in globals() else None) or {}
-    # 키 채우기
-    for k, v in _fallback.items():
-        if k not in tmpl:
-            tmpl[k] = v
+    def _g(*names, default=None):
+        # settings 에서 첫 번째로 존재하는 키를 반환 (대소문자 혼용 지원)
+        for n in names:
+            if n in settings: 
+                return settings[n]
+        return default
 
-    resx, resy = (tmpl.get("res") or _fallback["res"])
-    try:
-        resx, resy = int(resx), int(resy)
-    except Exception:
-        resx, resy = _fallback["res"]
+    fontname   = _g("Fontname", "fontname", default=force_fontname)
+    fontsize   = _g("Fontsize", "fontsize", default=48)
+    primary    = _g("PrimaryColour", "Primary", "primary", default="&H00FFFFFF&")
+    outlinecol = _g("OutlineColour", "OutlineColor", "outline", default="&HAA000000&")
+    outline    = _g("Outline", "Border", "border", default=3)
+    margin_v   = _g("MarginV", "marginV", default=20)
 
-    # 1) TTF 내부 패밀리명 얻기 (없으면 템플릿/폴백 fontname 사용)
-    def _font_family_from_ttf(ttf_path: str) -> str | None:
-        try:
-            from fontTools.ttLib import TTFont
-            tt = TTFont(ttf_path)
-            fam, pref_fam, full = None, None, None
-            for rec in tt["name"].names:
-                try:
-                    s = rec.toUnicode()
-                except Exception:
-                    s = rec.string.decode(rec.getEncoding(), errors="ignore")
-                if rec.nameID == 1 and not fam:       # Family
-                    fam = s
-                elif rec.nameID == 16 and not pref_fam: # Preferred Family
-                    pref_fam = s
-                elif rec.nameID == 4 and not full:    # Full name
-                    full = s
-            tt.close()
-            # libass는 Family/Preferred Family 매칭이 가장 잘 됨
-            return pref_fam or fam or full
-        except Exception:
-            return None
+    # 안전 숫자화
+    try: fontsize = int(fontsize)
+    except: fontsize = 48
+    try: outline = int(outline)
+    except: outline = 3
+    try: margin_v = int(margin_v)
+    except: margin_v = 20
 
-    family = tmpl.get("fontname") or _fallback["fontname"]
-    if font_path and os.path.exists(font_path):
-        fam = _font_family_from_ttf(font_path)
-        if fam:
-            family = fam
-
-    try:
-        fontsize = int(tmpl.get("fontsize", _fallback["fontsize"]))
-    except Exception:
-        fontsize = _fallback["fontsize"]
-
-    # 2) 텍스트 이스케이프/정리
+    # ASS 텍스트 이스케이프 + 줄바꿈 변환
     def _escape_ass_text(s: str) -> str:
-        # 순서 중요: 역슬래시 → 캐럿/중괄호 → CR/LF
         s = str(s or "")
-        s = s.replace("\\", r"\\")            # 역슬래시 이스케이프
-        s = s.replace("{", r"\{").replace("}", r"\}")  # 오버라이드 태그 충돌 방지
+        s = s.replace("\\", r"\\")           # 역슬래시
         s = s.replace("\r", "")
-        s = s.replace("\n", r"\N")            # ASS 줄바꿈
+        s = s.replace("\n", r"\N")           # ASS 줄바꿈
         return s
 
-    # SSML 태그 제거 (경계에 공백 하나 보존)
+    # SSML 태그 제거(경계 공백 1개 보존)
     def _strip_ssml_tags(text: str) -> str:
-        if not text:
-            return ""
-        t = re.sub(r"</?(speak|prosody|break)\b[^>]*>", " ", text, flags=re.I)
-        t = re.sub(r"\s+", " ", t)
-        return t.strip()
+        t = re.sub(r"</?(speak|prosody|break)\b[^>]*>", " ", text or "", flags=re.I)
+        t = re.sub(r"\s+", " ", t).strip()
+        return t
 
-    # 3) ASS 헤더/스타일
-    header = (
-        "[Script Info]\n"
-        "ScriptType: v4.00+\n"
-        "WrapStyle: 2\n"
-        "ScaledBorderAndShadow: yes\n"
-        f"PlayResX: {resx}\n"
-        f"PlayResY: {resy}\n\n"
-        "[V4+ Styles]\n"
-        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
-        "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
-        "Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        f"Style: Default,{family},{fontsize},{tmpl['primary']},{tmpl['secondary']},{tmpl['outline']},{tmpl['back']},"
-        "0,0,0,0,100,100,0,0,1,3,0,"
-        f"{int(tmpl['align'])},{int(tmpl['marginL'])},{int(tmpl['marginR'])},{int(tmpl['marginV'])},1\n\n"
-        "[Events]\n"
-        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
-    )
-
-    # 4) (선택) 폰트/크기 오버라이드 태그 — 시스템 폴백까지 봉쇄
-    safe_family = (family or "").replace("{", "").replace("}", "")
-    font_tag = "{\\fn" + safe_family + "\\fs" + str(fontsize) + "}"
-
-    # 5) 라인 생성
-    lines_out = [header]
-    n = len(segments or [])
-    for i, seg in enumerate(segments or []):
-        try:
-            s_ts = format_ass_timestamp(float(seg.get("start", 0.0)))
-            e_ts = format_ass_timestamp(float(seg.get("end", 0.0)))
-        except Exception:
-            # 타임스탬프 오류 시 스킵
-            continue
-
-        raw_text = seg.get("text") or ""
-        # SSML 제거 → 공백 정리
-        norm = _strip_ssml_tags(raw_text)
-        if strip_trailing_punct_last and i == n - 1:
-            try:
-                norm = _strip_last_punct_preserve_closers(norm)
-            except Exception:
-                pass
-
-        # ASS 이스케이프 + 최종
-        out_text = _escape_ass_text(norm)
-        final_text = font_tag + out_text
-
-        lines_out.append(f"Dialogue: 0,{s_ts},{e_ts},Default,,0,0,0,,{final_text}")
-
-    # 6) 저장 (UTF-8)
-    os.makedirs(os.path.dirname(ass_path) or ".", exist_ok=True)
+    # 파일 작성 (이전 포맷과 최대한 동일)
     with open(ass_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines_out))
+        f.write("[Script Info]\n")
+        f.write("ScriptType: v4.00+\n\n")
+
+        f.write("[V4+ Styles]\n")
+        f.write(
+            "Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, "
+            "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        )
+        # Alignment=2(하단 중앙), MarginV=템플릿 값, Encoding=1(과거 호환)
+        f.write(
+            f"Style: Bottom,{fontname},{fontsize},{primary},{outlinecol},1,{outline},0,2,10,10,{margin_v},1\n\n"
+        )
+
+        f.write("[Events]\n")
+        f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+
+        n = len(segments or [])
+        for i, seg in enumerate(segments or []):
+            start = float(seg.get("start", 0.0))
+            end   = float(seg.get("end", 0.0))
+            raw   = seg.get("text") or ""
+
+            # SSML 제거 → 공백 정리
+            txt = _strip_ssml_tags(raw)
+
+            # (선택) 마지막 줄 꼬리 구두점 다듬기
+            if strip_trailing_punct_last and i == n - 1:
+                try:
+                    txt = _strip_last_punct_preserve_closers(txt)
+                except Exception:
+                    pass
+
+            # 최종 이스케이프/줄바꿈 처리
+            txt = _escape_ass_text(txt)
+
+            start_ts = format_ass_timestamp(start)
+            end_ts   = format_ass_timestamp(end)
+
+            f.write(f"Dialogue: 0,{start_ts},{end_ts},Bottom,,0,0,0,,{txt}\n")
 
     return ass_path
 
