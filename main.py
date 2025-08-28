@@ -725,47 +725,43 @@ with st.sidebar:
                             st.error(f"TTS 생성 실패: 오디오 파일 용량이 비정상적입니다 ({sz} bytes).")
                             st.stop()
                         
+                        # 기존
                         dense_events = auto_densify_for_subs(
                             segments,
                             tempo="fast",
-                            #words_per_piece=4,
-                            #min_tail_words=3,
-                            chunk_strategy="period_2or3",
-                            marks_voice_key=st.session_state.selected_polly_voice_key,  # ← 콤마 빠지지 않게!
+                            words_per_piece=3,
+                            min_tail_words=2,
+                            chunk_strategy=None,
+                            marks_voice_key=st.session_state.selected_polly_voice_key,
                         )
                         dense_events = dedupe_adjacent_texts(dense_events)
-                        
-                        dense_events = harden_ko_sentence_boundaries(dense_events)
-                        
-                        dense_events = quantize_events(dense_events, fps=24.0)
 
-                        # 경계 먼저 정리(다음 시작보다 50ms 일찍 끝)
-                        dense_events = clamp_no_overlap(dense_events, margin=0.05)
+                        # 시간 경계 보정(겹침 방지) — ★ 싱크를 정확히 맞출 땐 margin=0.0이 안전
+                        dense_events = clamp_no_overlap(dense_events, margin=0.0)
 
-                        # 병합 없이 최소 길이 보정(겹침 방지)
+                        # 너무 짧은 자막을 살짝 늘리되, 다음 시작은 침범 X
                         dense_events = enforce_min_duration_non_merging(
-                            dense_events, min_dur=0.35, margin=0.05
+                            dense_events, min_dur=0.35, margin=0.0
                         )
 
-                        # 안전망(경계 다시 한 번)
-                        dense_events = clamp_no_overlap(dense_events, margin=0.05)
-
-                        # 마지막 cue는 오디오 길이 초과 금지(있다면 컷)
+                        # 마지막은 오디오 길이 넘지 않게 컷
                         try:
-                            aud = AudioFileClip(audio_path)
-                            dense_events[-1]["end"] = min(dense_events[-1]["end"], round(aud.duration, 3))
-                            aud.close()
+                            with AudioFileClip(audio_path) as aud:
+                                dense_events[-1]["end"] = min(dense_events[-1]["end"], round(aud.duration, 3))
                         except Exception:
                             pass
 
-                        # ✅ 자막은 dense_events로 생성(영상 컷은 여전히 segments 사용)
+                        # ✅ 자막은 dense_events로 생성
                         generate_ass_subtitle(
                             segments=dense_events,
                             ass_path=ass_path,
                             template_name=st.session_state.selected_subtitle_template,
                             strip_trailing_punct_last=True
                         )
-                        
+
+                        # ✅ 영상도 같은 타임라인을 쓰게 통일!
+                        segments_for_video = dense_events
+
                         try:
                             if audio_clips is not None:
                                 audio_clips.close()
@@ -986,7 +982,7 @@ with st.sidebar:
                         else:
                             created_video_path = create_video_with_segments(
                                 image_paths=image_paths,
-                                segments=segments,
+                                segments=segments_for_video,
                                 audio_path=st.session_state.audio_path if st.session_state.include_voice else None,
                                 topic_title=st.session_state.video_title,
                                 include_topic_title=True,
