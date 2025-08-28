@@ -539,140 +539,54 @@ def _assign_pitch(text: str) -> int:
         return -18    # 결론/단정
     return 0
 
-def generate_ass_subtitle(
-    segments,
-    ass_path,
-    template_name="default",
-    strip_trailing_punct_last=True,
-    max_chars_per_line=None,   # ← main.py 호환: 선택적
-    max_lines=None,            # ← main.py 호환: 선택적
-    force_fontname="BM JUA",   # 폰트 깨짐 방지 기본값
-    **kwargs                   # 예비 확장 인자 무시
-):
-    """
-    심플/안정 버전(이전 스타일 기반) + 호출 호환:
-    - SSML 태그는 제거하고 공백 1칸으로 정규화
-    - \N 줄바꿈은 텍스트 내부에서만 사용 (docstring에 직접 기입하지 않음)
-    - 템플릿 키 대소문자 혼용 지원
-    - max_chars_per_line/max_lines가 주어지면 안전 래핑(기본 16/2 추천)
-    """
-    import re
+def generate_ass_subtitle(segments, ass_path, template_name="default",
+                          strip_trailing_punct_last=True):
+    settings = SUBTITLE_TEMPLATES.get(template_name, SUBTITLE_TEMPLATES["default"])
 
-    # ------ 템플릿 로드(대소문자 호환) ------
-    settings_all = SUBTITLE_TEMPLATES if 'SUBTITLE_TEMPLATES' in globals() else {}
-    settings = settings_all.get(template_name) or settings_all.get("default") or {}
-
-    def _g(*names, default=None):
-        for n in names:
-            if n in settings:
-                return settings[n]
-        return default
-
-    fontname   = _g("Fontname", "fontname", default=force_fontname)
-    fontsize   = _g("Fontsize", "fontsize", default=48)
-    primary    = _g("PrimaryColour", "Primary", "primary", default="&H00FFFFFF&")
-    outlinecol = _g("OutlineColour", "OutlineColor", "outlineColour", "outlinecolor", default="&HAA000000&")
-    outline    = _g("Outline", "Border", "border", default=3)
-    margin_v   = _g("MarginV", "marginV", default=20)
-
-    # 숫자 안전화
-    try: fontsize = int(fontsize)
-    except: fontsize = 48
-    try: outline = int(outline)
-    except: outline = 3
-    try: margin_v = int(margin_v)
-    except: margin_v = 20
-
-    # ------ 유틸 ------
     def _escape_ass_text(s: str) -> str:
-        # ASS 특수문자/줄바꿈만 처리 (한글 그대로)
-        s = str(s or "")
         s = s.replace("\\", r"\\")
         s = s.replace("\r", "")
         s = s.replace("\n", r"\N")
         return s
 
-    def _strip_ssml_tags(text: str) -> str:
-        t = re.sub(r"</?(speak|prosody|break)\b[^>]*>", " ", text or "", flags=re.I)
-        t = re.sub(r"\s+", " ", t).strip()
-        return t
-
-    # 아주 단순한 안전 래핑(공백 기준, 조사/말꼬리 과도 분리는 피함)
-    def _wrap_if_needed(text: str) -> str:
-        if not text or not max_chars_per_line or not max_lines:
-            return text
-        mc = int(max_chars_per_line)
-        ml = int(max_lines)
-        if mc <= 0 or ml <= 0:
-            return text
-
-        toks = re.findall(r'\S+|\s+', text)   # 공백을 토큰으로 유지
-        lines, cur = [], ""
-        for tk in toks:
-            cand = cur + tk
-            if len(cand.strip()) <= mc or not cur.strip():
-                cur = cand
-            else:
-                # 줄바꿈
-                cur = cur.rstrip()
-                if cur:
-                    lines.append(cur)
-                cur = tk.lstrip()
-                if len(lines) >= ml - 1:
-                    break
-        if cur and len(lines) < ml:
-            lines.append(cur.strip())
-        # 남으면 잘라내되, 마지막 줄은 그냥 붙임(읽기 용이)
-        if len(lines) > ml:
-            lines = lines[:ml]
-        return r'\N'.join(lines)
-
-    # ------ 파일 쓰기 (이전 스타일) ------
     with open(ass_path, "w", encoding="utf-8") as f:
         f.write("[Script Info]\n")
         f.write("ScriptType: v4.00+\n\n")
 
         f.write("[V4+ Styles]\n")
-        f.write(
-            "Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, "
-            "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        )
-        # Alignment=2(하단 중앙), Encoding=1(과거 호환)
-        f.write(
-            f"Style: Bottom,{fontname},{fontsize},{primary},{outlinecol},1,{outline},0,2,10,10,{margin_v},1\n\n"
-        )
+        f.write("Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
+        f.write(f"Style: Bottom,{settings['Fontname']},{settings['Fontsize']},{settings['PrimaryColour']},{settings['OutlineColour']},1,{settings['Outline']},0,2,10,10,{settings['MarginV']},1\n\n")
 
         f.write("[Events]\n")
         f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
 
-        n = len(segments or [])
-        for i, seg in enumerate(segments or []):
-            start = float(seg.get("start", 0.0))
-            end   = float(seg.get("end", 0.0))
-            raw   = seg.get("text") or ""
+        for i, seg in enumerate(segments):
+            start, end = float(seg.get('start', 0.0)), float(seg.get('end', 0.0))
 
-            # 1) SSML 제거 → 공백 정규화
-            txt = _strip_ssml_tags(raw)
+            # ① 텍스트를 '먼저' 안전하게 뽑고
+            raw = seg.get('text') or ""
+            # ② SSML 태그는 공백으로 대체 → 경계가 붙지 않도록
+            txt = strip_ssml_tags(raw)          # 예: "<prosody>안녕</prosody>세상" → "안녕 세상"
+            # ③ 공백 정규화(2칸 이상 → 1칸)
+            txt = re.sub(r"\s+", " ", txt).strip()
 
-            # 2) 마지막 줄 꼬리 다듬기(옵션)
-            if strip_trailing_punct_last and i == n - 1:
-                try:
-                    txt = _strip_last_punct_preserve_closers(txt)
-                except Exception:
-                    pass
+            # (선택) 마지막 줄 꼬리 구두점 다듬기
+            if strip_trailing_punct_last and i == len(segments) - 1:
+                txt = _strip_last_punct_preserve_closers(txt)
 
-            # 3) 필요한 경우에만 2줄 래핑(빠른 템포용)
-            txt = _wrap_if_needed(txt)
+            # 색상(피치) 판단은 정규화 이후 텍스트 기준
+            pitch_val = seg.get("pitch")
+            if pitch_val is None:
+                pitch_val = _assign_pitch(txt)
+            colour_tag = "{\\c&H0000FF&}" if pitch_val <= -6 else ""
 
-            # 4) ASS 이스케이프/줄바꿈 변환은 마지막에
-            txt = _escape_ass_text(txt)
+            # ASS 이스케이프는 마지막
+            txt = txt.replace("\\", r"\\").replace("\r", "").replace("\n", r"\N")
 
             start_ts = format_ass_timestamp(start)
             end_ts   = format_ass_timestamp(end)
-            f.write(f"Dialogue: 0,{start_ts},{end_ts},Bottom,,0,0,0,,{txt}\n")
 
-    return ass_path
-
+            f.write(f"Dialogue: 0,{start_ts},{end_ts},Bottom,,0,0,0,,{colour_tag}{txt}\n")
 
 def format_ass_timestamp(seconds):
     h = int(seconds // 3600)
