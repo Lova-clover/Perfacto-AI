@@ -790,7 +790,9 @@ with st.sidebar:
 
                         # (선택) 렌더링 프레임 격자에 스냅 — 깜빡임/미세 어긋남 줄임
                         dense_events = quantize_events(dense_events, fps=30.0)
-
+                        
+                        dense_events = apply_nbsp_tails(dense_events)  # ← '보병 같죠?' 같이 꼬리 단어를 앞줄에 붙여 고정
+                        
                         # 자막/영상 타임라인 통일
                         generate_ass_subtitle(
                             segments=dense_events,
