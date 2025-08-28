@@ -882,8 +882,6 @@ with st.sidebar:
                                 if video_paths:
                                     video_paths += [video_paths[-1]] * (len(segments) - len(video_paths))
 
-                            # 6) 구간 그대로 사용
-                            segments_for_video = segments
                         else:
                             st.write("🖼️ 문장별로 페르소나 기반 키워드를 만들어 이미지 1장씩 생성/검색합니다.")
 
