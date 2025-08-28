@@ -36,6 +36,22 @@ VIDEO_TEMPLATE = "영상(영어보이스+한국어자막·가운데)"
 
 
 # ---------- 유틸 ----------
+def quantize_events(events, fps=24.0):
+    """자막 시간을 비디오 프레임 격자에 맞춰 스냅."""
+    if not events: return events
+    tick = 1.0 / float(fps)
+    out, prev_end = [], None
+    for e in events:
+        s  = round(float(e["start"]) / tick) * tick
+        ed = round(float(e["end"])   / tick) * tick
+        if prev_end is not None and s < prev_end:
+            s = prev_end
+        if ed <= s:
+            ed = s + tick
+        out.append({**e, "start": round(s, 3), "end": round(ed, 3)})
+        prev_end = ed
+    return out
+
 def clamp_no_overlap(events, margin=0.05):
     """
     각 cue의 end가 반드시 다음 cue start - margin 이하가 되도록 클램프.
@@ -712,6 +728,8 @@ with st.sidebar:
                             marks_voice_key=st.session_state.selected_polly_voice_key,  # ← 콤마 빠지지 않게!
                         )
                         dense_events = dedupe_adjacent_texts(dense_events)
+                        
+                        dense_events = quantize_events(dense_events, fps=24.0)
 
                         # 경계 먼저 정리(다음 시작보다 50ms 일찍 끝)
                         dense_events = clamp_no_overlap(dense_events, margin=0.05)
