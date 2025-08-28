@@ -1,6 +1,4 @@
 from RAG.chain_builder import get_default_chain
-from .llm_utils import complete_text  # 프로젝트 유틸 예시
-# ssml_converter.py  — drop-in: 외부 프로젝트 의존 제거판
 import re
 from html import escape as _xml_escape
 
