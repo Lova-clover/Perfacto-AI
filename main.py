@@ -925,9 +925,10 @@ with st.sidebar:
                                     video_paths += [video_paths[-1]] * (len(segments) - len(video_paths))
 
                         else:
+                            # --- 이미지 수집(문장당 1장, 부족 시 추가 탐색) ---
                             st.write("🖼️ 문장별로 페르소나 기반 키워드를 만들어 이미지 1장씩 생성/검색합니다.")
 
-                            # 1) 문장 리스트(오디오/영상 기준) — 위에서 segments를 문장 단위로 만들었음(split_mode='kss' 또는 regex)
+                            # 1) 문장 리스트(오디오/세그먼트 기준)
                             sentence_units = [s['text'] for s in segments]
 
                             # 2) 페르소나 지시문
@@ -939,58 +940,103 @@ with st.sidebar:
                             except Exception:
                                 persona_text = ""
 
-                            # 3) ✅ 문장별 키워드를 한 번에 받기 (배치)
+                            # 3) 문장별 키워드를 한 번에 받기
                             per_sentence_queries = get_scene_keywords_batch(sentence_units, persona_text)
                             for i, q in enumerate(per_sentence_queries, start=1):
                                 st.write(f"🧩 문장 {i} 키워드(정규화): {q}")
 
-                            # 4) 문장별 이미지 1장씩 검색
-                            image_paths = []
+                            # 세션 상태 초기화(중복 방지용)
+                            if "seen_photo_ids" not in st.session_state:
+                                st.session_state.seen_photo_ids = set()
+                            if "query_page_cursor_img" not in st.session_state:
+                                st.session_state.query_page_cursor_img = {}  # {query: next_page_int}
 
-                            def _img_search(q: str, idx: int):
-                                pg = st.session_state.query_page_cursor_img.get(q, 1)
+                            def _img_search_once(q: str, idx: int, page: int):
+                                """지정 페이지에서 1장 시도. 성공 시 경로/ID 반영."""
                                 try:
                                     paths, ids = generate_images_for_topic(
-                                        q,
-                                        1,
+                                        q, 1,
                                         start_index=idx,                       # 문장별 고유 파일명 시드
-                                        page=pg,                               # ★ 이 키워드는 여기서부터
-                                        exclude_ids=st.session_state.seen_photo_ids,  # ★ 이미 쓴 사진은 건너뛰기
-                                        return_ids=True                        # ★ 받은 사진 ID들을 회수
+                                        page=page,                             # 이 키워드는 여기서부터
+                                        exclude_ids=st.session_state.seen_photo_ids,
+                                        return_ids=True
                                     )
                                 except TypeError:
-                                    # 구버전 시그니처 호환용
+                                    # 구버전 시그니처 호환
                                     paths = generate_images_for_topic(q, 1, start_index=idx)
                                     ids = []
-
                                 if paths:
-                                    st.session_state.query_page_cursor_img[q] = pg + 1
                                     if ids:
                                         st.session_state.seen_photo_ids.update(ids)
-                                return paths
+                                    # 고유 파일명으로 복사/저장
+                                    unique_path = _save_unique_image(paths[0], idx)
+                                    return unique_path
+                                return None
 
+                            def _fetch_one_image(q: str, idx: int, page_tries: int = 3):
+                                """
+                                한 문장에 대해 이미지 1장을 찾기 위해:
+                                1) 현재 커서 페이지부터 page_tries만큼 시도
+                                2) 실패 시 '콤마로 쪼갠 서브 키워드'들을 순차 시도
+                                3) 그래도 없으면 정규화 키워드로 재시도
+                                """
+                                # 1) 페이지 반복 시도
+                                base_pg = st.session_state.query_page_cursor_img.get(q, 1)
+                                for step in range(page_tries):
+                                    pg = base_pg + step
+                                    got = _img_search_once(q, idx, pg)
+                                    if got:
+                                        # 다음에 같은 키워드 쓰면 이어서
+                                        st.session_state.query_page_cursor_img[q] = pg + 1
+                                        return got
+
+                                # 2) 콤마 분할 서브 키워드 시도
+                                if "," in q:
+                                    for piece in [p.strip() for p in q.split(",") if p.strip()]:
+                                        base_pg2 = st.session_state.query_page_cursor_img.get(piece, 1)
+                                        for step in range(page_tries):
+                                            pg = base_pg2 + step
+                                            got = _img_search_once(piece, idx, pg)
+                                            if got:
+                                                st.session_state.query_page_cursor_img[piece] = pg + 1
+                                                return got
+
+                                # 3) 정규화 키워드로 재시도
+                                fb = _normalize_scene_query(q)
+                                if fb and fb != q:
+                                    base_pg3 = st.session_state.query_page_cursor_img.get(fb, 1)
+                                    for step in range(page_tries):
+                                        pg = base_pg3 + step
+                                        got = _img_search_once(fb, idx, pg)
+                                        if got:
+                                            st.session_state.query_page_cursor_img[fb] = pg + 1
+                                            return got
+
+                                return None
+
+                            # 4) 문장별로 이미지 확보
+                            image_paths = []
                             for idx, q in enumerate(per_sentence_queries, start=1):
                                 st.write(f"🖼️ 문장 {idx} 검색: {q}")
-                                got = _img_search(q, idx)
+                                path = _fetch_one_image(q, idx, page_tries=4)  # 필요 시 페이지 탐색 폭을 늘리세요
+                                image_paths.append(path)
 
-                                if not got:
-                                    fb = _normalize_scene_query(media_query_final or q)
-                                    got = _img_search(fb, idx)
-
-                                if got:
-                                    # ✅ 문장별 고유 파일명으로 저장/복사
-                                    unique_path = _save_unique_image(got[0], idx)
-                                    image_paths.append(unique_path)
-
-                            # 5) 길이 보정
+                            # 5) 길이 보정 및 폴백
+                            # - image_paths 길이를 세그먼트 길이와 동일하게 유지
+                            # - None(실패분)은 나중 합성 단계에서 ColorClip(검은 배경)로 폴백
                             if len(image_paths) < len(segments):
-                                st.warning(f"이미지가 {len(image_paths)}장뿐입니다. 일부 문장은 마지막 이미지를 재사용합니다.")
+                                st.warning(f"이미지가 {len(image_paths)}장뿐입니다. 일부 문장은 이전 이미지를 재사용하거나 컬러클립으로 대체합니다.")
                                 if image_paths:
                                     image_paths += [image_paths[-1]] * (len(segments) - len(image_paths))
-                            elif len(image_paths) > len(segments):
+                                else:
+                                    image_paths = [None] * len(segments)
+
+                            # 길이가 더 길다면 자르기
+                            if len(image_paths) > len(segments):
                                 image_paths = image_paths[:len(segments)]
 
-                            st.success(f"이미지 {len(image_paths)}장 확보 (문장 수: {len(segments)})")
+                            st.success(f"이미지 {sum(1 for p in image_paths if p)}장 확보 / 총 {len(segments)}문장")
+
 
                     # --- 합성 ---
                     video_output_dir = "assets"
