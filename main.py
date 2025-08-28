@@ -36,6 +36,52 @@ VIDEO_TEMPLATE = "영상(영어보이스+한국어자막·가운데)"
 
 
 # ---------- 유틸 ----------
+def enforce_reading_speed_non_merging(events, min_cps=11.0, floor=0.60, ceiling=None, margin=0.02):
+    """
+    자막을 '합치지' 않고, 가능한 범위에서만 end를 늘려
+    - 글자수/읽기속도 기반 최소 노출시간 보장
+    - 다음 cue의 시작은 침범하지 않음
+    """
+    if not events:
+        return events
+    out = []
+    for i, e in enumerate(events):
+        s  = float(e["start"])
+        ed = float(e["end"])
+        text = (e.get("text") or "").strip()
+        need = max(floor, (len(text) / max(min_cps, 1e-6)) if text else floor)
+        target_end = s + need
+        # 다음 cue 시작 직전까지만 확장
+        if i + 1 < len(events):
+            next_s = float(events[i+1]["start"])
+            ed = min(max(ed, target_end), next_s - margin)
+        else:
+            ed = max(ed, target_end)
+        if ceiling is not None:
+            ed = min(ed, s + float(ceiling))
+        if ed < s + 0.02:
+            ed = s + 0.02
+        out.append({**e, "start": round(s, 3), "end": round(ed, 3)})
+    return out
+
+def _protect_short_tail_nbsp(text: str) -> str:
+    """
+    '보병 같죠?' 같은 꼬리가 다음 줄로 떨어지지 않도록,
+    꼬리 앞 공백을 NBSP로 치환.
+    """
+    NBSP = "\u00A0"
+    # 한/두 단어 꼬리 패턴들
+    TAILS = [
+        r"같죠\?", r"그렇죠\?", r"그죠\?", r"그죠",
+        r"이죠\?", r"이죠", r"죠\?", r"죠",
+        r"입니다", r"예요", r"이에요", r"이다", r"다$"
+    ]
+    pat = re.compile(r"\s+(?=(" + "|".join(TAILS) + r"))")
+    return pat.sub(NBSP, (text or "").strip())
+
+def apply_nbsp_tails(events):
+    return [{**e, "text": _protect_short_tail_nbsp(e.get("text") or "")} for e in events]
+
 def quantize_events(events, fps=24.0):
     """자막 시간을 비디오 프레임 격자에 맞춰 스냅."""
     if not events: return events
@@ -728,48 +774,44 @@ with st.sidebar:
                         dense_events = auto_densify_for_subs(
                             segments,
                             tempo="fast",
-                            words_per_piece=4,
-                            min_tail_words=3,
+                            words_per_piece=3,
+                            min_tail_words=2,
                             chunk_strategy=None,
                             marks_voice_key=st.session_state.selected_polly_voice_key,
                         )
-                        # ✅ 한국어 경계 보정 (리드 split + 말꼬리/지시사/단위 복원)
-                        dense_events = harden_ko_sentence_boundaries(
-                            dense_events,
-                            enable_lead_split=True,
-                            max_lead_len=8,
-                            fps_snap=None,  # 스냅은 마지막에 한 번만
-                        )
-                        
                         dense_events = dedupe_adjacent_texts(dense_events)
 
-                        # 시간 경계 보정(겹침 방지) — ★ 싱크를 정확히 맞출 땐 margin=0.0이 안전
-                        dense_events = clamp_no_overlap(dense_events, margin=0.0)
+                        # 1) 한국어 경계 강화(말꼬리/숫자 덩어리 보호)
+                        dense_events = harden_ko_sentence_boundaries(dense_events)
 
-                        # 너무 짧은 자막을 살짝 늘리되, 다음 시작은 침범 X
-                        dense_events = enforce_min_duration_non_merging(
-                            dense_events, min_dur=0.35, margin=0.0
+                        # 2) 겹침 제거 (살짝의 여유)
+                        dense_events = clamp_no_overlap(dense_events, margin=0.02)
+
+                        # 3) 읽기 속도 기반 최소 노출시간 보장 (합병 X)
+                        dense_events = enforce_reading_speed_non_merging(
+                            dense_events, min_cps=11.0, floor=0.60, margin=0.02
                         )
-                        
-                        # ✅ 마지막에 프레임 스냅(24fps). 미세 선행/지연 방지
+
+                        # 4) 프레임 격자 스냅(플리커/경계 떨림 방지)
                         dense_events = quantize_events(dense_events, fps=24.0)
 
-                        # 마지막은 오디오 길이 넘지 않게 컷
+                        # 5) 꼬리 줄바꿈 방지(NBSP)
+                        dense_events = apply_nbsp_tails(dense_events)
+
+                        # 6) 마지막 컷은 오디오 길이 초과 금지
                         try:
                             with AudioFileClip(audio_path) as aud:
                                 dense_events[-1]["end"] = min(dense_events[-1]["end"], round(aud.duration, 3))
                         except Exception:
                             pass
 
-                        # ✅ 자막은 dense_events로 생성
+                        # ✅ ASS 생성 및 비디오 세그먼트 통일
                         generate_ass_subtitle(
                             segments=dense_events,
                             ass_path=ass_path,
                             template_name=st.session_state.selected_subtitle_template,
                             strip_trailing_punct_last=True
                         )
-
-                        # ✅ 영상도 같은 타임라인을 쓰게 통일!
                         segments_for_video = dense_events
 
                         try:

@@ -11,128 +11,78 @@ import boto3, json
 from elevenlabs_tts import TTS_POLLY_VOICES 
 from botocore.exceptions import ClientError
 
-def harden_ko_sentence_boundaries(events,
-                                  enable_lead_split=True,
-                                  max_lead_len=8,
-                                  fps_snap=None):
+def harden_ko_sentence_boundaries(segments):
     """
-    한국어 빠른 템포 자막용 경계 보정:
-      1) 말꼬리/의문부호 단독 조각은 앞 조각에 흡수(merge-back)
-      2) 다음 조각이 '같죠?' 같은 수사로 시작하면, 그 앞부분만 잘라 앞 조각에 부착(split-forward)
-      3) 수사/지시어/수사+단위(한 번, 70%) 같은 금지 분리쌍 복원
-      4) (옵션) 최종 프레임 스냅
-
-    params
-    - enable_lead_split: True면 '같죠?' 같은 리드 앞부분만 시간비율로 절취해 이전에 결합
-    - max_lead_len: 리드로 인정할 최대 글자 수
-    - fps_snap: 숫자(예: 24.0)면 마지막에 프레임 격자 스냅
+    한국어 어미/말꼬리/숫자-단위 덩어리를 기준으로,
+    '조각난 꼬리'를 앞/뒤와 병합해 끊김을 자연스럽게 만든다.
+    - 끝이 약한 조각(조사/연결어/미완 어미) → 다음과 병합
+    - 시작이 꼬리(같죠?/입니다/이다/것이다/수 있다 등) → 앞과 병합
+    - 숫자/단위/백분율/배수 같은 '숫자 덩어리' 혼자 나오면 양옆과 병합
     """
-    import math, re
-    if not events:
-        return events
+    if not segments:
+        return segments
 
-    # ── 패턴들 ────────────────────────────────────────────────────────────
-    END_STRONG_RE   = re.compile(r'(?:\?|다|요|니다|습니다|입니다|예요|이에요|였(?:다|습니다)|겠다)$')
-    RHETORIC_HEAD   = re.compile(
-        # "같죠?", "그렇죠?", "맞죠?", "죠?" 류가 문두에 오면 리드로 간주
-        r'^(?P<lead>(?:같죠\?|그렇죠\?|맞죠\?|그쵸\?|죠\?)\s*)(?P<rest>.+)$'
-    )
-    TAIL_ONLY_RE    = re.compile(
-        r'^(?:같죠\?|맞죠\?|그쵸\?|죠\?|그런가요\?|맞나요\?|'
-        r'입니다|예요|에요|이에요|다|이다|였다|일 것이다|될 것이다|것이다|것입니다)$'
-    )
-    # 지시사/수량부사 단독 금지: "이/그/저", "한/두/세", 숫자만 등
-    DET_ONLY_RE     = re.compile(r'^(?:이|그|저|이런|그런|저런|이게|그게|저게|이건|그건|저건|한|두|세|몇|\d+)$')
-    # 숫자 다음 단위류
-    UNIT_HEAD_RE    = re.compile(r'^(?:번|명|개|살|마리|권|대|분|배|회|층|부|cm|m|km|%|퍼센트)\b')
-    # 다음 조각이 매우 짧고 강한 끝으로 “맞먹습니다/입니다/다/요” 같은 숏 테일
-    SHORT_TAIL_RE   = re.compile(r'.*(?:다|요|니다|습니다|입니다)$')
+    END_STRONG_RE = re.compile(r'(?:\?|다|요|니다|습니다|입니다|예요|이에요|죠\?|죠|였다|겠[다어요]?)$')
+    END_WEAK_RE   = re.compile(r'(?:[은는이가을를과와도만]|(?:할|될|될 것|할 것|일|인|란|라는|로|으로|에|에서|께|밖에|보다|처럼|만큼|마저|까지|라도|조차|조차도))$')
+    END_LINK_RE   = re.compile(r'(?:고|지만|인데|는데|면서|라면|다면|니까|니까|다가|며|거나|든지|라서|아서|어서|하고)$')
 
-    def merge(a, b):
-        return (a + " " + b).strip()
+    START_TAIL_RE = re.compile(
+        r'^(?:같죠\?|그죠\?|그렇죠\?|그죠|같죠|이죠\?|이죠|죠\?|죠|예요|이에요|입니다|이다|다|일 것이다|것이다|것입니다|될 것이다|수 있다|수 없다|해야 한다)\b'
+    )
+
+    NUM_TOKEN_RE  = re.compile(
+        r'^(?:\d+[.,]?\d*\s*(?:%|배|명|개|km|m|도|원|년|월|일|분|초|g|kg|℃|°|m/s|km/s|K|만|천)?|[0-9]+)$'
+    )
+
+    def _t(s): return (s or "").strip()
 
     out = []
     i = 0
-    while i < len(events):
-        cur = dict(events[i])
-        cur_text = (cur.get("text") or "").strip()
+    while i < len(segments):
+        cur = dict(segments[i])
+        cur_text = _t(cur.get("text", ""))
 
-        if i + 1 < len(events):
-            nxt = dict(events[i+1])
-            nxt_text = (nxt.get("text") or "").strip()
+        def _should_merge_right(a_text, b_text):
+            if not b_text:
+                return False
+            # 앞 조각이 강한 끝이면 유지
+            if END_STRONG_RE.search(a_text):
+                return False
+            # 앞이 약한 끝/연결어로 끝나면 다음과 붙임
+            if END_WEAK_RE.search(a_text) or END_LINK_RE.search(a_text):
+                return True
+            # 다음이 꼬리(말끝)로 시작하면 붙임
+            if START_TAIL_RE.match(b_text):
+                return True
+            # 다음이 숫자-단위 '덩어리' 하나뿐이면 붙임
+            if NUM_TOKEN_RE.match(b_text) and len(b_text) <= 6:
+                return True
+            # 다음이 아주 짧은 꼬리
+            if len(b_text) <= 4 and re.match(r'^(?:것|수|게|지|다|요|죠|\?)+$', b_text):
+                return True
+            return False
 
-            # ① "같죠?" 같은 말꼬리가 단독으로 다음 이벤트에 있으면 병합
-            if TAIL_ONLY_RE.fullmatch(nxt_text) and not END_STRONG_RE.search(cur_text):
+        # 오른쪽으로 연쇄 병합
+        while i + 1 < len(segments):
+            nxt = segments[i + 1]
+            nxt_text = _t(nxt.get("text", ""))
+
+            if _should_merge_right(cur_text, nxt_text):
                 cur["end"]  = float(nxt["end"])
-                cur["text"] = merge(cur_text, nxt_text)
-                i += 2
-                out.append(cur)
-                continue
+                cur_text    = (cur_text.rstrip() + " " + nxt_text.lstrip()).strip()
+                cur["text"] = cur_text
+                i += 1
+            else:
+                break
 
-            # ② "같죠? 하지만..." 처럼 다음 조각이 수사로 시작하면, 앞부분만 잘라 앞에 붙임
-            if enable_lead_split:
-                m = RHETORIC_HEAD.match(nxt_text)
-                if m:
-                    lead = m.group("lead")
-                    rest = m.group("rest").strip()
-                    if 1 <= len(lead) <= max_lead_len:
-                        dur = float(nxt["end"]) - float(nxt["start"])
-                        ratio = len(lead) / max(1, len(nxt_text))
-                        cut = float(nxt["start"]) + dur * ratio
-
-                        # 앞 조각 확장 + 텍스트 결합
-                        cur["end"]  = cut
-                        cur["text"] = merge(cur_text, lead.strip())
-
-                        # 다음 조각은 리마인드(남은 본문만 유지)
-                        nxt["start"] = cut
-                        nxt["text"]  = rest
-                        # 현재와 교체
-                        events[i+1] = nxt
-
-                        i += 1
-                        out.append(cur)
-                        continue
-
-            # ③ "이 + (숫자/명사)", "한 + 번/명/개", "숫자 + 단위" 금지 분리쌍 복원
-            if DET_ONLY_RE.fullmatch(cur_text) and re.match(r'^[\uAC00-\uD7A3A-Za-z0-9]', nxt_text):
-                cur["end"]  = float(nxt["end"])
-                cur["text"] = merge(cur_text, nxt_text)
-                i += 2
-                out.append(cur)
-                continue
-            if re.fullmatch(r'(?:\d+|한|두|세|몇)$', cur_text) and UNIT_HEAD_RE.match(nxt_text):
-                cur["end"]  = float(nxt["end"])
-                cur["text"] = merge(cur_text, nxt_text)
-                i += 2
-                out.append(cur)
-                continue
-
-            # ④ 다음 조각이 아주 짧고(<=8) 강한 종결로 끝나면 앞에 붙임
-            if len(nxt_text) <= 8 and SHORT_TAIL_RE.fullmatch(nxt_text) and not END_STRONG_RE.search(cur_text):
-                cur["end"]  = float(nxt["end"])
-                cur["text"] = merge(cur_text, nxt_text)
-                i += 2
-                out.append(cur)
-                continue
-
-        out.append(cur)
+        # 현재 조각이 숫자-단위 단독이면 왼쪽(이미 out에 들어간 마지막)과 붙임
+        if NUM_TOKEN_RE.match(cur_text) and out:
+            prev = out[-1]
+            prev["end"]  = float(cur["end"])
+            prev["text"] = (prev["text"].rstrip() + " " + cur_text.lstrip()).strip()
+        else:
+            out.append(cur)
         i += 1
-
-    # (옵션) 프레임 스냅
-    if fps_snap:
-        tick = 1.0 / float(fps_snap)
-        snapped, prev_end = [], None
-        for s in out:
-            st = round(float(s["start"]) / tick) * tick
-            en = round(float(s["end"])   / tick) * tick
-            if prev_end is not None and st < prev_end:
-                st = prev_end
-            if en <= st:
-                en = st + tick
-            snapped.append({**s, "start": round(st, 3), "end": round(en, 3)})
-            prev_end = en
-        out = snapped
 
     return out
 
