@@ -2,15 +2,14 @@ from RAG.chain_builder import get_default_chain
 import re
 from html import escape as _xml_escape
 
-# (선택) 프로젝트에 llm_utils가 있다면 자동 사용, 없으면 None
 try:
-    from llm_utils import complete_text  # 있으면 사용
+    from llm_utils import complete_text  # 존재하면 활용
 except Exception:
     complete_text = None
 
 
 def _heuristic_breath_lines(text: str) -> list[str]:
-    """LLM이 없을 때 쓰는 호흡 분할(1~3조각 권장). 원문은 그대로, 줄바꿈만 추가."""
+    """LLM 없을 때 쓰는 호흡 분할(1~3조각 권장). 원문은 그대로, 줄바꿈만 추가."""
     t = (text or "").strip()
     if not t:
         return []
@@ -40,7 +39,7 @@ def _heuristic_breath_lines(text: str) -> list[str]:
             if cur:
                 out.append(cur)
 
-    # 3) 지나치게 짧은(1단어 수준) 조각은 이웃과 병합
+    # 3) 1~2단어 초단문은 이웃과 병합
     def _wc(s): return len(re.findall(r'\S+', s))
     i = 1
     while i < len(out):
@@ -50,7 +49,7 @@ def _heuristic_breath_lines(text: str) -> list[str]:
         else:
             i += 1
 
-    # 4) 3조각 초과면 가장 짧은 인접쌍부터 합쳐 최대 3개로 제한
+    # 4) 3조각 초과면 가장 짧은 인접쌍부터 합쳐 최대 3개
     def _len_like(s): return len(s)
     while len(out) > 3:
         best_i, best_sum = 0, 10**9
@@ -139,14 +138,14 @@ def convert_line_to_ssml(user_line: str) -> str:
     if not chunks:
         chunks = [t]
 
-    # 4) 스타일 결정(대강의 억양/속도): 질문/일반/단정
+    # 4) 스타일 결정(대강의 억양/속도)
     def _style(s: str):
         s2 = s.strip()
         if s2.endswith("?"):
             return "162%", "+20%"
         if re.search(r"(입니다|니다|합니다|어요|예요)$", s2):
             return "152%", "+0%"
-        if re.search(r"(이다|다|없습니다|못합니다|것이다|것이다)$", s2):
+        if re.search(r"(이다|다|없습니다|못합니다|것이다)$", s2):
             return "138%", "-18%"
         return "150%", "+0%"
 
@@ -158,7 +157,7 @@ def convert_line_to_ssml(user_line: str) -> str:
         if i != len(chunks) - 1:
             ssml_pieces.append('<break time="30ms"/>')
 
-    # 연속 break 방지(예외적으로 들어왔을 가능성 대비)
+    # 연속 break 방지
     ssml = re.sub(r'(?:<break\b[^>]*/>\s*){2,}', '<break time="30ms"/>', "".join(ssml_pieces)).strip()
     return ssml
 
