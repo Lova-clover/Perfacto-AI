@@ -87,7 +87,7 @@ TTS_POLLY_VOICES = {
     "default_male": "Matthew",       # 영어 (미국) 남성 - 유명한 이름
     "default_female": "Joanna",      # 영어 (미국) 여성 - 유명한 이름
     # 한국어 남성은 제외 (Polly에는 한국어 남성 음성이 현재 없음)
-    "korean_female1": "Seoyeon",     
+    "korean_female": "Seoyeon",     
     "eng_male" : "Joey",
     "english_male_uk": "Brian",      # 영어 (영국) 남성 - 유명한 이름
     "english_female_uk": "Amy",      # 영어 (영국) 여성 - 유명한 이름
@@ -159,47 +159,27 @@ import re as _re
 def _strip_ssml_tags_local(s: str) -> str:
     return _re.sub(r"<[^>]+>", "", s or "")
 
-def generate_polly_tts(
-    text,
-    save_path,
-    polly_voice_name_key,
-    *,                      # ← keyword-only
-    speed=1.0,              # (SSML에서만 쓰이므로 여기선 무시)
-    volume_db=0             # (SSML에서만 쓰이므로 여기선 무시)
-):
-    """
-    Polly에 **항상 SSML**로 보냄. (TextType='ssml')
-    - 들어온 text가 <speak>로 안 감싸져 있으면 여기서 래핑만 함.
-    - 그 외 가공/이스케이프/치환 일절 금지!
-    """
-    voice_id = TTS_POLLY_VOICES.get(polly_voice_name_key, TTS_POLLY_VOICES.get("korean_female2", "Seoyeon"))
+def generate_polly_tts(text, save_path, polly_voice_name_key, *, speed=1.0, volume_db=0):
+    voice_id = TTS_POLLY_VOICES.get(polly_voice_name_key, TTS_POLLY_VOICES.get("korean_female", "Seoyeon"))
 
     payload = (text or "").strip()
     if not payload.startswith("<speak"):
         payload = f"<speak>{payload}</speak>"
 
+    # ✅ pitch가 들어있으면 Standard로, 아니면 Neural 유지
+    def _pick_engine_from_ssml(ssml: str) -> str:
+        return "standard" if ' pitch="' in (ssml or "") else "neural"
+
     polly = boto3.client("polly", region_name="ap-northeast-2")
 
     def _synth(engine="neural"):
         return polly.synthesize_speech(
-            Text=payload,
-            TextType="ssml",          # ✅ 핵심: SSML 고정
-            OutputFormat="mp3",
-            VoiceId=voice_id,
-            Engine=engine
+            Text=payload, TextType="ssml", OutputFormat="mp3",
+            VoiceId=voice_id, Engine=engine
         )
 
-    try:
-        resp = _synth("neural")
-    except polly.exceptions.InvalidSsmlException:
-        # 아주 예외적인 SSML 오류 폴백: 텍스트로 재요청
-        resp = polly.synthesize_speech(
-            Text=_strip_ssml_tags_local(payload),
-            TextType="text",
-            OutputFormat="mp3",
-            VoiceId=voice_id,
-            Engine="neural"
-        )
+    engine = _pick_engine_from_ssml(payload)
+    resp = _synth(engine=engine)  # ← 여기만 바뀜
 
     with open(save_path, "wb") as f:
         f.write(resp["AudioStream"].read())
