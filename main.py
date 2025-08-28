@@ -774,7 +774,7 @@ with st.sidebar:
                         dense_events = auto_densify_for_subs(
                             segments,
                             tempo="fast",
-                            words_per_piece=3,
+                            words_per_piece=4,
                             min_tail_words=2,
                             chunk_strategy=None,
                             marks_voice_key=st.session_state.selected_polly_voice_key,
