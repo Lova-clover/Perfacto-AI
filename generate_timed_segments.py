@@ -544,92 +544,97 @@ def generate_ass_subtitle(
     ass_path: str,
     template_name: str = "educational",
     strip_trailing_punct_last: bool = True,
-    max_chars_per_line: int = 16,
-    max_lines: int = 2,
     font_path: str | None = os.path.join("assets", "fonts", "BMJUA_ttf.ttf"),
 ):
-    r"""
-    segments: [{"start":s, "end":e, "text": "..."}]
-    - 너무 긴 텍스트는 \\N으로 강제 줄바꿈하여 2줄 안으로 맞춘다.
-    - 한국어 깨짐 방지: TTF 내부 패밀리명을 자동 추출해 Style/오버라이드에 적용.
+    """
+    segments: [{"start": s, "end": e, "text": "..."}]
+    - 한국어 폰트 깨짐 방지: TTF 내부 '패밀리명'을 읽어 ASS 스타일 Fontname에 정확히 설정.
+    - 템플릿 키가 부족해도 안전 기본값을 채워 넣음.
+    - 텍스트는 SSML 제거 → 공백 정규화 → ASS 이스케이프 → 줄바꿈(\N) 처리.
     """
     import re, os
 
-    # 템플릿 로드
-    tmpl = SUBTITLE_TEMPLATES.get(template_name) or SUBTITLE_TEMPLATES.get("educational", {})
+    # 0) 템플릿 로드 + 안전한 기본값
+    #    (SUBTITLE_TEMPLATES가 키가 모자라면 기본 채움)
+    _fallback = {
+        "res": (720, 1080),
+        "fontname": "BM JUA",       # 폰트 읽기 실패 시 폴백
+        "fontsize": 48,
+        # BGR + Alpha(HHBBGGRR) 형식 (&HAA BB GG RR&) — libass 표준
+        "primary":  "&H00FFFFFF&",  # 흰색
+        "secondary":"&H00000000&",
+        "outline":  "&HAA000000&",  # 반투명 검정 외곽
+        "back":     "&H00000000&",
+        "align": 2,                 # 2=하단 중앙
+        "marginL": 10,
+        "marginR": 10,
+        "marginV": 20,
+    }
+    tmpl = (SUBTITLE_TEMPLATES.get(template_name) if 'SUBTITLE_TEMPLATES' in globals() else None) or {}
+    # 키 채우기
+    for k, v in _fallback.items():
+        if k not in tmpl:
+            tmpl[k] = v
 
-    # ✅ 누락 대비 안전 기본값
-    resx, resy   = (tmpl.get("res") or (720, 1080))
-    family       = tmpl.get("fontname", "Noto Sans CJK KR")
-    fontsize     = int(tmpl.get("fontsize", 48))
-    primary      = tmpl.get("primary",  "&H00FFFFFF")  # 흰색
-    secondary    = tmpl.get("secondary","&H00FFFFFF")  # 사용 안 해도 기본 흰색
-    outline      = tmpl.get("outline",  "&H00000000")  # 검정(외곽선)
-    back         = tmpl.get("back",     "&H64000000")  # 반투명 검정 배경
-    align        = int(tmpl.get("align", 2))           # 2: 하단 중앙
-    marginL      = int(tmpl.get("marginL", 30))
-    marginR      = int(tmpl.get("marginR", 30))
-    marginV      = int(tmpl.get("marginV", 40))
+    resx, resy = (tmpl.get("res") or _fallback["res"])
+    try:
+        resx, resy = int(resx), int(resy)
+    except Exception:
+        resx, resy = _fallback["res"]
 
-    # 1) TTF 내부 패밀리명 얻기 (있으면 우선 적용)
+    # 1) TTF 내부 패밀리명 얻기 (없으면 템플릿/폴백 fontname 사용)
     def _font_family_from_ttf(ttf_path: str) -> str | None:
         try:
             from fontTools.ttLib import TTFont
             tt = TTFont(ttf_path)
-            fam, fullname = None, None
+            fam, pref_fam, full = None, None, None
             for rec in tt["name"].names:
-                if rec.nameID in (1, 4):  # 1: Family, 4: Full name
-                    try:
-                        s = rec.toUnicode()
-                    except Exception:
-                        s = rec.string.decode(rec.getEncoding(), errors="ignore")
-                    if rec.nameID == 1 and not fam:
-                        fam = s
-                    if rec.nameID == 4 and not fullname:
-                        fullname = s
+                try:
+                    s = rec.toUnicode()
+                except Exception:
+                    s = rec.string.decode(rec.getEncoding(), errors="ignore")
+                if rec.nameID == 1 and not fam:       # Family
+                    fam = s
+                elif rec.nameID == 16 and not pref_fam: # Preferred Family
+                    pref_fam = s
+                elif rec.nameID == 4 and not full:    # Full name
+                    full = s
             tt.close()
-            return fullname or fam
+            # libass는 Family/Preferred Family 매칭이 가장 잘 됨
+            return pref_fam or fam or full
         except Exception:
             return None
 
+    family = tmpl.get("fontname") or _fallback["fontname"]
     if font_path and os.path.exists(font_path):
         fam = _font_family_from_ttf(font_path)
         if fam:
-            family = fam  # ASS Style/오버라이드에 사용할 실제 패밀리명
+            family = fam
 
-    def _ass_escape(s: str) -> str:
-        # ASS 특수문자만 이스케이프
-        return (s or "").replace("{", r"\{").replace("}", r"\}")
+    try:
+        fontsize = int(tmpl.get("fontsize", _fallback["fontsize"]))
+    except Exception:
+        fontsize = _fallback["fontsize"]
 
-    # 2) 줄바꿈 알고리즘(문장 길이 기준, 조사/말꼬리 보호)
-    TAIL_PROTECT_RE = re.compile(r'(?:[은는이가을를의도로과와]|입니다|니다|다|요|죠|겠죠|같죠\?)$')
+    # 2) 텍스트 이스케이프/정리
+    def _escape_ass_text(s: str) -> str:
+        # 순서 중요: 역슬래시 → 캐럿/중괄호 → CR/LF
+        s = str(s or "")
+        s = s.replace("\\", r"\\")            # 역슬래시 이스케이프
+        s = s.replace("{", r"\{").replace("}", r"\}")  # 오버라이드 태그 충돌 방지
+        s = s.replace("\r", "")
+        s = s.replace("\n", r"\N")            # ASS 줄바꿈
+        return s
 
-    def _wrap_for_ass(text: str) -> str:
-        t = re.sub(r'\s+', ' ', text or '').strip()
-        if not t:
-            return ''
-        if len(t) <= max_chars_per_line:
-            return _ass_escape(t)
-        tokens = re.findall(r'[^\s,]+[,\u3002\uFF0C\uFF1F\uFF01]?|\s+', t)
-        lines, cur = [], ''
-        for tok in tokens:
-            candidate = (cur + tok)
-            if len(candidate.strip()) <= max_chars_per_line or len(cur.strip()) < (max_chars_per_line // 2):
-                cur = candidate
-                continue
-            cur = cur.strip()
-            if cur:
-                lines.append(cur)
-            cur = tok.strip()
-            if len(lines) >= (max_lines - 1):
-                break
-        if cur and len(lines) < max_lines:
-            lines.append(cur.strip())
-        if len(lines) > max_lines:
-            lines = lines[:max_lines]
-        return r'\N'.join([_ass_escape(x) for x in lines if x])
+    # SSML 태그 제거 (경계에 공백 하나 보존)
+    def _strip_ssml_tags(text: str) -> str:
+        if not text:
+            return ""
+        t = re.sub(r"</?(speak|prosody|break)\b[^>]*>", " ", text, flags=re.I)
+        t = re.sub(r"\s+", " ", t)
+        return t.strip()
 
-    # 3) 헤더/스타일
+    # 3) ASS 헤더/스타일
     header = (
         "[Script Info]\n"
         "ScriptType: v4.00+\n"
@@ -641,29 +646,48 @@ def generate_ass_subtitle(
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
         "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        f"Style: Default,{family},{fontsize},{primary},{secondary},{outline},{back},"
-        f"0,0,0,0,100,100,0,0,1,3,0,{align},{marginL},{marginR},{marginV},0\n\n"
+        f"Style: Default,{family},{fontsize},{tmpl['primary']},{tmpl['secondary']},{tmpl['outline']},{tmpl['back']},"
+        "0,0,0,0,100,100,0,0,1,3,0,"
+        f"{int(tmpl['align'])},{int(tmpl['marginL'])},{int(tmpl['marginR'])},{int(tmpl['marginV'])},1\n\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
     )
 
-    # 4) 각 대사에 폰트/크기 오버라이드(시스템 fallback 차단)
-    safe_family = family.replace("{", "").replace("}", "")
+    # 4) (선택) 폰트/크기 오버라이드 태그 — 시스템 폴백까지 봉쇄
+    safe_family = (family or "").replace("{", "").replace("}", "")
     font_tag = "{\\fn" + safe_family + "\\fs" + str(fontsize) + "}"
 
+    # 5) 라인 생성
     lines_out = [header]
-    for i, s in enumerate(segments):
-        st = format_ass_timestamp(float(s["start"]))
-        ed = format_ass_timestamp(float(s["end"]))
-        text = s.get("text") or ""
-        if strip_trailing_punct_last and i == len(segments) - 1:
-            text = _strip_last_punct_preserve_closers(text)
-        wrapped = _wrap_for_ass(text)
-        final_text = font_tag + (wrapped or "")
-        lines_out.append(f"Dialogue: 0,{st},{ed},Default,,0,0,0,,{final_text}")
+    n = len(segments or [])
+    for i, seg in enumerate(segments or []):
+        try:
+            s_ts = format_ass_timestamp(float(seg.get("start", 0.0)))
+            e_ts = format_ass_timestamp(float(seg.get("end", 0.0)))
+        except Exception:
+            # 타임스탬프 오류 시 스킵
+            continue
 
+        raw_text = seg.get("text") or ""
+        # SSML 제거 → 공백 정리
+        norm = _strip_ssml_tags(raw_text)
+        if strip_trailing_punct_last and i == n - 1:
+            try:
+                norm = _strip_last_punct_preserve_closers(norm)
+            except Exception:
+                pass
+
+        # ASS 이스케이프 + 최종
+        out_text = _escape_ass_text(norm)
+        final_text = font_tag + out_text
+
+        lines_out.append(f"Dialogue: 0,{s_ts},{e_ts},Default,,0,0,0,,{final_text}")
+
+    # 6) 저장 (UTF-8)
+    os.makedirs(os.path.dirname(ass_path) or ".", exist_ok=True)
     with open(ass_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines_out))
+
     return ass_path
 
 def format_ass_timestamp(seconds):
