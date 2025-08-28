@@ -678,7 +678,7 @@ def generate_ass_subtitle(
             pitch_val = seg.get("pitch")
             if pitch_val is None:
                 pitch_val = _assign_pitch(strip_ssml_tags(raw))
-            colour_tag = "{\\c&H0000FF&}" if pitch_val <= -6 else ""
+            colour_tag = "{\\c&H0000FF&}" if pitch_val <= -2 else ""
             f.write(f"Dialogue: 0,{start_ts},{end_ts},Bottom,,0,0,0,,{colour_tag}{txt}\n")
 
     return ass_path
@@ -871,267 +871,123 @@ def _auto_split_for_tempo(text: str, tempo: str = "fast"):
 def auto_densify_for_subs(
     segments,
     tempo: str = "fast",
-    words_per_piece: int = 3,       # (사용 안 함, 하위 호환용)
-    min_tail_words: int = 2,        # (사용 안 함, 하위 호환용)
+    words_per_piece: int = 3,
+    min_tail_words: int = 2,
     chunk_strategy: str | None = None,
     marks_voice_key: str | None = None,
-    max_chars_per_piece: int = 16,  # 화면 템포용 하드캡
-    min_piece_dur: float = 0.42,    # 한 조각 최소 노출
+    max_chars_per_piece: int = 16,
+    min_piece_dur: float = 0.42,
 ):
     """
-    한국어 친화 '스코어 기반' 분절 + (가능 시) Polly SpeechMarks에 스냅해 타이밍을 맞춥니다.
-    - 각 입력 세그먼트: {"start","end","text","ssml"} 구조 권장
-    - Polly SSML( <speak>... )일 때만 SpeechMarks 사용. 아니면 텍스트 비율 배분.
-    - 자연 분절 규칙:
-        * 강선호: 문장종결부호(., !, ?, …) 뒤, 쉼표 뒤, 담화표지(그리고/하지만/그래서/그러니까/즉/특히/게다가/반면에) '뒤'
-        * 강회피: '같죠?/예요/입니다/다/요/죠' 같은 짧은 꼬리가 다음 조각으로 떨어지는 경계
-        * 길이 목표: max_chars_per_piece(권장 12~18자)
+    라인(=TTS 한 번) 기준 세그먼트를 '빠른 템포'로 잘게 쪼갭니다.
+    - 각 입력 세그먼트는 {"start","end","text","ssml"} 구조라고 가정
+    - 말꼬리/종결어미를 보호하고, 너무 짧은 꼬리는 앞 조각에 붙입니다.
+    - pieces의 시간은 원 세그먼트 구간 내에서만 배분되며, 다음 세그먼트와 겹치지 않습니다.
+    - (선택) max_chars_per_piece로 조각 길이를 하드캡합니다(한국어 12~18 추천).
     """
-    import re, math
-
+    out = []
     if not segments:
-        return []
+        return out
 
-    # 템포별 길이 목표(조금 짧게 유지)
-    target_len = { "fast": 12, "normal": 16, "slow": 20 }.get(tempo, 16)
-    target_len = min(target_len, max_chars_per_piece or target_len)
+    # 템포별 기본 파라미터
+    if tempo == "fast":
+        base_words = max(1, min(5, words_per_piece))
+        min_dur = float(min_piece_dur)
+    elif tempo == "normal":
+        base_words = max(2, min(6, words_per_piece + 1))
+        min_dur = max(0.5, float(min_piece_dur))
+    else:
+        base_words = max(3, min(7, words_per_piece + 2))
+        min_dur = max(0.6, float(min_piece_dur))
 
-    # 담화표지 / 꼬리 패턴
-    DISC_HEAD = r"(그리고|하지만|근데|그런데|그래서|그러니까|즉|특히|게다가|한편|반면에)"
-    TAIL_RE   = re.compile(r"^(같죠\?|그렇죠\?|그죠\??|이죠\??|예요|이에요|입니다|니다|다|요|죠)$")
+    # 종결/말꼬리 보호
+    END_STRONG_RE = re.compile(r'(?:\?|…|이다|다|요|죠|니다|습니다|입니다|예요|이에요|였(?:다|습니다)|겠(?:다|죠)|맞(?:죠|다))$')
 
-    END_PUNCT = set(".!?…")
-    SOFT_PUNCT = set(",，、;:·)〉』】》」」”)")
-
-    def _tokenize(text: str):
-        # 단어/숫자/한글 + 단독 문장부호 + 공백
-        toks = re.findall(r'[\uAC00-\uD7A3A-Za-z0-9]+|[^\s\w]|[\s]+', text or "")
-        return toks
-
-    def _is_word(tok):  # 단어(한/영/숫자)
-        return bool(re.match(r'^[\uAC00-\uD7A3A-Za-z0-9]+$', tok or ""))
-
-    def _score_boundaries(toks):
-        """
-        각 토큰 사이 경계 j(= j-1 | j )에 점수 부여.
-        양수 높을수록 '끊기 좋음'. 음수는 '끊기 나쁨'.
-        """
-        n = len(toks)
-        scores = [0.0]*(n+1)  # 0과 n은 사용 안 함(문두/문미)
-
-        def tailish(s: str) -> bool:
-            s = (s or "").strip()
-            return bool(TAIL_RE.match(s)) or (len(s) <= 3 and s in {"다","요","죠"})
-
-        # 토큰 묶음으로 오른쪽 첫 단어, 왼쪽 마지막 토큰 살펴봄
-        for j in range(1, n):
-            L = toks[j-1]
-            R = toks[j]
-
-            # 공백 경계는 그대로 두고, 의미 경계만 보정
-            if L.isspace() and R.isspace():
-                scores[j] -= 1
-                continue
-
-            # ----- 선호 규칙 -----
-            # 1) 종결부호 뒤
-            if len(L) == 1 and L in END_PUNCT:
-                scores[j] += 120
-            # 2) 쉼표/중간 구두점 뒤
-            if len(L) == 1 and L in SOFT_PUNCT:
-                scores[j] += 35
-
-            # 3) 담화표지 '뒤' (ex. "…, 그리고 § 다음")
-            #   → 경계가 '담화표지 뒤'인지 확인: L이 공백이고 R이 담화표지면 일단 이어서 쓰고,
-            #     담화표지 다음 경계를 가산(문맥 유지)
-            if _is_word(R) and re.fullmatch(DISC_HEAD, R):
-                scores[j] -= 25  # 여기서 끊기 싫다(담화표지를 다음과 붙이자)
-
-            # 담화표지 다음 경계에 가산
-            if j+1 < n:
-                R2 = toks[j+1]
-                if _is_word(R) and re.fullmatch(DISC_HEAD, R) and (not R2.isspace()):
-                    scores[j+1] += 60
-
-            # ----- 회피 규칙 -----
-            # 4) 꼬리 단독(오른쪽이 '같죠?' 등) → 끊지 말 것
-            if _is_word(R) and tailish(R):
-                scores[j] -= 120
-            # 5) 왼쪽이 아주 짧은 단편이면(1~2자) 끊지 말기(붙여서 읽히게)
-            if _is_word(L) and len(L) <= 2:
-                scores[j] -= 20
-
-        return scores
-
-    # ---- SpeechMarks 정렬 시도 ----
-    def _split_with_marks(text, s0, e0, ssml, voice_key):
-        """
-        Polly <speak>...> 라인이면 word SpeechMarks로 경계 후보를 만들고 스코어 기반으로 나눔.
-        실패하면 None 반환(텍스트 분할로 폴백).
-        """
-        # Polly SSML이 아니면 사용 안 함
-        if not (ssml or "").strip().lower().startswith("<speak"):
-            return None
-        try:
-            voice_id = resolve_polly_voice_id(voice_key or "korean_female1", "ko")
-            marks = get_polly_speechmarks(ssml, voice_id, types=("word",))
-        except Exception:
-            return None
-        words = [(m.get("value",""), float(m.get("time",0))/1000.0) for m in marks if m.get("type")=="word"]
-        if not words:
-            return None
-
-        # 토큰은 '단어' 기준으로
-        toks = [w for (w,_) in words]
-        scores = _score_boundaries(toks)
-
-        # 그리디로 나누기: 목표 길이에 가깝고 점수가 높은 지점 우선
-        pieces = []
-        cur_start_idx = 0
-        while cur_start_idx < len(toks):
-            # 가능한 종료 후보 범위
-            max_end_idx = min(len(toks), cur_start_idx + max(1, math.ceil(target_len/2))*3)
-            best_j = None
-            best_score = -1e9
-
-            # 현재 블록 길이 누적해가며 가장 좋은 경계 선택
-            for j in range(cur_start_idx+1, max_end_idx+1):
-                cur_text = " ".join(toks[cur_start_idx:j])
-                # 너무 길면 정지
-                if len(re.sub(r"\s+","",cur_text)) > max_chars_per_piece:
-                    break
-                # 길이 가중치(목표에 근접할수록 가산)
-                closeness = -abs(len(cur_text) - target_len)
-                s = scores[j-1] + closeness * 0.7
-                if s > best_score:
-                    best_score, best_j = s, j
-
-            end_idx = best_j if best_j else min(len(toks), cur_start_idx+target_len)
-            piece_text = " ".join(toks[cur_start_idx:end_idx]).strip()
-            if not piece_text:
-                cur_start_idx += 1
-                continue
-
-            # 시간은 SpeechMarks 타임으로 매핑(+세그먼트 오프셋)
-            t_start = s0 + words[cur_start_idx][1]
-            t_end   = s0 + (words[end_idx-1][1] if end_idx-1 < len(words) else (e0 - s0))
-            if t_end <= t_start:
-                t_end = min(e0, t_start + max(0.2, min_piece_dur))
-            pieces.append({"start": round(t_start,3), "end": round(t_end,3), "text": piece_text})
-            cur_start_idx = end_idx
-
-        # 마지막 조각이 너무 짧으면 앞에 붙이기
-        if len(pieces) >= 2 and (pieces[-1]["end"] - pieces[-1]["start"]) < min_piece_dur:
-            pieces[-2]["end"]  = pieces[-1]["end"]
-            pieces[-2]["text"] = (pieces[-2]["text"] + " " + pieces[-1]["text"]).strip()
-            pieces.pop()
-
-        # 세그먼트 범위 클램프
-        if pieces:
-            pieces[0]["start"] = max(s0, pieces[0]["start"])
-            pieces[-1]["end"]  = min(e0, pieces[-1]["end"])
-        return pieces
-
-    # ---- 텍스트 기반(폴백) ----
-    def _split_with_text(text, s0, e0):
-        toks = _tokenize(text)
-        scores = _score_boundaries(toks)
-
-        # 토큰 덩어리 길이(공백 제외)로 진행
-        out_pieces = []
-        cur = []
-        cur_len = 0
-
-        def _flush():
-            nonlocal cur, cur_len
-            if not cur:
-                return None
-            txt = "".join(cur).strip()
-            cur, cur_len = [], 0
-            return txt
-
-        for j in range(len(toks)):
-            cur.append(toks[j])
-            if not toks[j].isspace():
-                cur_len += len(re.sub(r"\s+","",toks[j]))
-
-            # 적당히 찼고, 여기서 끊는 게 괜찮다면 자르기
-            should_cut = False
-            if cur_len >= max(4, target_len):
-                # 길이 페널티(너무 길면 가산을 깎고 빨리 끊게)
-                length_bias = -(cur_len - target_len)
-                # 현재 경계 점수(다음 경계 j+1 기준)
-                s_here = scores[j] + length_bias * 0.7
-                should_cut = (s_here > 15) or (cur_len >= max_chars_per_piece)
-
-            if should_cut:
-                txt = _flush()
-                if txt:
-                    out_pieces.append(txt)
-
-        tail = _flush()
-        if tail:
-            out_pieces.append(tail)
-
-        # 너무 짧은 꼬리는 앞 조각으로
-        merged = []
-        for p in out_pieces:
-            if merged and len(re.sub(r"\s+","",p)) <= 3:
-                merged[-1] = (merged[-1] + " " + p).strip()
+    def _tokenize_for_chunks(text: str):
+        # 한국어/영어/숫자/부호 분리 (공백 포함 유지)
+        toks = re.findall(r'[\uAC00-\uD7A3A-Za-z0-9]+|[^\s]', text or "")
+        # 공백 복원
+        merged, prev_is_word = [], False
+        for t in toks:
+            if re.match(r'^\s+$', t):
+                merged.append(t)
+                prev_is_word = False
+            elif re.match(r'^[\uAC00-\uD7A3A-Za-z0-9]+$', t):
+                # 단어
+                if merged and not re.match(r'^\s+$', merged[-1]):
+                    merged.append(' ')
+                merged.append(t)
+                prev_is_word = True
             else:
-                merged.append(p)
+                # 구두점/기호는 붙여쓰기
+                merged.append(t)
+                prev_is_word = False
+        s = ''.join(merged).strip()
+        parts = re.findall(r'\S+|\s+', s)
+        return parts
 
-        # 시간은 글자 비율로 배분
-        total = sum(len(re.sub(r"\s+","",p)) for p in merged) or 1
-        t = s0
+    def _join_parts(parts):
+        return ''.join(parts).strip()
+
+    for seg in segments:
+        s0 = float(seg["start"])
+        e0 = float(seg["end"])
+        t  = (seg.get("text") or "").strip()
+        if not t:
+            continue
+        parts = _tokenize_for_chunks(t)
+
+        # 길이 기준으로 조각내기
         pieces = []
-        for i, p in enumerate(merged):
-            if i == len(merged)-1:
+        cur, cur_chars, cur_words = [], 0, 0
+        def _flush():
+            nonlocal cur, cur_chars, cur_words
+            if not cur:
+                return
+            txt = _join_parts(cur)
+            pieces.append(txt)
+            cur, cur_chars, cur_words = [], 0, 0
+
+        for p in parts:
+            if p.isspace():
+                cur.append(p)
+                cur_chars += len(p)
+                continue
+            cur.append(p)
+            cur_chars += len(p)
+            if re.match(r'^[\uAC00-\uD7A3A-Za-z0-9]+$', p):
+                cur_words += 1
+            # 하드캡: 글자수 초과 또는 단어수 초과일 때 끊기
+            if cur_chars >= max_chars_per_piece or cur_words >= base_words:
+                # 종결 꼬리 보호는 harden 단계에서 추가로 처리
+                _flush()
+
+        _flush()
+        # 병합 규칙: 아주 짧은 꼬리(<=4자) 단독이면 앞에 합침
+        merged = []
+        for s in pieces:
+            if merged and len(s) <= 4 and not END_STRONG_RE.search(merged[-1]):
+                merged[-1] = (merged[-1] + ' ' + s).strip()
+            else:
+                merged.append(s)
+
+        # 시간 배분 (글자 비율)
+        total_chars = sum(len(x) for x in merged) or 1
+        dur_total   = max(0.01, e0 - s0)
+        t_cursor    = s0
+        for i, txt in enumerate(merged):
+            if i == len(merged) - 1:
                 t1 = e0
             else:
-                frac = len(re.sub(r"\s+","",p)) / total
-                t1 = min(e0, t + (e0 - s0) * frac)
-            if (t1 - t) < min_piece_dur:
-                t1 = min(e0, t + min_piece_dur)
-            pieces.append({"start": round(t,3), "end": round(t1,3), "text": p})
-            t = t1
-        return pieces
+                frac = max(1, len(txt)) / total_chars
+                t1   = t_cursor + dur_total * frac
+            # 최소 표시 시간 확보 (다음 세그먼트 침범 금지)
+            if (t1 - t_cursor) < min_dur:
+                t1 = min(e0, t_cursor + min_dur)
+            out.append({"start": round(t_cursor, 3), "end": round(t1, 3), "text": txt})
+            t_cursor = t1
 
-    # ---- 메인 루프 ----
-    dense = []
-    for seg in segments:
-        s0 = float(seg["start"]); e0 = float(seg["end"])
-        txt = (seg.get("text") or "").strip()
-        if not txt or e0 <= s0:
-            continue
-
-        pieces = None
-        # Polly SSML 라인은 SpeechMarks로 먼저 시도
-        if (seg.get("ssml") or "").strip().lower().startswith("<speak"):
-            try:
-                pieces = _split_with_marks(txt, s0, e0, seg["ssml"], marks_voice_key)
-            except Exception:
-                pieces = None
-
-        if not pieces:
-            pieces = _split_with_text(txt, s0, e0)
-
-        # 최소 노출시간 보강 + 범위 클램프
-        for i, p in enumerate(pieces):
-            # 최소 노출
-            if (p["end"] - p["start"]) < min_piece_dur:
-                p["end"] = min(e0, p["start"] + min_piece_dur)
-            # 다음과 겹치지 않도록 한 틱 여유
-            if i+1 < len(pieces):
-                p["end"] = min(p["end"], pieces[i+1]["start"] - 0.001)
-        # 마지막 조각 보호
-        if pieces and pieces[-1]["end"] > e0:
-            pieces[-1]["end"] = e0
-
-        dense.extend(pieces)
-
-    return dense
-
+    return out
 
 def _strip_last_punct_preserve_closers(s: str) -> str:
     # 끝이 [. , ! ? …] 이고 그 뒤에는 공백/닫는 따옴표/괄호만 오는 경우 그 구두점만 제거
