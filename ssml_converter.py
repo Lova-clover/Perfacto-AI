@@ -7,23 +7,18 @@ try:
 except Exception:
     complete_text = None
 
-
 def _heuristic_breath_lines(text: str) -> list[str]:
-    """LLM 없을 때 쓰는 호흡 분할(1~3조각 권장). 원문은 그대로, 줄바꿈만 추가."""
+    """LLM 부재 시 쓰는 간단 브레스 분할 (1~3조각 권장, 원문 보존/줄바꿈만 추가)"""
     t = (text or "").strip()
     if not t:
         return []
-
-    # 1) 담화표지/연결어/구두점 뒤에서 1차 분할(토큰은 앞 조각에 둠)
+    # 담화표지/연결어/구두점 뒤에서 1차 분할(경계 토큰은 앞 조각에 둠)
     t = re.sub(r"(그리고|하지만|근데|그런데|그래서|그러니까|즉|특히|게다가|한편|반면에|다만)\s*", r"\g<0>§", t)
     t = re.sub(r"(고|지만|는데요?|면서|며|라면|면|니까|다가|으며|거나|든지)(?=\s|\Z)", r"\1§", t)
-    t = re.sub(r"(?<=[,，、;:·])\s*", "§", t)
+    t = re.sub(r"(?<=[,，、;:·?])\s*", "§", t)
+    parts = [p.strip() for p in t.split("§") if p.strip()] or [t]
 
-    parts = [p.strip() for p in t.split("§") if p.strip()]
-    if not parts:
-        parts = [text.strip()]
-
-    # 2) 길이 보정(너무 길면 공백 근처에서 추가 분할, 목표 8~18자)
+    # 길이 보정(8~18자/3~6단어 권장)
     out = []
     for p in parts:
         if len(p) <= 18:
@@ -39,7 +34,7 @@ def _heuristic_breath_lines(text: str) -> list[str]:
             if cur:
                 out.append(cur)
 
-    # 3) 1~2단어 초단문은 이웃과 병합
+    # 1~2단어 초단문은 이웃과 병합
     def _wc(s): return len(re.findall(r'\S+', s))
     i = 1
     while i < len(out):
@@ -49,7 +44,7 @@ def _heuristic_breath_lines(text: str) -> list[str]:
         else:
             i += 1
 
-    # 4) 3조각 초과면 가장 짧은 인접쌍부터 합쳐 최대 3개
+    # 3조각 초과면 가장 짧은 인접쌍부터 합쳐 최대 3개
     def _len_like(s): return len(s)
     while len(out) > 3:
         best_i, best_sum = 0, 10**9
@@ -66,13 +61,12 @@ def _heuristic_breath_lines(text: str) -> list[str]:
 def breath_linebreaks(text: str) -> list[str]:
     """
     LLM 기반 호흡 줄바꿈. complete_text가 없거나 실패하면 휴리스틱 사용.
-    - 원문 글자/공백은 그대로, '줄바꿈만' 추가.
-    - 빈 줄은 생성하지 않음.
+    - 원문 글자/공백/어미는 그대로, '줄바꿈만' 추가
+    - 빈 줄 생성 금지
     """
     t = (text or "").strip()
     if not t:
         return []
-
     if complete_text is not None:
         prompt = (
             "역할: 너는 한국어 대본의 호흡(브레스) 라인브레이크 편집기다.\n"
@@ -87,39 +81,36 @@ def breath_linebreaks(text: str) -> list[str]:
         try:
             out = complete_text(prompt)
             lines = [ln.rstrip() for ln in (out or "").splitlines() if ln.strip()]
-            # 길이/내용 대략 일치 검사(라인브레이크만 추가했는지 확인)
+            # 라인브레이크만 추가했는지 대략 검증
             if lines and abs(len("".join(lines)) - len(t.replace("\n", ""))) <= max(10, int(len(t)*0.2)):
                 return lines
         except Exception:
             pass
-
-    # 폴백(휴리스틱)
+    # 폴백
     return _heuristic_breath_lines(t)
-
 
 def convert_line_to_ssml(user_line: str) -> str:
     """
-    한 줄 대본을 Polly 친화 SSML prosody 덩어리로 변환(LLM 미사용, 규칙 기반).
-    - 허용 태그: <prosody>, <break> (여기서는 <speak>를 붙이지 않음; 호출측에서 감쌈)
-    - 마침표/느낌표/줄임표는 제거(?, ,만 유지)
-    - 원문 어휘/어순 보존, 줄바꿈/구두점만 최소 조정
+    한 줄 대본을 Amazon Polly 친화 SSML로 분할(구/절 단위 prosody + 짧은 break).
+    - 태그: <prosody>, <break>만 사용 (여기서는 <speak>는 붙이지 않음)
+    - 마침표/느낌표/줄임표는 제거(Polly 안정성), 물음표/쉼표는 유지
+    - 원문 어휘/어순 보존, '분할'만 수행
     """
     t = (user_line or "").strip()
     if not t:
         return ""
-
-    # 1) Polly 제약: ! … . 제거(?, , 유지). 공백 정규화
+    # Polly 제약
     t = t.replace("…", "")
     t = re.sub(r"[!]+", "", t)
     t = re.sub(r"[.]+", "", t)
     t = re.sub(r"\s+", " ", t).strip()
 
-    # 2) 분절 후보(쉼표/질문부호/담화표지 뒤). 원문은 그대로 두고 경계만 잡음
-    temp = re.sub(r"(그리고|하지만|근데|그런데|그래서|그러니까|즉|특히|게다가|한편|반면에|다만)\s*", r"\g<0>§", t)
-    temp = re.sub(r"(?<=[,，、;:·?])\s*", "§", temp)
-    parts = [p.strip() for p in temp.split("§") if p.strip()] or [t]
+    # 분절 후보 (담화표지/?, , 뒤)
+    tmp = re.sub(r"(그리고|하지만|근데|그런데|그래서|그러니까|즉|특히|게다가|한편|반면에|다만)\s*", r"\g<0>§", t)
+    tmp = re.sub(r"(?<=[,，、;:·?])\s*", "§", tmp)
+    parts = [p.strip() for p in tmp.split("§") if p.strip()] or [t]
 
-    # 3) 라인 길이 균형(너무 길면 공백 근처로 자르기, 목표 8~18자)
+    # 길이 보정
     chunks = []
     for p in parts:
         if len(p) <= 18:
@@ -135,10 +126,6 @@ def convert_line_to_ssml(user_line: str) -> str:
             if cur:
                 chunks.append(cur)
 
-    if not chunks:
-        chunks = [t]
-
-    # 4) 스타일 결정(대강의 억양/속도)
     def _style(s: str):
         s2 = s.strip()
         if s2.endswith("?"):
@@ -149,17 +136,15 @@ def convert_line_to_ssml(user_line: str) -> str:
             return "138%", "-18%"
         return "150%", "+0%"
 
-    # 5) SSML 조립 (<speak>는 여기서 붙이지 않음)
-    ssml_pieces = []
+    ssml = []
     for i, c in enumerate(chunks):
         rate, pitch = _style(c)
-        ssml_pieces.append(f'<prosody rate="{rate}" pitch="{pitch}">{_xml_escape(c)}</prosody>')
+        ssml.append(f'<prosody rate="{rate}" pitch="{pitch}">{_xml_escape(c)}</prosody>')
         if i != len(chunks) - 1:
-            ssml_pieces.append('<break time="30ms"/>')
+            ssml.append('<break time="30ms"/>')
 
     # 연속 break 방지
-    ssml = re.sub(r'(?:<break\b[^>]*/>\s*){2,}', '<break time="30ms"/>', "".join(ssml_pieces)).strip()
-    return ssml
+    return re.sub(r'(?:<break\b[^>]*/>\s*){2,}', '<break time="30ms"/>', "".join(ssml)).strip()
 
 SSML_PROMPT = """역할: 너는 한국어 대본을 숏폼용 Amazon Polly SSML로 변환하는 변환기다.
 출력은 SSML만, <speak>…</speak> 구조로만 낸다. 마크다운/주석/설명 금지.

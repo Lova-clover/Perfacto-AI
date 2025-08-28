@@ -486,13 +486,15 @@ def generate_subtitle_from_script(
     split_mode: str = "newline",
     strip_trailing_punct_last: bool = True
 ):
-    # 1) 입력 라인화(사용자 줄바꿈 유지 권장)
-    base_lines = split_script_to_lines(script_text or "", mode=split_mode)
-    base_lines = [ln for ln in base_lines if ln.strip()]
-    if not base_lines:
-        return [], None, ass_path
-
-    # 화면표시용 클린 사본(SSML/쌍따옴표류 정리)
+    """
+    파이프라인:
+    1) 입력을 '라인(문장)' 단위로 나눔
+    2) 각 라인을 LLM/휴리스틱으로 '호흡 줄바꿈' 조각(1~3) 추출
+    3) 라인 단위로 TTS(Polly SSML) 생성 → 병합
+    4) 라인별 Polly word speechmarks를 받아, (2)의 호흡 조각을 단어 타이밍에 '강제 정렬'
+    5) exact_segments(=오디오와 1:1)로 ASS 생성 및 반환
+    """
+    # 0) 보조 유틸
     def _strip_punct_and_quotes(s: str) -> str:
         if not s: return ""
         s = s.translate(str.maketrans({
@@ -500,31 +502,39 @@ def generate_subtitle_from_script(
             "‘": "", "’": "", "‚": "", "‛": "", "'": "",
             "！": "!", "？": "?"
         }))
-        s = re.sub(r'[!]+', '', s)          # Polly 안전: ! 제거
+        s = re.sub(r'[!]+', '', s)     # Polly 안정성
         s = re.sub(r'\s{2,}', ' ', s)
         return s.strip()
+
+    # 1) 스크립트 라인
+    base_lines = split_script_to_lines(script_text or "", mode=split_mode)
+    base_lines = [ln for ln in base_lines if ln.strip()]
+    if not base_lines:
+        return [], None, ass_path
+
     clean_lines = [strip_ssml_tags(_strip_punct_and_quotes(l)) for l in base_lines]
 
-    # 2) Polly 보이스 키 정합
+    # 2) Polly 보이스/언어 정합
     if provider == "polly":
         if tts_lang == "en" and polly_voice_key.startswith("korean_"):
+            print(f"⚠️ 영어 모드인데 한국어 보이스({polly_voice_key}) → default_male")
             polly_voice_key = "default_male"
         elif tts_lang == "ko" and polly_voice_key.startswith("default_"):
+            print(f"⚠️ 한국어 모드인데 영어 보이스({polly_voice_key}) → korean_female1")
             polly_voice_key = "korean_female1"
 
-    # 3) 라인별 브레스 조각(LLM 우선 → 휴리스틱)
-    from ssml_converter import breath_linebreaks, convert_line_to_ssml
-    breaths_per_line = []
+    # 3) 라인별 호흡(브레스) 조각(1~3)
+    breath_lines_per_line = []
     for ln in clean_lines:
         parts = breath_linebreaks(ln) or [ln]
-        breaths_per_line.append(parts)
+        breath_lines_per_line.append(parts)
 
-    # 4) 라인 단위 SSML 생성(Polly), 그 외는 평문
+    # 4) 라인 단위 TTS 입력
     if provider == "polly":
         tts_lines = []
         for ln in clean_lines:
             try:
-                frag = convert_line_to_ssml(ln)
+                frag = convert_line_to_ssml(ln)  # prosody/break(여기선 <speak> 미포함)
             except Exception:
                 frag = f'<prosody rate="150%" volume="medium">{_xml_escape(ln)}</prosody>'
             safe = _validate_ssml(frag)
@@ -533,10 +543,11 @@ def generate_subtitle_from_script(
             tts_lines.append(safe)
     else:
         tts_lines = clean_lines[:]
-        if tts_lang in ("en","ko"):
-            tts_lines = _maybe_translate_lines(tts_lines, target=tts_lang, only_if_src_is_english=False)
 
-    # 5) 라인별 TTS → 오디오 병합(라인 경계 타임스탬프 확보)
+    if tts_lang in ("en", "ko") and provider != "polly":
+        tts_lines = _maybe_translate_lines(tts_lines, target=tts_lang, only_if_src_is_english=False)
+
+    # 5) 라인별 TTS 생성/병합
     audio_paths = generate_tts_per_line(
         tts_lines, provider=provider, template=template, polly_voice_key=polly_voice_key
     )
@@ -544,99 +555,29 @@ def generate_subtitle_from_script(
         return [], None, ass_path
     segments_raw = merge_audio_files(audio_paths, full_audio_file_path)
 
-    # 6) 라인별 word marks → 브레스 조각 정렬
-    def _micro_split_by_words(piece: str, target_words: int = 3, min_tail_words: int = 2):
-        tokens = re.findall(r'\S+', piece.strip())
-        if not tokens: return []
-        chunks = [" ".join(tokens[i:i+target_words]).strip()
-                  for i in range(0, len(tokens), target_words)]
-        if len(chunks) >= 2 and len(chunks[-1].split()) < min_tail_words:
-            chunks[-2] = (chunks[-2] + " " + chunks[-1]).strip()
-            chunks.pop()
-        return [c for c in chunks if c]
-
-    def _redistribute_within_piece(piece, wordmarks, subtexts):
-        """
-        piece: {start,end,text}
-        wordmarks: 이 조각 시간 창 내의 word marks (list of times)
-        subtexts: 조각을 더 잘게 나눈 빠른 템포 텍스트 리스트
-        반환: [{start,end,text}]
-        """
-        st, en = float(piece["start"]), float(piece["end"])
-        if st >= en or not subtexts:
-            return [dict(piece)]
-
-        # 조각 내부의 워드마크 시간만 추출
-        wm_times = [piece["start"]] + [ (piece["start"] + max(0.0, (mk["time"]/1000.0)))
-                                        for mk in wordmarks
-                                        if piece["start"] <= (piece["start"] + (mk["time"]/1000.0)) <= piece["end"] ] + [piece["end"]]
-        wm_times = sorted(set([t for t in wm_times if st <= t <= en]))
-
-        # 경계가 충분치 않으면 글자 길이 비율로 배분
-        if len(wm_times) < len(subtexts) + 1:
-            total_chars = sum(len(x) for x in subtexts) or 1
-            out, t = [], st
-            for i, txt in enumerate(subtexts):
-                t2 = en if i == len(subtexts)-1 else t + (en - st) * (len(txt)/total_chars)
-                out.append({"start": t, "end": t2, "text": txt, "pitch": _assign_pitch(txt)})
-                t = t2
-            return out
-
-        # 워드마크 인덱스 균등 분할
-        k = len(subtexts)
-        boundaries = [0] + [ round(len(wm_times)-1 * i / k) for i in range(1, k) ] + [len(wm_times)-1]
-        # 단조증가 보정
-        for i in range(1, len(boundaries)):
-            if boundaries[i] <= boundaries[i-1]:
-                boundaries[i] = boundaries[i-1] + 1
-            boundaries[i] = min(boundaries[i], len(wm_times)-1)
-
-        out = []
-        for i, txt in enumerate(subtexts):
-            s = wm_times[boundaries[i]]
-            e = wm_times[boundaries[i+1]]
-            if e <= s: e = min(en, s + 0.05)
-            out.append({"start": s, "end": e, "text": txt, "pitch": _assign_pitch(txt)})
-        return out
-
+    # 6) word speechmarks로 호흡 조각을 시간 정렬
     exact_segments = []
+    voice_id = resolve_polly_voice_id(polly_voice_key)
     for i, s in enumerate(segments_raw):
         line_offset, line_end = s["start"], s["end"]
         line_ssml = tts_lines[i]
-        voice_id  = resolve_polly_voice_id(polly_voice_key)
 
-        marks = get_polly_speechmarks(line_ssml, voice_id, types=("word",))  # 내부에서 평문화
-
-        # 1) 우선 LLM/휴리스틱 브레스를 라인 타이밍에 정렬
-        breath_pieces = _align_breath_to_wordmarks(
-            breaths_per_line[i], marks, line_offset, line_end, min_piece_dur=0.35
+        marks = get_polly_speechmarks(line_ssml, voice_id, types=("word",))
+        pieces = _align_breath_to_wordmarks(
+            breath_lines_per_line[i], marks, line_offset, line_end, min_piece_dur=0.35
         )
-        if not breath_pieces:
+
+        if not pieces:  # 폴백
             txt = re.sub(r"\s+", " ", clean_lines[i]).strip()
-            breath_pieces = [{"start": line_offset, "end": line_end, "text": txt, "pitch": _assign_pitch(txt)}]
+            pieces = [{"start": line_offset, "end": line_end, "text": txt, "pitch": _assign_pitch(txt)}]
 
-        # 2) 빠른 템포: 각 브레스 조각을 3단어(+꼬리 2단어) 기준으로 재분절
-        #    시간은 워드마크가 충분하면 워드 경계로, 부족하면 글자수 비율로 분배
-        for bp in breath_pieces:
-            subs = _micro_split_by_words(bp["text"], target_words=3, min_tail_words=2)
-            if not subs or len(subs) == 1:
-                exact_segments.append(bp)
-                continue
+        exact_segments.extend(pieces)
 
-            # bp 범위 안의 워드마크만 필터링(원본 marks는 라인 기준)
-            inner_marks = []
-            for mk in marks:
-                t = line_offset + (mk.get("time",0)/1000.0)
-                if bp["start"] <= t <= bp["end"]:
-                    inner_marks.append({"time": (t - bp["start"])*1000})  # 조각 기준 상대 ms로 재사용
-
-            refined = _redistribute_within_piece(bp, inner_marks, subs)
-            exact_segments.extend(refined)
-
-    # 7) 너무 짧은 조각 병합 + 인접 중복 제거
+    # 7) 짧은 덩어리 병합 + 인접 중복 제거
     def _merge_min_duration(segs, min_dur=0.35):
         if not segs: return []
-        out = []; cur = dict(segs[0])
+        out = []
+        cur = dict(segs[0])
         for s in segs[1:]:
             if (cur["end"] - cur["start"]) < min_dur:
                 cur["end"]  = s["end"]
@@ -653,14 +594,12 @@ def generate_subtitle_from_script(
     exact_segments = _merge_min_duration(exact_segments, 0.35)
     exact_segments = dedupe_adjacent_texts(exact_segments)
 
-    # 8) ASS 생성(자막은 exact_segments 그대로 = 오디오와 1:1)
+    # 8) ASS 생성 (영상 세그먼트와 '완전 동일' 타이밍 사용)
     generate_ass_subtitle(
-        exact_segments,
-        ass_path,
-        template_name=template,
-        strip_trailing_punct_last=True
+        exact_segments, ass_path, template_name=template, strip_trailing_punct_last=strip_trailing_punct_last
     )
 
+    # 컷 생성/이미지 길이 분배도 exact_segments 그대로 사용해야 싱크 1:1
     return exact_segments, None, ass_path
 
 # === Auto-paced subtitle densifier (자연스러운 문맥 분할 우선) ===
