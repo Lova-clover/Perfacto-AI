@@ -1,4 +1,5 @@
 from RAG.chain_builder import get_default_chain
+from .llm_utils import complete_text  # 프로젝트 유틸 예시
 
 SSML_PROMPT = """역할: 너는 한국어 대본을 숏폼용 Amazon Polly SSML로 변환하는 변환기다.
 출력은 SSML만, <speak>…</speak> 구조로만 낸다. 마크다운/주석/설명 금지.
@@ -58,3 +59,42 @@ def convert_line_to_ssml(user_line: str) -> str:
     result = chain.invoke({"question": user_line})
     # ✅ <speak> 태그 제거
     return result.replace("<speak>", "").replace("</speak>", "").strip()
+
+
+# ssml_converter.py (추가)
+BREATH_PROMPT = """역할: 너는 한국어 대본의 호흡(브레스) 라인브레이크 편집기다.
+출력은 텍스트만, 줄바꿈으로만 호흡을 표현한다. 다른 기호·주석·설명·마크다운·태그를 절대 쓰지 않는다.
+
+[불변 규칙]
+원문 완전 보존(글자/공백/숫자/단위/어미/어순). 줄바꿈만 추가.
+빈 줄 금지. 1–2단어 초단문은 피하기.
+한 줄 길이 가이드: 3–6단어 또는 8–18글자 권장.
+수치·부호 결합(-173도, 1만 2천 km 등) 분리 금지.
+“… 수 있다/없다, … 것이다/것입니다, … 해야 한다” 등은 한 줄 유지.
+담화표지(물론/따라서/즉/그러니까/그리고/그러나/하지만 등)는 강조 시 단독 줄 허용.
+질문부호 ? 뒤는 줄바꿈 가능.
+
+[입력]
+{{TEXT}}
+
+[출력]
+(라인브레이크 적용된 텍스트만)"""
+
+def breath_linebreaks(text: str) -> list[str]:
+    """
+    LLM으로 호흡 기반 줄바꿈. 실패 시 빈 리스트(호출측 휴리스틱 사용).
+    프로젝트의 LLM 호출 유틸이 있으면 그걸 사용하세요.
+    """
+    try:
+        # 예시) convert_line_to_ssml 내부 LLM 호출기를 재사용하거나,
+        # openai 호출 유틸이 있으면 교체하세요.
+        prompt = BREATH_PROMPT.replace("{{TEXT}}", text)
+        out = complete_text(prompt)  # 모델 응답(줄바꿈 포함 텍스트)
+        # 라인 필터링
+        lines = [ln.rstrip() for ln in out.splitlines() if ln.strip()]
+        # 원문 길이와 지나치게 다르면 무효 처리
+        if abs(len("".join(lines)) - len(text.replace("\n",""))) > max(10, len(text)*0.2):
+            return []
+        return lines
+    except Exception:
+        return []
