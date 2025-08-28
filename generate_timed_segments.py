@@ -555,11 +555,23 @@ def generate_ass_subtitle(
     """
     import re, os
 
-    # 템플릿 로드 (res가 없으면 기본값 사용)
-    tmpl = SUBTITLE_TEMPLATES.get(template_name) or SUBTITLE_TEMPLATES["educational"]
-    resx, resy = tmpl.get("res", (720, 1080))
+    # 템플릿 로드
+    tmpl = SUBTITLE_TEMPLATES.get(template_name) or SUBTITLE_TEMPLATES.get("educational", {})
 
-    # 1) TTF 내부 패밀리명 얻기 (없으면 템플릿 fontname 사용)
+    # ✅ 누락 대비 안전 기본값
+    resx, resy   = (tmpl.get("res") or (720, 1080))
+    family       = tmpl.get("fontname", "Noto Sans CJK KR")
+    fontsize     = int(tmpl.get("fontsize", 48))
+    primary      = tmpl.get("primary",  "&H00FFFFFF")  # 흰색
+    secondary    = tmpl.get("secondary","&H00FFFFFF")  # 사용 안 해도 기본 흰색
+    outline      = tmpl.get("outline",  "&H00000000")  # 검정(외곽선)
+    back         = tmpl.get("back",     "&H64000000")  # 반투명 검정 배경
+    align        = int(tmpl.get("align", 2))           # 2: 하단 중앙
+    marginL      = int(tmpl.get("marginL", 30))
+    marginR      = int(tmpl.get("marginR", 30))
+    marginV      = int(tmpl.get("marginV", 40))
+
+    # 1) TTF 내부 패밀리명 얻기 (있으면 우선 적용)
     def _font_family_from_ttf(ttf_path: str) -> str | None:
         try:
             from fontTools.ttLib import TTFont
@@ -580,16 +592,13 @@ def generate_ass_subtitle(
         except Exception:
             return None
 
-    family = tmpl.get("fontname", "Noto Sans CJK KR")
     if font_path and os.path.exists(font_path):
         fam = _font_family_from_ttf(font_path)
         if fam:
             family = fam  # ASS Style/오버라이드에 사용할 실제 패밀리명
 
-    fontsize = int(tmpl.get("fontsize", 48))
-
     def _ass_escape(s: str) -> str:
-        # ASS 특수문자만 이스케이프 (한글/공백/백슬래시(\N)는 그대로)
+        # ASS 특수문자만 이스케이프
         return (s or "").replace("{", r"\{").replace("}", r"\}")
 
     # 2) 줄바꿈 알고리즘(문장 길이 기준, 조사/말꼬리 보호)
@@ -599,10 +608,8 @@ def generate_ass_subtitle(
         t = re.sub(r'\s+', ' ', text or '').strip()
         if not t:
             return ''
-        # 이미 매우 짧으면 그대로
         if len(t) <= max_chars_per_line:
             return _ass_escape(t)
-        # 공백/쉼표 기준으로 토막
         tokens = re.findall(r'[^\s,]+[,\u3002\uFF0C\uFF1F\uFF01]?|\s+', t)
         lines, cur = [], ''
         for tok in tokens:
@@ -610,23 +617,19 @@ def generate_ass_subtitle(
             if len(candidate.strip()) <= max_chars_per_line or len(cur.strip()) < (max_chars_per_line // 2):
                 cur = candidate
                 continue
-            # 줄바꿈 시도
             cur = cur.strip()
             if cur:
                 lines.append(cur)
             cur = tok.strip()
             if len(lines) >= (max_lines - 1):
-                # 마지막 줄은 남은 거 모두
                 break
         if cur and len(lines) < max_lines:
             lines.append(cur.strip())
-        # 잔여가 남았어도 max_lines 넘지 않게 잘라냄
         if len(lines) > max_lines:
             lines = lines[:max_lines]
-        # \N은 ASS 줄바꿈
         return r'\N'.join([_ass_escape(x) for x in lines if x])
 
-    # 3) 헤더/스타일 (Encoding은 0으로 두는 게 안전)
+    # 3) 헤더/스타일
     header = (
         "[Script Info]\n"
         "ScriptType: v4.00+\n"
@@ -638,13 +641,13 @@ def generate_ass_subtitle(
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
         "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        f"Style: Default,{family},{fontsize},{tmpl['primary']},{tmpl['secondary']},{tmpl['outline']},{tmpl['back']},"
-        f"0,0,0,0,100,100,0,0,1,3,0,{tmpl['align']},{tmpl['marginL']},{tmpl['marginR']},{tmpl['marginV']},0\n\n"
+        f"Style: Default,{family},{fontsize},{primary},{secondary},{outline},{back},"
+        f"0,0,0,0,100,100,0,0,1,3,0,{align},{marginL},{marginR},{marginV},0\n\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
     )
 
-    # 4) 각 대사에 폰트/크기 오버라이드도 한 번 더 강제(시스템 폰트 fallback 차단)
+    # 4) 각 대사에 폰트/크기 오버라이드(시스템 fallback 차단)
     safe_family = family.replace("{", "").replace("}", "")
     font_tag = "{\\fn" + safe_family + "\\fs" + str(fontsize) + "}"
 
@@ -662,7 +665,6 @@ def generate_ass_subtitle(
     with open(ass_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines_out))
     return ass_path
-
 
 def format_ass_timestamp(seconds):
     h = int(seconds // 3600)
