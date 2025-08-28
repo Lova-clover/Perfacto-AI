@@ -735,6 +735,15 @@ with st.sidebar:
                             marks_voice_key=st.session_state.selected_polly_voice_key,
                         )
                         dense_events = dedupe_adjacent_texts(dense_events)
+                        
+                        dense_events = harden_ko_sentence_boundaries(
+                            dense_events,
+                            enable_lead_split=True,
+                            max_lead_len=8,      # '이 숫자면', '만약 ~라면' 정도의 짧은 도입부만 분리
+                            fps_snap=None        # <- 여기선 스냅 생략, 아래에서 일괄 스냅
+                        )
+                        
+                        dense_events = quantize_events(dense_events, fps=24.0)
 
                         # 시간 경계 보정(겹침 방지) — ★ 싱크를 정확히 맞출 땐 margin=0.0이 안전
                         dense_events = clamp_no_overlap(dense_events, margin=0.0)
