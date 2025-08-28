@@ -287,8 +287,8 @@ def _validate_ssml(text: str) -> str:
     # 2) 단일인용 속성 → 쌍따옴표
     t = re.sub(r'(\b[a-zA-Z:-]+)=\'([^\']*)\'', r'\1="\2"', t)
 
-    # 3) pitch 속성 제거 (Neural 호환)
-    t = re.sub(r'\s+pitch="[^"]*"', "", t)
+    ## 3) pitch 속성 제거 (Neural 호환)
+    #t = re.sub(r'\s+pitch="[^"]*"', "", t)
 
     # 4) break time 보정: 숫자ms만 허용, 2000ms 초과시 2000ms로 clamp
     def _clamp_break(m):

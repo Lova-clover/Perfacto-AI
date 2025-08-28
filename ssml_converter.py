@@ -89,63 +89,6 @@ def breath_linebreaks(text: str) -> list[str]:
     # 폴백
     return _heuristic_breath_lines(t)
 
-def convert_line_to_ssml(user_line: str) -> str:
-    """
-    한 줄 대본을 Amazon Polly 친화 SSML로 분할(구/절 단위 prosody + 짧은 break).
-    - 태그: <prosody>, <break>만 사용 (여기서는 <speak>는 붙이지 않음)
-    - 마침표/느낌표/줄임표는 제거(Polly 안정성), 물음표/쉼표는 유지
-    - 원문 어휘/어순 보존, '분할'만 수행
-    """
-    t = (user_line or "").strip()
-    if not t:
-        return ""
-    # Polly 제약
-    t = t.replace("…", "")
-    t = re.sub(r"[!]+", "", t)
-    t = re.sub(r"[.]+", "", t)
-    t = re.sub(r"\s+", " ", t).strip()
-
-    # 분절 후보 (담화표지/?, , 뒤)
-    tmp = re.sub(r"(그리고|하지만|근데|그런데|그래서|그러니까|즉|특히|게다가|한편|반면에|다만)\s*", r"\g<0>§", t)
-    tmp = re.sub(r"(?<=[,，、;:·?])\s*", "§", tmp)
-    parts = [p.strip() for p in tmp.split("§") if p.strip()] or [t]
-
-    # 길이 보정
-    chunks = []
-    for p in parts:
-        if len(p) <= 18:
-            chunks.append(p)
-        else:
-            cur = p
-            while len(cur) > 18:
-                window = cur[:24]
-                spaces = [m.start() for m in re.finditer(r"\s", window)]
-                cut = spaces[-1] if spaces else 18
-                chunks.append(cur[:cut].strip())
-                cur = cur[cut:].strip()
-            if cur:
-                chunks.append(cur)
-
-    def _style(s: str):
-        s2 = s.strip()
-        if s2.endswith("?"):
-            return "162%", "+20%"
-        if re.search(r"(입니다|니다|합니다|어요|예요)$", s2):
-            return "152%", "+0%"
-        if re.search(r"(이다|다|없습니다|못합니다|것이다)$", s2):
-            return "138%", "-18%"
-        return "150%", "+0%"
-
-    ssml = []
-    for i, c in enumerate(chunks):
-        rate, pitch = _style(c)
-        ssml.append(f'<prosody rate="{rate}" pitch="{pitch}">{_xml_escape(c)}</prosody>')
-        if i != len(chunks) - 1:
-            ssml.append('<break time="30ms"/>')
-
-    # 연속 break 방지
-    return re.sub(r'(?:<break\b[^>]*/>\s*){2,}', '<break time="30ms"/>', "".join(ssml)).strip()
-
 SSML_PROMPT = """역할: 너는 한국어 대본을 숏폼용 Amazon Polly SSML로 변환하는 변환기다.
 출력은 SSML만, <speak>…</speak> 구조로만 낸다. 마크다운/주석/설명 금지.
 
@@ -212,3 +155,108 @@ BREATH_PROMPT = """역할: 너는 한국어 대본의 호흡(브레스) 라인�
 
 [출력]
 (라인브레이크 적용된 텍스트만)"""
+
+
+def _complete_with_any_llm(prompt: str) -> str | None:
+    if complete_text is not None:
+        try:
+            return complete_text(prompt)
+        except Exception:
+            pass
+    try:
+        chain = get_default_chain()
+        for payload in ({"question": prompt}, {"input": prompt}, prompt):
+            try:
+                out = chain.invoke(payload)
+                if isinstance(out, str):
+                    return out
+                if isinstance(out, dict):
+                    texts = [str(v) for v in out.values() if isinstance(v, (str, bytes))]
+                    return max(texts, key=len) if texts else None
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
+
+def _unwrap_speak(ssml: str) -> str:
+    m = re.search(r"<speak[^>]*>(.*)</speak>", ssml or "", flags=re.S|re.I)
+    return (m.group(1) if m else (ssml or "")).strip()
+
+def convert_line_to_ssml(user_line: str) -> str:
+    """
+    한 줄 대본을 Amazon Polly 친화 SSML로 분할(구/절 단위 prosody + 짧은 break).
+    - 태그: <prosody>, <break>만 사용 (여기서는 <speak>는 붙이지 않음)
+    - 마침표/느낌표/줄임표는 제거(Polly 안정성), 물음표/쉼표는 유지
+    - 원문 어휘/어순 보존, '분할'만 수행
+    """
+    t = (user_line or "").strip()
+    if not t:
+        return ""
+
+    # 1) LLM 프롬프트 시도
+    try:
+        prompt = SSML_PROMPT.replace("{{USER_SCRIPT}}", t)
+        out = _complete_with_any_llm(prompt) or ""
+        out = out.strip()
+        if out:
+            # <speak>... </speak>를 감싸서 오면 껍데기만 벗겨 fragment로
+            frag = _unwrap_speak(out)
+
+            # 허용 외 태그 제거 (prosody/break만 허용)
+            frag = re.sub(r"</?(?!prosody\b|break\b)[a-zA-Z0-9:_-]+\b[^>]*>", "", frag)
+
+            # 연속 break 정리
+            frag = re.sub(r'(?:<break\b[^>]*/>\s*){2,}', '<break time="30ms"/>', frag)
+
+            if frag.strip():
+                return frag
+    except Exception:
+        pass
+    
+    # Polly 제약
+    t = t.replace("…", "")
+    t = re.sub(r"[!]+", "", t)
+    t = re.sub(r"[.]+", "", t)
+    t = re.sub(r"\s+", " ", t).strip()
+
+    # 분절 후보 (담화표지/?, , 뒤)
+    tmp = re.sub(r"(그리고|하지만|근데|그런데|그래서|그러니까|즉|특히|게다가|한편|반면에|다만)\s*", r"\g<0>§", t)
+    tmp = re.sub(r"(?<=[,，、;:·?])\s*", "§", tmp)
+    parts = [p.strip() for p in tmp.split("§") if p.strip()] or [t]
+
+    # 길이 보정
+    chunks = []
+    for p in parts:
+        if len(p) <= 18:
+            chunks.append(p)
+        else:
+            cur = p
+            while len(cur) > 18:
+                window = cur[:24]
+                spaces = [m.start() for m in re.finditer(r"\s", window)]
+                cut = spaces[-1] if spaces else 18
+                chunks.append(cur[:cut].strip())
+                cur = cur[cut:].strip()
+            if cur:
+                chunks.append(cur)
+
+    def _style(s: str):
+        s2 = s.strip()
+        if s2.endswith("?"):
+            return "162%", "+20%"
+        if re.search(r"(입니다|니다|합니다|어요|예요)$", s2):
+            return "152%", "+0%"
+        if re.search(r"(이다|다|없습니다|못합니다|것이다)$", s2):
+            return "138%", "-18%"
+        return "150%", "+0%"
+
+    ssml = []
+    for i, c in enumerate(chunks):
+        rate, pitch = _style(c)
+        ssml.append(f'<prosody rate="{rate}" pitch="{pitch}">{_xml_escape(c)}</prosody>')
+        if i != len(chunks) - 1:
+            ssml.append('<break time="30ms"/>')
+
+    # 연속 break 방지
+    return re.sub(r'(?:<break\b[^>]*/>\s*){2,}', '<break time="30ms"/>', "".join(ssml)).strip()
