@@ -546,43 +546,53 @@ def generate_ass_subtitle(
     strip_trailing_punct_last: bool = True,
     max_chars_per_line: int = 16,
     max_lines: int = 2,
+    font_path: str | None = os.path.join("assets", "fonts", "BMJUA_ttf.ttf"),
 ):
     r"""
     segments: [{"start":s, "end":e, "text": "..."}]
     - 너무 긴 텍스트는 \\N으로 강제 줄바꿈하여 2줄 안으로 맞춘다.
-    - 빈칸/공백 보존, 한국어 단어 자연스러운 끊김(조사/말꼬리 보호).
+    - 한국어 깨짐 방지: TTF 내부 패밀리명을 자동 추출해 Style/오버라이드에 적용.
     """
-    # ── 템플릿 안전 폴백 ───────────────────────────────────────────────
-    tmpl = (SUBTITLE_TEMPLATES.get(template_name)
-            or SUBTITLE_TEMPLATES.get("educational")
-            or {})
+    import re, os
 
-    # 해상도: (PlayResX, PlayResY)
-    res = tmpl.get("res")
-    if isinstance(res, (list, tuple)) and len(res) == 2:
-        resx, resy = int(res[0]), int(res[1])
-    else:
-        # 일부 템플릿이 PlayResX/PlayResY로만 제공될 수 있음
-        resx = int(tmpl.get("PlayResX", 720))
-        resy = int(tmpl.get("PlayResY", 1080))
+    # 템플릿 로드 (res가 없으면 기본값 사용)
+    tmpl = SUBTITLE_TEMPLATES.get(template_name) or SUBTITLE_TEMPLATES["educational"]
+    resx, resy = tmpl.get("res", (720, 1080))
 
-    # 스타일 기본값 (ASS 포맷 색상 예: &HAA BB GG RR)
-    fontname  = tmpl.get("fontname", "Arial")
-    fontsize  = int(tmpl.get("fontsize", 48))
-    primary   = tmpl.get("primary",  "&H00FFFFFF")  # 흰색
-    secondary = tmpl.get("secondary","&H00000000")
-    outline   = tmpl.get("outline",  "&H80000000")  # 반투명 검은 외곽
-    back      = tmpl.get("back",     "&H00000000")
-    align     = int(tmpl.get("align", 2))           # 2: 하단 정중앙
-    marginL   = int(tmpl.get("marginL", 20))
-    marginR   = int(tmpl.get("marginR", 20))
-    marginV   = int(tmpl.get("marginV", 30))
+    # 1) TTF 내부 패밀리명 얻기 (없으면 템플릿 fontname 사용)
+    def _font_family_from_ttf(ttf_path: str) -> str | None:
+        try:
+            from fontTools.ttLib import TTFont
+            tt = TTFont(ttf_path)
+            fam, fullname = None, None
+            for rec in tt["name"].names:
+                if rec.nameID in (1, 4):  # 1: Family, 4: Full name
+                    try:
+                        s = rec.toUnicode()
+                    except Exception:
+                        s = rec.string.decode(rec.getEncoding(), errors="ignore")
+                    if rec.nameID == 1 and not fam:
+                        fam = s
+                    if rec.nameID == 4 and not fullname:
+                        fullname = s
+            tt.close()
+            return fullname or fam
+        except Exception:
+            return None
+
+    family = tmpl.get("fontname", "Noto Sans CJK KR")
+    if font_path and os.path.exists(font_path):
+        fam = _font_family_from_ttf(font_path)
+        if fam:
+            family = fam  # ASS Style/오버라이드에 사용할 실제 패밀리명
+
+    fontsize = int(tmpl.get("fontsize", 48))
 
     def _ass_escape(s: str) -> str:
-        # ASS 특수문자 이스케이프
+        # ASS 특수문자만 이스케이프 (한글/공백/백슬래시(\N)는 그대로)
         return (s or "").replace("{", r"\{").replace("}", r"\}")
 
-    # 줄바꿈 알고리즘(문장 길이 기준, 조사/말꼬리 보호)
+    # 2) 줄바꿈 알고리즘(문장 길이 기준, 조사/말꼬리 보호)
     TAIL_PROTECT_RE = re.compile(r'(?:[은는이가을를의도로과와]|입니다|니다|다|요|죠|겠죠|같죠\?)$')
 
     def _wrap_for_ass(text: str) -> str:
@@ -592,7 +602,6 @@ def generate_ass_subtitle(
         # 이미 매우 짧으면 그대로
         if len(t) <= max_chars_per_line:
             return _ass_escape(t)
-
         # 공백/쉼표 기준으로 토막
         tokens = re.findall(r'[^\s,]+[,\u3002\uFF0C\uFF1F\uFF01]?|\s+', t)
         lines, cur = [], ''
@@ -601,9 +610,7 @@ def generate_ass_subtitle(
             if len(candidate.strip()) <= max_chars_per_line or len(cur.strip()) < (max_chars_per_line // 2):
                 cur = candidate
                 continue
-            # 줄바꿈 시도: 말꼬리 단독 방지 (실제로는 조건만 점검)
-            if TAIL_PROTECT_RE.search(cur.strip()):
-                pass
+            # 줄바꿈 시도
             cur = cur.strip()
             if cur:
                 lines.append(cur)
@@ -611,46 +618,51 @@ def generate_ass_subtitle(
             if len(lines) >= (max_lines - 1):
                 # 마지막 줄은 남은 거 모두
                 break
-
         if cur and len(lines) < max_lines:
             lines.append(cur.strip())
-
         # 잔여가 남았어도 max_lines 넘지 않게 잘라냄
         if len(lines) > max_lines:
             lines = lines[:max_lines]
-
+        # \N은 ASS 줄바꿈
         return r'\N'.join([_ass_escape(x) for x in lines if x])
 
-    # ── 헤더/스타일 ───────────────────────────────────────────────
-    header = f"""[Script Info]
-ScriptType: v4.00+
-WrapStyle: 2
-ScaledBorderAndShadow: yes
-PlayResX: {resx}
-PlayResY: {resy}
+    # 3) 헤더/스타일 (Encoding은 0으로 두는 게 안전)
+    header = (
+        "[Script Info]\n"
+        "ScriptType: v4.00+\n"
+        "WrapStyle: 2\n"
+        "ScaledBorderAndShadow: yes\n"
+        f"PlayResX: {resx}\n"
+        f"PlayResY: {resy}\n\n"
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
+        "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+        "Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        f"Style: Default,{family},{fontsize},{tmpl['primary']},{tmpl['secondary']},{tmpl['outline']},{tmpl['back']},"
+        f"0,0,0,0,100,100,0,0,1,3,0,{tmpl['align']},{tmpl['marginL']},{tmpl['marginR']},{tmpl['marginV']},0\n\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
+    )
 
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{fontname},{fontsize},{primary},{secondary},{outline},{back},0,0,0,0,100,100,0,0,1,3,0,{align},{marginL},{marginR},{marginV},1
+    # 4) 각 대사에 폰트/크기 오버라이드도 한 번 더 강제(시스템 폰트 fallback 차단)
+    safe_family = family.replace("{", "").replace("}", "")
+    font_tag = "{\\fn" + safe_family + "\\fs" + str(fontsize) + "}"
 
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-""".rstrip("\n")
-
-    # ── 이벤트(대사) ───────────────────────────────────────────────
     lines_out = [header]
     for i, s in enumerate(segments):
-        st_ts = format_ass_timestamp(float(s["start"]))
-        ed_ts = format_ass_timestamp(float(s["end"]))
+        st = format_ass_timestamp(float(s["start"]))
+        ed = format_ass_timestamp(float(s["end"]))
         text = s.get("text") or ""
         if strip_trailing_punct_last and i == len(segments) - 1:
             text = _strip_last_punct_preserve_closers(text)
         wrapped = _wrap_for_ass(text)
-        lines_out.append(f"Dialogue: 0,{st_ts},{ed_ts},Default,,0,0,0,,{wrapped}")
+        final_text = font_tag + (wrapped or "")
+        lines_out.append(f"Dialogue: 0,{st},{ed},Default,,0,0,0,,{final_text}")
 
     with open(ass_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines_out))
     return ass_path
+
 
 def format_ass_timestamp(seconds):
     h = int(seconds // 3600)
