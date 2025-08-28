@@ -6,7 +6,7 @@ from RAG.chain_builder import get_conversational_rag_chain, get_default_chain
 from persona import generate_response_from_persona
 from image_generator import generate_images_for_topic, generate_videos_for_topic
 from elevenlabs_tts import TTS_ELEVENLABS_TEMPLATES, TTS_POLLY_VOICES
-from generate_timed_segments import generate_subtitle_from_script, generate_ass_subtitle, SUBTITLE_TEMPLATES, _auto_split_for_tempo, auto_densify_for_subs, _strip_last_punct_preserve_closers, dedupe_adjacent_texts
+from generate_timed_segments import generate_subtitle_from_script, generate_ass_subtitle, SUBTITLE_TEMPLATES, _auto_split_for_tempo, auto_densify_for_subs, _strip_last_punct_preserve_closers, dedupe_adjacent_texts, harden_ko_sentence_boundaries
 from video_maker import (
     create_video_with_segments,
     create_video_from_videos,
@@ -235,24 +235,30 @@ def _normalize_scene_query(raw: str) -> str:
         return ""
     s = raw.strip()
 
-    # 1) 프리앰블/라벨 제거
+    # 프리앰블 제거
     s = re.sub(r'(?i)^(here are .*?:)\s*', '', s)
     s = re.sub(r'(?i)^(keywords?|키워드)\s*:\s*', '', s)
 
-    # 2) 줄바꿈/따옴표/백틱 제거
+    # 줄바꿈/따옴표 제거
     s = s.replace("\n", " ").replace("\r", " ")
     s = re.sub(r'["“”‘’\'`]+', '', s)
 
-    # 3) 허용 문자만 남기고 공백 정리(영문/숫자/쉼표/하이픈/공백)
-    s = re.sub(r'[^A-Za-z0-9 ,\-]+', ' ', s)
+    # ✅ 허용 문자 범위 완화: 영문 + 한글 + 숫자 + 공백 + , - . / ° %
+    s = re.sub(r'[^A-Za-z\uAC00-\uD7A30-9 ,\-./°%]+', ' ', s)
+
+    # ✅ 천단위·소수점 주변 공백 정리
+    s = re.sub(r'\s*,\s*', ',', s)
+    s = re.sub(r'\s*\.\s*', '.', s)
+
+    # 공백 정리
     s = re.sub(r'\s{2,}', ' ', s).strip(' ,').strip()
 
-    # 4) 쉼표 기준 최대 3조각까지만
+    # 쉼표로 쪼개 최대 3조각
     parts = [p.strip() for p in s.split(',') if p.strip()]
     if parts:
         s = ', '.join(parts[:3])
 
-    # 5) 너무 길면 자르기
+    # 너무 길면 컷
     if len(s) > 90:
         s = s[:90].rstrip(' ,')
 
@@ -722,12 +728,14 @@ with st.sidebar:
                         dense_events = auto_densify_for_subs(
                             segments,
                             tempo="fast",
-                            words_per_piece=3,
-                            min_tail_words=2,
-                            chunk_strategy=None,
+                            #words_per_piece=4,
+                            #min_tail_words=3,
+                            chunk_strategy="period_2or3",
                             marks_voice_key=st.session_state.selected_polly_voice_key,  # ← 콤마 빠지지 않게!
                         )
                         dense_events = dedupe_adjacent_texts(dense_events)
+                        
+                        dense_events = harden_ko_sentence_boundaries(dense_events)
                         
                         dense_events = quantize_events(dense_events, fps=24.0)
 

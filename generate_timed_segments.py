@@ -11,6 +11,65 @@ import boto3, json
 from elevenlabs_tts import TTS_POLLY_VOICES 
 from botocore.exceptions import ClientError
 
+def harden_ko_sentence_boundaries(segments):
+    """
+    한국어 특성(문장 끝 어미/말꼬리) 때문에 잘리는 자막을 바로잡는다.
+    - '?', '~다/~요/~니다/~습니다/~입니다' 등 '강한 끝'이 없으면 다음 조각과 병합
+    - 다음 조각이 '것이다/것입니다/이다/다/수 있다/수 없다/해야 한다'처럼 말꼬리만 있으면 뒤에 붙지 않도록 병합
+    - 너무 짧은 꼬리(4~8자) 혼자 나오면 앞에 붙임
+    """
+    END_STRONG_RE = re.compile(r'(?:\?|다|요|니다|습니다|입니다|예요|이에요|였(?:다|습니다)|겠다)$')
+    TAIL_START_RE = re.compile(r'^(?:다|이다|입니다|였다|일 것이다|것이다|것입니다|될 것이다|수 있다|수 없다|해야 한다)\b')
+    WEAK_END_RE   = re.compile(r'(?:것|수|게|지|을|를|을 것|할|될)$')
+
+    out = []
+    i = 0
+    while i < len(segments):
+        cur = dict(segments[i])
+        # 다음 조각과 병합할지 판단
+        if i + 1 < len(segments):
+            nxt = segments[i+1]
+            cur_text = (cur.get("text") or "").strip()
+            nxt_text = (nxt.get("text") or "").strip()
+
+            def should_merge(a, b):
+                # 이미 강한 끝이면 경계 유지
+                if END_STRONG_RE.search(a):
+                    return False
+                # 말꼬리로 시작하면 병합
+                if TAIL_START_RE.match(b):
+                    return True
+                # '것/수/게/지/될/할 …' 같은 약한 끝 + 다음이 짧으면 병합
+                if WEAK_END_RE.search(a) and len(b) <= 8:
+                    return True
+                # 실수로 '?'가 다음 조각에 붙은 경우도 병합
+                if b.startswith("?"):
+                    return True
+                # 아주 짧은 꼬리 혼자 나오면 병합
+                if len(b) <= 4 and re.match(r'^(?:것[이은]?|이다|다|죠|요|예요)$', b):
+                    return True
+                return False
+
+            if should_merge(cur_text, nxt_text):
+                cur["end"]  = float(nxt["end"])
+                cur["text"] = (cur_text + " " + nxt_text).strip()
+                i += 2
+                # 연속 꼬리도 연쇄 병합
+                while i < len(segments):
+                    nxt2 = segments[i]
+                    if should_merge(cur["text"], (nxt2.get("text") or "").strip()):
+                        cur["end"]  = float(nxt2["end"])
+                        cur["text"] = (cur["text"].rstrip() + " " + (nxt2.get("text") or "").lstrip()).strip()
+                        i += 1
+                    else:
+                        break
+                out.append(cur)
+                continue
+
+        out.append(cur)
+        i += 1
+    return out
+
 def _parse_ssml_pieces(ssml: str):
     """<prosody ...>text</prosody> (+ 선택적 <break>) 를 순서대로 추출"""
     if not ssml: return []
