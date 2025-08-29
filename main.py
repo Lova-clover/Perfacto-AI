@@ -1036,14 +1036,29 @@ with st.sidebar:
 
                         # === 기존 dense 생성 부분 교체(생성 그대로) ===
                         dense_events = []
+
+                        def _densify_for_fast_tempo(events, words_per_piece=2):
+                            # 단어 수 기준으로 목표 이벤트 개수 산정 → 더 촘촘하게 분할
+                            import math
+                            total_tokens = sum(len(_tokenize_words_for_kr_en(e.get("text",""))) for e in events)
+                            if total_tokens == 0: 
+                                return events
+                            target = max(len(events), math.ceil(total_tokens / max(1, int(words_per_piece))))
+                            return densify_subtitles_by_words(events, target)
+
                         for seg in segments:  # seg = {"start","end","text","ssml"(optional)}
                             if seg.get("ssml"):
-                                dense_events += _build_dense_from_ssml(seg["ssml"], seg["start"], seg["end"], fps=30.0)
+                                ev = _build_dense_from_ssml(seg["ssml"], seg["start"], seg["end"], fps=30.0)
+                                # 🔥 SSML도 빠른 템포로 더 촘촘히 분할
+                                ev = _densify_for_fast_tempo(ev, words_per_piece=2)
+                                dense_events += ev
                             else:
-                                dense_events += auto_densify_for_subs([seg], tempo="fast", words_per_piece=2,
-                                                                    min_tail_words=2, chunk_strategy=None,
-                                                                    marks_voice_key=st.session_state.selected_polly_voice_key,
-                                                                    max_chars_per_piece=14, min_piece_dur=0.50)
+                                dense_events += auto_densify_for_subs(
+                                    [seg], tempo="fast", words_per_piece=2,
+                                    min_tail_words=2, chunk_strategy=None,
+                                    marks_voice_key=st.session_state.selected_polly_voice_key,
+                                    max_chars_per_piece=14, min_piece_dur=0.50
+                                )
 
                         # === ① 경계 보강 ===
                         dense_events = harden_ko_sentence_boundaries(dense_events)

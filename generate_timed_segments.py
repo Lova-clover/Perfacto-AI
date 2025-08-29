@@ -102,45 +102,82 @@ def _quantize_segments(segs, fps=24.0, clamp_start=None, clamp_end=None):
         out[-1]["end"]  = min(clamp_end,  out[-1]["end"])
     return out
 
+def _pitch_level_from_attr(pitch_str: str) -> str:
+    # "+20%" / "-15%" / "+3st" 등 → 대략 퍼센트/정수만 추출
+    import re
+    m = re.search(r"(-?\d+)\s*%?", pitch_str or "")
+    v = int(m.group(1)) if m else 0
+    if v >= +10: return "high"
+    if v <= -10: return "low"
+    return "mid"
+
 def _build_dense_from_ssml(line_ssml: str, seg_start: float, seg_end: float, fps: float = 24.0):
-    """한 줄(오디오 한 파일) SSML을 조각 단위로 시간 분배 → dense events 반환"""
-    pcs = _parse_ssml_pieces(line_ssml)
+    """
+    한 줄(오디오 한 파일) SSML을 prosody 조각 단위로 시간 분배 → dense events 반환
+    - 각 이벤트에 pitch(숫자 %), pitch_level(high/mid/low) 포함
+    """
+    pcs = _parse_ssml_pieces(line_ssml)  # ← 기존 함수 사용
     if not pcs:
-        return []  # SSML이 없으면 호출측에서 기존 로직으로
+        return []
+
+    # 안전 디폴트
+    for p in pcs:
+        p.setdefault("text", "")
+        p.setdefault("rate_pct", 150)   # 보통 100~200%, 내부 가중치 기준 150을 중심으로
+        p.setdefault("pitch_pct", 0)
+        p.setdefault("break_ms", 0)
 
     dur = max(0.01, seg_end - seg_start)
-    # 브레이크 합(ms → s)
     total_break = sum(p["break_ms"] for p in pcs) / 1000.0
     speech_dur  = max(0.0, dur - total_break)
 
-    # rate 반영 가중치
+    # rate 반영 가중치 (rate 높을수록 같은 글자수라도 더 빨리 읽으니 시간 적게 배분)
     weights = []
     for p in pcs:
         char_len = max(1, len(p["text"]))
-        rate_mul = max(0.1, p["rate_pct"] / 150.0)  # 150%를 기준
+        rate_mul = max(0.1, float(p["rate_pct"]) / 150.0)  # 150%를 중심값으로
         w = char_len / rate_mul
         weights.append(w)
     W = sum(weights) or 1.0
 
-    # 시간 배분
     t = seg_start
     events = []
     for p, w in zip(pcs, weights):
         span = speech_dur * (w / W)
         t0 = t
-        t1 = t0 + span
+        t1 = min(seg_end, t0 + span)
 
-        # pitch를 seg에 싣어 ASS 색상 규칙과 연동(아래 1프레임 여유 확보)
-        events.append({"start": t0, "end": t1, "text": p["text"], "pitch": p["pitch_pct"]})
+        pitch_pct = float(p.get("pitch_pct", 0))
+        pitch_lvl = "high" if pitch_pct >= 10 else ("low" if pitch_pct <= -10 else "mid")
 
-        # prosody 다음 break
-        if p["break_ms"] > 0:
-            t = t1 + p["break_ms"]/1000.0
-        else:
-            t = t1
+        events.append({
+            "start": t0,
+            "end":   t1,
+            "text":  p["text"],
+            "pitch": pitch_pct,        # 숫자 % (색상 매핑 시 사용)
+            "pitch_level": pitch_lvl,  # 필요하면 문자열 레벨도 사용 가능
+        })
 
-    # 프레임 격자 스냅(24fps) + 겹침 방지
-    return _quantize_segments(events, fps=fps, clamp_start=seg_start, clamp_end=seg_end)
+        # prosody 사이의 break 반영
+        t = t1 + (p["break_ms"] / 1000.0)
+
+    # 프레임 격자 스냅 + 범위 클램프 (프로젝트에 이미 있는 헬퍼 사용)
+    try:
+        return _quantize_segments(events, fps=fps, clamp_start=seg_start, clamp_end=seg_end)
+    except NameError:
+        # fallback: 아주 얕은 스냅
+        tick = 1.0 / float(fps)
+        out = []
+        for ev in events:
+            s = max(seg_start, round(ev["start"] / tick) * tick)
+            e = min(seg_end,   round(ev["end"]   / tick) * tick)
+            if e <= s: e = s + tick
+            out.append({**ev, "start": round(s, 3), "end": round(e, 3)})
+        # 겹침 방지
+        for i in range(len(out) - 1):
+            if out[i]["end"] > out[i+1]["start"]:
+                out[i]["end"] = max(out[i]["start"] + 0.02, out[i+1]["start"] - 0.001)
+        return out
 
 def _clean_for_align(s: str) -> str:
     return re.sub(r"[^0-9A-Za-z\uac00-\ud7a3]+", "", s or "").strip()
@@ -822,7 +859,6 @@ def generate_ass_subtitle(
         if e <= s:
             e = s + 0.02
 
-        # 기존에 하시던 텍스트 정리(1줄 우선/2줄은 필요한 경우만) 그대로
         plan_text = _prepare_text_for_lines(ev.get("text", "") or "", max_chars_per_line, max_lines)
         if strip_trailing_punct_last:
             plan_text = _strip_trailing_punct_last_line(plan_text)
@@ -830,14 +866,15 @@ def generate_ass_subtitle(
         if not safe_text.strip().replace(NBSP, ""):
             safe_text = NBSP
 
-        colour_tag = ""
-        p = ev.get("pitch")
-        if isinstance(p, (int, float)) and p <= -6:
-            colour_tag = r"{\c&H0000FF&}"   # 빨강 (ASS는 BGR 순서)
+        # 🔹 pitch → 색상 태그
+        col_hex = _pitch_to_hex(ev.get("pitch"))
+        if col_hex:
+            ass_bgr = _hex_to_ass_bgr(col_hex)
+            # 주색(\c)만 바꿉니다. 필요 시 윤곽선(\3c), 그림자(\4c)도 동일하게 넣을 수 있어요.
+            colour_tag = r"{\c&H" + ass_bgr + r"&}"
+            safe_text = colour_tag + safe_text
 
-        safe_text = colour_tag + safe_text
-        
-        # ★ 스타일명을 'BMJua'로 고정
+        # 스타일은 BMJua 고정(이미 _ensure_styles_with_bmjua 로 등록)
         dlg = f"Dialogue: 0,{_ass_time(s)},{_ass_time(e)},BMJua,,0,0,0,,{safe_text}"
         lines.append(dlg)
 

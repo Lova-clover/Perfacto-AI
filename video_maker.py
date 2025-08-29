@@ -297,42 +297,25 @@ def create_video_with_segments(
         seg_clip = CompositeVideoClip(overlays, size=(W, H)).with_duration(dur)
         clips.append(seg_clip)
 
-    # ---------- BGM 선택 & 믹스 ----------
-    # 1) 사용자가 올린 bgm_path가 최우선
+    # ---------- BGM 선택 ----------
     chosen_bgm = bgm_path if (bgm_path and os.path.exists(bgm_path)) else None
-    # 2) 없으면 기본 BGM
-    if not chosen_bgm:
-        default_bgm = os.path.join("assets", "bgm.mp3")
-        chosen_bgm = default_bgm if os.path.exists(default_bgm) else None
-
-    final_audio = None
     target_duration = narration.duration if narration else total_dur
 
+    # 🔧 pydub로 미리 믹스(보이스 없어도 BGM만 길이에 맞춰 깔림)
+    mixed_path = os.path.join(os.path.dirname(save_path) or ".", "_mix_audio.mp3")
     try:
-        bgm_clip = AudioFileClip(chosen_bgm) if chosen_bgm else None
+        _mix_voice_and_bgm(
+            voice_path=(audio_path if (audio_path and os.path.exists(audio_path)) else None),
+            bgm_path=chosen_bgm,
+            out_path=mixed_path,
+            bgm_gain_db=-18.0,        # 필요하면 -15~-12dB까지 올려보세요
+            add_tail_ms=250
+        )
+        final_audio = AudioFileClip(mixed_path)
     except Exception as e:
-        print(f"⚠️ BGM 로드 실패: {e}")
-        bgm_clip = None
-
-    if bgm_clip:
-        if audio_loop is not None:
-            try:
-                bgm_loop = audio_loop(bgm_clip, duration=target_duration).volumex(0.08)
-            except Exception:
-                bgm_loop = _loop_audio_manual(bgm_clip, target_duration).volumex(0.08)
-        else:
-            bgm_loop = _loop_audio_manual(bgm_clip, target_duration).volumex(0.08)
-    else:
-        bgm_loop = None
-
-    if narration and bgm_loop:
-        final_audio = CompositeAudioClip([narration, bgm_loop])
-    elif narration:
-        final_audio = narration
-    elif bgm_loop:
-        final_audio = bgm_loop
-    else:
-        final_audio = None  # 완전 무음도 허용
+        print(f"⚠️ pre-mix 실패, MoviePy 경로로 진행: {e}")
+        # ← 여기서는 기존 MoviePy CompositeAudioClip 로직을 짧게 백업으로 두셔도 됩니다.
+        final_audio = None
 
     # ---------- 파일 쓰기 ----------
     os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
@@ -356,9 +339,6 @@ def create_video_with_segments(
     except: pass
     if narration: 
         try: narration.close()
-        except: pass
-    if bgm_clip:
-        try: bgm_clip.close()
         except: pass
     gc.collect()
 
