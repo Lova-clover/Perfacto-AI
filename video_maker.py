@@ -17,7 +17,14 @@ except Exception:
         from moviepy.audio.fx.all import audio_loop  # moviepy 1.x
     except Exception:
         audio_loop = None
-        
+
+def _st(msg):
+    try:
+        import streamlit as st
+        st.write(msg)
+    except Exception:
+        print(msg)
+
 def _with_audio_compat(video, audio):
     try:
         return video.with_audio(audio)   # moviepy 2.x
@@ -315,7 +322,7 @@ def create_video_with_segments(
             voice_path=(audio_path if (audio_path and os.path.exists(audio_path)) else None),
             bgm_path=chosen_bgm,
             out_path=mixed_path,
-            bgm_gain_db=5,     
+            bgm_gain_db=-10, #BGM 소리 크기    
             add_tail_ms=250
         )
         final_audio = AudioFileClip(mixed_path)
@@ -707,20 +714,42 @@ def create_video_from_videos(
         narration = narration.with_duration(total_video_duration)
         print("🔊 음성 파일이 없어 무음 오디오 트랙을 생성했습니다.")
 
-    # ── BGM 믹스(옵션)
+        # ── BGM 믹스(옵션)
     final_audio = narration
     if bgm_path and os.path.exists(bgm_path):
         try:
+            _st(f"🎧 BGM path: {bgm_path} (exists={os.path.exists(bgm_path)})")
             bgm_raw = AudioFileClip(bgm_path)
-            if bgm_raw.duration <= 0.1:
-                raise RuntimeError("BGM duration is too short")
-            # 반복 타일링 + -15dB 정도
-            tile = int(math.ceil(narration.duration / max(bgm_raw.duration, 0.1)))
-            bgm_tiled = concatenate_audioclips([bgm_raw] * tile).subclip(0, narration.duration)
-            bgm_tiled = bgm_tiled.volumex(0.18)
-            final_audio = CompositeAudioClip([narration, bgm_tiled])
+            sr = 44100
+
+            if not getattr(bgm_raw, "duration", 0) or bgm_raw.duration <= 0.1:
+                raise RuntimeError("BGM duration too short")
+
+            narr_dur = float(narration.duration)
+
+            # BGM을 배열로 변환 → 길이에 맞춰 타일링
+            bgm_arr = bgm_raw.to_soundarray(fps=sr)
+            if bgm_arr.ndim == 1:  # 모노면 스테레오로 복제
+                bgm_arr = np.column_stack([bgm_arr, bgm_arr])
+
+            need = int(np.ceil(narr_dur / max(bgm_raw.duration, 0.001)))
+            tiled = np.tile(bgm_arr, (need, 1))
+            n_samples = int(np.round(narr_dur * sr))
+            tiled = tiled[:n_samples]
+
+            # 볼륨: 적당히 들리게 (원하면 0.5~0.8 사이로 조절)
+            gain = 0.5
+            tiled = tiled * gain
+
+            # 배열 → AudioArrayClip → 내레이션과 합성
+            bgm_clip = AudioArrayClip(tiled, fps=sr).with_duration(narr_dur)
+            final_audio = CompositeAudioClip([narration, bgm_clip])
+
+            _st(f"✅ Mixed BGM (narr={narr_dur:.3f}s, bgm={bgm_raw.duration:.3f}s, sr={sr})")
         except Exception as e:
-            print(f"⚠️ BGM 믹스 실패(무시): {e}")
+            _st(f"⚠️ BGM mix failed (continue w/o BGM): {e}")
+    else:
+        _st("ℹ️ No BGM path or not found — narration only")
 
     # ── 소스 동영상 수 보정(부족 시 순환)
     if len(video_paths) < len(segments) and video_paths:
