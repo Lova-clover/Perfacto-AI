@@ -639,11 +639,6 @@ def _best_two_line_break(text: str, max_len: int, min_each: int = 3) -> str:
     return f"{left}\\N{right}"
 
 def _prepare_text_for_lines(text: str, max_chars_per_line: int, max_lines: int) -> str:
-    """
-    1줄이면 무조건 1줄 유지.
-    2줄이 '필요한 경우'(길이 초과에 한해)만 스마트 브레이크.
-    이미 \N이 들어온 경우는 그대로 존중(추가 분해 금지).
-    """
     if not text:
         return NBSP
 
