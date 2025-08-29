@@ -17,7 +17,13 @@ except Exception:
         from moviepy.audio.fx.all import audio_loop  # moviepy 1.x
     except Exception:
         audio_loop = None
-
+        
+def _with_audio_compat(video, audio):
+    try:
+        return video.with_audio(audio)   # moviepy 2.x
+    except AttributeError:
+        return video.set_audio(audio)    # moviepy 1.x
+    
 def _loop_audio_manual(clip, duration):
     rep = int(np.ceil(duration / max(clip.duration, 0.1)))
     looped = concatenate_audioclips([clip] * max(1, rep))
@@ -303,19 +309,35 @@ def create_video_with_segments(
 
     # 🔧 pydub로 미리 믹스(보이스 없어도 BGM만 길이에 맞춰 깔림)
     mixed_path = os.path.join(os.path.dirname(save_path) or ".", "_mix_audio.mp3")
+    final_audio = None
     try:
         _mix_voice_and_bgm(
             voice_path=(audio_path if (audio_path and os.path.exists(audio_path)) else None),
             bgm_path=chosen_bgm,
             out_path=mixed_path,
-            bgm_gain_db=-18.0,        # 필요하면 -15~-12dB까지 올려보세요
+            bgm_gain_db=-14.0,     # 살짝 키움(원래 -18dB)
             add_tail_ms=250
         )
         final_audio = AudioFileClip(mixed_path)
     except Exception as e:
-        print(f"⚠️ pre-mix 실패, MoviePy 경로로 진행: {e}")
-        # ← 여기서는 기존 MoviePy CompositeAudioClip 로직을 짧게 백업으로 두셔도 됩니다.
-        final_audio = None
+        print(f"⚠️ pre-mix 실패 → 즉석 믹스로 폴백: {e}")
+        # ─ 폴백: MoviePy만으로 안전하게 믹스
+        try:
+            import math
+            parts = []
+            if narration is not None:
+                parts.append(narration)
+            if chosen_bgm and os.path.exists(chosen_bgm):
+                bgm_raw = AudioFileClip(chosen_bgm)
+                need = target_duration if narration is None else narration.duration
+                rep = int(math.ceil(need / max(bgm_raw.duration, 0.1)))
+                bgm_tiled = concatenate_audioclips([bgm_raw] * max(1, rep)).subclip(0, need).volumex(0.15)
+                parts.append(bgm_tiled)
+            if parts:
+                final_audio = CompositeAudioClip(parts)
+        except Exception as ee:
+            print(f"⚠️ 폴백 믹스도 실패: {ee}")
+            final_audio = narration  # 그래도 보이스는 유지
 
     # ---------- 파일 쓰기 ----------
     os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
@@ -323,7 +345,7 @@ def create_video_with_segments(
 
     video = concatenate_videoclips(clips, method="chain").with_fps(24)
     if final_audio is not None:
-        video = video.with_audio(final_audio)  # (moviepy 1.x: set_audio(final_audio))
+        video = _with_audio_compat(video, final_audio)
 
     video.write_videofile(
         tmp_out,

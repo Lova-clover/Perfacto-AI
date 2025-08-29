@@ -33,7 +33,8 @@ nest_asyncio.apply()
 load_dotenv()
 
 VIDEO_TEMPLATE = "영상(영어보이스+한국어자막·가운데)"
-
+# --- BGM 기본 경로(사용자 요청: 고정 사용) ---
+DEFAULT_BGM = "assets/[BGM] 힙합 비트 신나는 음악  무료브금  HYP-Show Me - HYP MUSIC - BGM Design.mp3"
 
 # ---------- 유틸 ----------
 def ensure_min_frames(events, fps=30.0, min_frames=2):
@@ -439,10 +440,6 @@ def _tokenize_words_for_kr_en(text: str):
     return merged
 
 def densify_subtitles_by_words(segments, target_min_events: int):
-    """
-    자막 세그먼트를 단어 단위로 더 잘게 쪼개어 '한 화면에 문단이 왕창' 뜨는 현상 방지.
-    오디오 타이밍은 유지하고, 각 세그먼트 내부에서 글자 길이 비율로 시간 배분.
-    """
     import re
     total_tokens = 0
     per_seg_tokens = []
@@ -467,6 +464,7 @@ def densify_subtitles_by_words(segments, target_min_events: int):
         n_chunks = math.ceil(len(toks) / chunk_size)
         t0 = seg_start
         base_len = max(1, len("".join(toks)))
+        extra = {k:v for k,v in s.items() if k not in ('start','end','text')}
         for i in range(n_chunks):
             part = toks[i*chunk_size:(i+1)*chunk_size]
             if not part: 
@@ -478,7 +476,7 @@ def densify_subtitles_by_words(segments, target_min_events: int):
             t1 = t0 + dur
             if i == n_chunks - 1:
                 t1 = seg_end
-            dense.append({'start': t0, 'end': t1, 'text': text})
+            dense.append({'start': t0, 'end': t1, 'text': text, **extra})
             t0 = t1
     return dense
 
@@ -1012,6 +1010,12 @@ with st.sidebar:
                         )
                         
                         try:
+                            if not st.session_state.bgm_path or not os.path.exists(st.session_state.bgm_path):
+                                st.session_state.bgm_path = DEFAULT_BGM
+                        except Exception:
+                            st.session_state.bgm_path = DEFAULT_BGM
+                        
+                        try:
                             with AudioFileClip(audio_path) as aud:
                                 aud_dur = float(aud.duration or 0.0)
                             if segments and aud_dur > 0:
@@ -1036,29 +1040,25 @@ with st.sidebar:
 
                         # === 기존 dense 생성 부분 교체(생성 그대로) ===
                         dense_events = []
-
-                        def _densify_for_fast_tempo(events, words_per_piece=2):
-                            # 단어 수 기준으로 목표 이벤트 개수 산정 → 더 촘촘하게 분할
-                            import math
-                            total_tokens = sum(len(_tokenize_words_for_kr_en(e.get("text",""))) for e in events)
-                            if total_tokens == 0: 
-                                return events
-                            target = max(len(events), math.ceil(total_tokens / max(1, int(words_per_piece))))
-                            return densify_subtitles_by_words(events, target)
-
-                        for seg in segments:  # seg = {"start","end","text","ssml"(optional)}
+                        for seg in segments:  # seg = {"start","end","text","ssml"?}
                             if seg.get("ssml"):
-                                ev = _build_dense_from_ssml(seg["ssml"], seg["start"], seg["end"], fps=30.0)
-                                # 🔥 SSML도 빠른 템포로 더 촘촘히 분할
-                                ev = _densify_for_fast_tempo(ev, words_per_piece=2)
-                                dense_events += ev
+                                base = _build_dense_from_ssml(seg["ssml"], seg["start"], seg["end"], fps=30.0)
+                                # 각 prosody 조각을 단어 단위로 더 쪼개서 템포 빠르게(싱크는 비율로 유지)
+                                for ev in base:
+                                    toks = _tokenize_words_for_kr_en(ev.get('text',''))
+                                    target = max(1, math.ceil(len(toks)/2))  # 2단어씩
+                                    finer = densify_subtitles_by_words([ev], target_min_events=target)
+                                    # pitch 보존
+                                    for f in finer:
+                                        f["pitch"] = ev.get("pitch")
+                                    dense_events.extend(finer)
                             else:
-                                dense_events += auto_densify_for_subs(
-                                    [seg], tempo="fast", words_per_piece=2,
-                                    min_tail_words=2, chunk_strategy=None,
-                                    marks_voice_key=st.session_state.selected_polly_voice_key,
-                                    max_chars_per_piece=14, min_piece_dur=0.50
-                                )
+                                # 기존 빠른 템포 설정 유지 (words_per_piece=2 권장)
+                                dense_events += auto_densify_for_subs([seg], tempo="fast", words_per_piece=2,
+                                                                    min_tail_words=2, chunk_strategy=None,
+                                                                    marks_voice_key=st.session_state.selected_polly_voice_key,
+                                                                    max_chars_per_piece=14, min_piece_dur=0.50)
+
 
                         # === ① 경계 보강 ===
                         dense_events = harden_ko_sentence_boundaries(dense_events)

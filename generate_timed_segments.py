@@ -31,19 +31,19 @@ def _parse_pitch_value(p):
 
 def _pitch_to_hex(p):
     """
-    ASS \c 태그에 쓸 BGR HEX("HBBGGRR") 반환.
-      low  (<= -12%): 빨강  -> H0000FF
-      mid  (-12..+12): 기본색 유지 -> None
-      high (>= +12%): 노랑  -> H00FFFF
+    p: 퍼센트(float/int) 가정. -20%..+20%를 파란→하양→빨강 그라데이션으로.
+    반환: ASS BGR 형식 ex) &HBBGGRR&
     """
-    v = _parse_pitch_value(p)
-    if v is None:
+    try:
+        v = float(p)
+    except Exception:
         return None
-    if v <= -12:
-        return "H0000FF"   # red (BGR)
-    if v >= +12:
-        return "H00FFFF"   # yellow (BGR)
-    return None
+    v = max(-20.0, min(20.0, v))
+    t = (v + 20.0) / 40.0  # 0..1
+    r = int(255 * t)
+    b = int(255 * (1.0 - t))
+    g = int(200 * (1.0 - abs(t - 0.5)*2))  # 중간 근처는 살짝 밝게
+    return f"&H{b:02X}{g:02X}{r:02X}&"
 
 def harden_ko_sentence_boundaries(segments):
     """
