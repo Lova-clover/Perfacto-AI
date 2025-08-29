@@ -37,6 +37,32 @@ VIDEO_TEMPLATE = "영상(영어보이스+한국어자막·가운데)"
 DEFAULT_BGM = "assets/[BGM] 힙합 비트 신나는 음악  무료브금  HYP-Show Me - HYP MUSIC - BGM Design.mp3"
 
 # ---------- 유틸 ----------
+import hashlib, os
+
+def _fingerprint_video(path: str) -> str:
+    """
+    같은 영상이 파일명만 달라 들어와도 잡아내기 위한 가벼운 지문.
+    - 파일명(쿼리스트링 제외) + 앞부분 512KB MD5 해시
+    - 읽기 실패 시 파일명만 사용
+    """
+    base = os.path.basename(path).lower().split("?")[0]
+    try:
+        with open(path, "rb") as f:
+            head = f.read(512 * 1024)
+        return base + ":" + hashlib.md5(head).hexdigest()
+    except Exception:
+        return base
+
+def dedupe_video_paths_keep_order(paths: list[str]) -> list[str]:
+    seen, out = set(), []
+    for p in paths:
+        key = _fingerprint_video(p)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(p)
+    return out
+
 def _strip_trailing_commas(s: str) -> str:
     return re.sub(r',+\s*$', '', s or '')
 
@@ -1298,11 +1324,74 @@ with st.sidebar:
                                     video_paths.extend(got)
 
                             # 5) 길이 보정
-                            if len(video_paths) < len(segments):
-                                st.warning(f"영상이 {len(video_paths)}개뿐입니다. 일부 문장은 마지막 클립을 재사용합니다.")
-                                if video_paths:
-                                    video_paths += [video_paths[-1]] * (len(segments) - len(video_paths))
+                            # 🔁 중복 제거(경로/내용 기반)
+                            before = len(video_paths)
+                            seen_fp = set()
+                            unique_paths = []
+                            for p in video_paths:
+                                fp = _fingerprint_video(p)
+                                if fp in seen_fp:
+                                    continue
+                                seen_fp.add(fp)
+                                unique_paths.append(p)
+                            video_paths = unique_paths
+                            after = len(video_paths)
+                            st.write(f"🔁 영상 중복 제거: {before} → {after}")
 
+                            # ✅ 부족분은 새로 검색해서 채우기(라운드로빈)
+                            need = len(segments) - len(video_paths)
+                            if need > 0:
+                                st.info(f"🔎 중복 제거로 {need}개 부족 → 고유 영상 재검색 시작")
+                                added = 0
+                                max_passes = 8  # 각 쿼리를 여러 바퀴 도는 상한 (너무 길면 늘리세요)
+
+                                # 이미 확보한 고유지문은 계속 유지
+                                seen_fp = {_fingerprint_video(p) for p in video_paths}
+
+                                # per_sentence_queries 는 바로 위에서 만든 문장별 키워드 리스트 그대로 사용
+                                for pass_no in range(max_passes):
+                                    for clip_idx, q in enumerate(per_sentence_queries, start=1):
+                                        if added >= need:
+                                            break
+
+                                        # 검색 전략: 원문 → 콤마분할 조각 → 정규화 키워드
+                                        candidates = [q]
+                                        if "," in q:
+                                            candidates += [piece.strip() for piece in q.split(",") if piece.strip()]
+                                        norm = _normalize_scene_query(q)
+                                        if norm and norm not in candidates:
+                                            candidates.append(norm)
+
+                                        found_unique = False
+                                        for cand in candidates:
+                                            got = _try_search_once(cand, len(video_paths) + added + 1)
+                                            if not got:
+                                                continue
+                                            pth = got[0]
+                                            fp  = _fingerprint_video(pth)
+                                            if fp in seen_fp:
+                                                # 중복이면 같은 cand로 다음 페이지 계속(다음 라운드에서 pg가 증가됨)
+                                                continue
+                                            # 새 고유 클립 획득
+                                            video_paths.append(pth)
+                                            seen_fp.add(fp)
+                                            added += 1
+                                            st.write(f"➕ 보강 {added}/{need}: {cand} → {os.path.basename(pth)}")
+                                            found_unique = True
+                                            break  # candidates 루프 탈출
+
+                                        if not found_unique:
+                                            # cand들로 못찾았으면 다음 pass 때 같은 쿼리의 다음 페이지를 자동 탐색
+                                            pass
+
+                                    if added >= need:
+                                        break
+
+                                # 그래도 모자라면 마지막으로 패딩
+                                if added < need:
+                                    st.warning(f"보강 검색 후에도 {need - added}개 부족 → 마지막 클립으로 패딩")
+                                    if video_paths:
+                                        video_paths += [video_paths[-1]] * (need - added)
                         else:
                             # --- 이미지 수집(문장당 1장, 부족 시 추가 탐색) ---
                             st.write("🖼️ 문장별로 페르소나 기반 키워드를 만들어 이미지 1장씩 생성/검색합니다.") 
