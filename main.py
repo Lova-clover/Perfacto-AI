@@ -1267,7 +1267,7 @@ with st.sidebar:
                             st.write("🎯 문장별로 페르소나 기반 키워드를 만들어 개별 영상 검색을 수행합니다.")
 
                             # 1) 문장 리스트
-                            sentence_units = [s['text'] for s in segments]
+                            sentence_units = [s['text'] for s in segments_for_video]
 
                             # 2) 페르소나 지시문
                             persona_text = ""

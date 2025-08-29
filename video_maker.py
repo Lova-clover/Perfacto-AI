@@ -350,7 +350,7 @@ def create_video_with_segments(
     os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
     tmp_out = os.path.join(os.path.dirname(save_path) or ".", "_temp_no_subs.mp4")
 
-    video = concatenate_videoclips(clips, method="chain").with_fps(24)
+    video = concatenate_videoclips(clips, method="chain").with_fps(30)
     if final_audio is not None:
         video = _with_audio_compat(video, final_audio)
 
@@ -396,7 +396,7 @@ def add_subtitles_to_video(input_video_path, ass_path, output_path):
         "-i", input_video_path,
         "-vf", f"ass='{ass_q}':fontsdir='{fonts_q}'",
         "-c:v", "libx264",
-        "-c:a", "aac", "-b:a", "192k",
+        "-c:a", "aac", "-b:a", "192k", "-r", "30",
         # ★ 비디오/오디오 모두 유지(오디오 없으면 무시)
         "-map", "0:v:0", "-map", "0:a?", 
         output_path
@@ -664,7 +664,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
         bgm = AudioFileClip(bgm_path).volumex(0.05).with_duration(duration)
         final_audio = CompositeAudioClip([audio, bgm])
 
-    final_video = video.with_audio(final_audio).with_fps(24)
+    final_video = video.with_audio(final_audio).with_fps(30)
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     final_video.write_videofile(save_path, codec="libx264", audio_codec="aac")
     return save_path
@@ -738,7 +738,7 @@ def create_video_from_videos(
             tiled = tiled[:n_samples]
 
             # 볼륨: 적당히 들리게 (원하면 0.5~0.8 사이로 조절)
-            gain = 0.2
+            gain = 0.1
             tiled = tiled * gain
 
             # 배열 → AudioArrayClip → 내레이션과 합성
@@ -863,7 +863,7 @@ def create_video_from_videos(
             seg_out,
             codec="libx264",
             audio=False,
-            fps=24,
+            fps=30,
             preset="ultrafast",
             threads=max(1, (os.cpu_count() or 2) // 2),
             ffmpeg_params=["-pix_fmt", "yuv420p", "-movflags", "+faststart"],
@@ -911,7 +911,7 @@ def create_video_from_videos(
     try:
         subprocess.run(
             [ffmpeg_path, "-y", "-f", "concat", "-safe", "0", "-i", concat_txt,
-             "-r", "24", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast", "-crf", "23", "-an", temp_video],
+             "-r", "30", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast", "-crf", "23", "-an", temp_video],
             check=True,
         )
     except subprocess.CalledProcessError:
@@ -922,7 +922,7 @@ def create_video_from_videos(
         n = len(safe_paths)
         filtergraph = "".join(f"[{i}:v]" for i in range(n)) + f"concat=n={n}:v=1:a=0[outv]"
         cmd += ["-filter_complex", filtergraph, "-map", "[outv]",
-                "-r", "24", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                "-r", "30", "-c:v", "libx264", "-pix_fmt", "yuv420p",
                 "-preset", "ultrafast", "-crf", "23", "-an", temp_video]
         subprocess.run(cmd, check=True)
 
