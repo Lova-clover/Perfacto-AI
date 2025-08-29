@@ -402,7 +402,7 @@ from pydub import AudioSegment
 import math, os
 
 def _mix_voice_and_bgm(voice_path: str | None, bgm_path: str | None, out_path: str,
-                       bgm_gain_db: float = -18.0, add_tail_ms: int = 250) -> str | None:
+                       bgm_gain_db: float = 6, add_tail_ms: int = 250) -> str | None:
     """
     - voice만 있으면 그대로 복사(꼬리 무음 추가)
     - bgm만 있으면 길이에 맞춰 자르고 내보냄

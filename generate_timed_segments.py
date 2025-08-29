@@ -40,9 +40,9 @@ def _pitch_to_hex(p):
         v = float(p)
     except Exception:
         return None
-    if v <= -6:
+    if v <= -4:
         return "&H0000FF&"  # red
-    if v >= +6:
+    if v >= +8:
         return "&HFF0000&"  # blue
     return None
 
