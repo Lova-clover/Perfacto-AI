@@ -11,6 +11,40 @@ import boto3, json
 from elevenlabs_tts import TTS_POLLY_VOICES 
 from botocore.exceptions import ClientError
 
+# --- pitch helpers -------------------------------------------------
+def _parse_pitch_value(p):
+    """숫자/문자 형태 pitch 값을 float %로 정규화."""
+    if p is None:
+        return None
+    if isinstance(p, (int, float)):
+        return float(p)
+    s = str(p).strip().lower()
+    if s in ("low", "lo"):
+        return -12.0
+    if s in ("mid", "medium", "normal", "default"):
+        return 0.0
+    if s in ("high", "hi"):
+        return +12.0
+    import re
+    m = re.search(r"(-?\d+(?:\.\d+)?)", s)
+    return float(m.group(1)) if m else None
+
+def _pitch_to_hex(p):
+    """
+    ASS \c 태그에 쓸 BGR HEX("HBBGGRR") 반환.
+      low  (<= -12%): 빨강  -> H0000FF
+      mid  (-12..+12): 기본색 유지 -> None
+      high (>= +12%): 노랑  -> H00FFFF
+    """
+    v = _parse_pitch_value(p)
+    if v is None:
+        return None
+    if v <= -12:
+        return "H0000FF"   # red (BGR)
+    if v >= +12:
+        return "H00FFFF"   # yellow (BGR)
+    return None
+
 def harden_ko_sentence_boundaries(segments):
     """
     한국어 문장 경계를 더 강하게 보정:
@@ -866,13 +900,9 @@ def generate_ass_subtitle(
         if not safe_text.strip().replace(NBSP, ""):
             safe_text = NBSP
 
-        # 🔹 pitch → 색상 태그
         col_hex = _pitch_to_hex(ev.get("pitch"))
-        if col_hex:
-            ass_bgr = _hex_to_ass_bgr(col_hex)
-            # 주색(\c)만 바꿉니다. 필요 시 윤곽선(\3c), 그림자(\4c)도 동일하게 넣을 수 있어요.
-            colour_tag = r"{\c&H" + ass_bgr + r"&}"
-            safe_text = colour_tag + safe_text
+        colour_tag = (r"{\c&" + col_hex + r"&}") if col_hex else ""
+        safe_text = colour_tag + safe_text
 
         # 스타일은 BMJua 고정(이미 _ensure_styles_with_bmjua 로 등록)
         dlg = f"Dialogue: 0,{_ass_time(s)},{_ass_time(e)},BMJua,,0,0,0,,{safe_text}"
