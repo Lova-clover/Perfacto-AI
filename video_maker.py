@@ -166,19 +166,15 @@ def create_video_with_segments(
 
     # ---------- 내부 헬퍼들 ----------
     def _normalize_image_paths(paths, n_needed):
-        """길이를 세그먼트 수에 맞추고, 경로 없거나 파일 없는 건 None으로 표시(폴백용)."""
         paths = list(paths or [])
-        # 길이 맞추기
         if len(paths) < n_needed:
             last_valid = next((p for p in reversed(paths) if p and os.path.exists(p)), None)
             paths += [last_valid] * (n_needed - len(paths))
         elif len(paths) > n_needed:
             paths = paths[:n_needed]
-        # 유효성 체크
         return [p if (p and os.path.exists(p)) else None for p in paths]
 
     def _build_text_clip(text: str, font_path: str, font_size: int, max_width: int):
-        """caption 먼저 시도, 실패 시 label 폴백 (size는 caption에서만)."""
         try:
             clip = TextClip(
                 text=text + "\n",
@@ -198,11 +194,9 @@ def create_video_with_segments(
             )
             return clip, False
         except Exception:
-            # 폰트/Caption 문제가 있으면 타이틀을 아예 생략
             return None, False
 
     def _measure_text_h(text: str, font_path: str, font_size: int, max_width: int, used_caption: bool):
-        """caption일 때만 size를 전달, label이면 size 전달 금지."""
         try:
             if used_caption:
                 dummy = TextClip(text=text, font=font_path, font_size=font_size, method="caption", size=(max_width, None))
@@ -226,8 +220,6 @@ def create_video_with_segments(
                 return " ".join(words[:i+1]), " ".join(words[i+1:])
         return text, ""
 
-    # create_motion_clip 은 파일에 이미 있는 경우가 많음.
-    # 만약 없으면 간단한 폴백 구현 사용
     def _fallback_motion_clip(img_path, duration, width, height):
         try:
             base = ImageClip(img_path)
@@ -239,20 +231,14 @@ def create_video_with_segments(
         except Exception:
             return ColorClip(size=(width, height), color=(0, 0, 0)).with_duration(duration)
 
-    # ---------- 오디오 ----------
+    # ---------- 음성(내레이션) ----------
+    narration = None
     if audio_path and os.path.exists(audio_path):
-        narration = AudioFileClip(audio_path)
-    else:
-        # 무음 트랙(스테레오) 생성
-        silence = np.zeros((int(total_dur * 44100), 2), dtype=np.float32)
-        narration = CompositeAudioClip([]).set_fps(44100).set_duration(total_dur)
-        narration = narration.set_audio_array(silence)
-        # 일부 환경에서 위 set_audio_array가 없을 수 있으니 폴백
         try:
-            narration = AudioArrayClip(silence, fps=44100).with_duration(total_dur)
-        except Exception:
-            pass
-        print("🔊 음성 파일이 없어 무음 오디오 트랙을 생성했습니다.")
+            narration = AudioFileClip(audio_path)
+        except Exception as e:
+            print(f"⚠️ 내레이션 로드 실패: {e}")
+            narration = None
 
     # ---------- 이미지 리스트 정리 ----------
     image_paths = _normalize_image_paths(image_paths, len(segments))
@@ -280,8 +266,7 @@ def create_video_with_segments(
             base = ColorClip(size=(W, H), color=(0, 0, 0)).with_duration(dur)
         else:
             try:
-                # 프로젝트에 create_motion_clip이 있으면 사용
-                base = create_motion_clip(img_path, dur, W, H)  # 없으면 NameError
+                base = create_motion_clip(img_path, dur, W, H)  # 프로젝트에 있으면 사용
             except NameError:
                 base = _fallback_motion_clip(img_path, dur, W, H)
             except Exception:
@@ -299,34 +284,77 @@ def create_video_with_segments(
         seg_clip = CompositeVideoClip(overlays, size=(W, H)).with_duration(dur)
         clips.append(seg_clip)
 
-    # ---------- BGM 믹스(선택) ----------
-    final_audio = narration
-    if bgm_path and os.path.exists(bgm_path):
+    # ---------- BGM 선택 & 믹스 ----------
+    # 1) 사용자가 올린 bgm_path가 최우선
+    chosen_bgm = bgm_path if (bgm_path and os.path.exists(bgm_path)) else None
+    # 2) 없으면 기본 BGM
+    if not chosen_bgm:
+        default_bgm = os.path.join("assets", "bgm.mp3")
+        chosen_bgm = default_bgm if os.path.exists(default_bgm) else None
+
+    final_audio = None
+    target_duration = narration.duration if narration else total_dur
+
+    try:
+        bgm_clip = AudioFileClip(chosen_bgm) if chosen_bgm else None
+    except Exception as e:
+        print(f"⚠️ BGM 로드 실패: {e}")
+        bgm_clip = None
+
+    # BGM을 target_duration에 맞춰 루프(또는 트림) → 낮은 볼륨으로
+    if bgm_clip:
         try:
-            bgm_raw = AudioFileClip(bgm_path)
-            bgm = bgm_raw.volumex(0.05)
-            # 내레이션 길이에 맞춰 필요한 만큼 반복 후 자르기
-            repeats = int(np.ceil(final_audio.duration / max(bgm.duration, 0.1)))
-            full_bgm = concatenate_videoclips([bgm] * repeats, method="chain").subclip(0, final_audio.duration)
-            final_audio = CompositeAudioClip([final_audio, full_bgm])
-        except Exception as e:
-            print(f"⚠️ BGM 믹스 실패(무시): {e}")
+            bgm_loop = audio_loop(bgm_clip, duration=target_duration).volumex(0.08)  # -22~-18dB 수준
+        except Exception:
+            # audio_loop 미지원일 때 수동 반복
+            rep = int(np.ceil(target_duration / max(bgm_clip.duration, 0.1)))
+            parts = []
+            for _ in range(max(1, rep)):
+                parts.append(bgm_clip)
+            bgm_loop = parts[0]
+            for p in parts[1:]:
+                bgm_loop = bgm_loop.concatenate_audioclips([p])
+            bgm_loop = bgm_loop.subclip(0, target_duration).volumex(0.08)
+    else:
+        bgm_loop = None
+
+    if narration and bgm_loop:
+        final_audio = CompositeAudioClip([narration, bgm_loop])
+    elif narration:
+        final_audio = narration
+    elif bgm_loop:
+        final_audio = bgm_loop
+    else:
+        final_audio = None  # 완전 무음도 허용
 
     # ---------- 파일 쓰기 ----------
     os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
     tmp_out = os.path.join(os.path.dirname(save_path) or ".", "_temp_no_subs.mp4")
 
-    final = concatenate_videoclips(clips, method="chain").with_audio(final_audio).with_fps(24)
-    final.write_videofile(tmp_out, codec="libx264", audio_codec="aac")
+    video = concatenate_videoclips(clips, method="chain").with_fps(24)
+    if final_audio is not None:
+        video = video.with_audio(final_audio)  # (moviepy 1.x: set_audio(final_audio))
 
-    try: final.close()
+    video.write_videofile(
+        tmp_out,
+        codec="libx264",
+        audio_codec="aac",
+        audio_bitrate="192k"
+    )
+
+    try: video.close()
     except: pass
     try:
         for c in clips: c.close()
     except: pass
+    if narration: 
+        try: narration.close()
+        except: pass
+    if bgm_clip:
+        try: bgm_clip.close()
+        except: pass
     gc.collect()
 
-    # 자막은 기존 파이프라인대로 main.py에서 add_subtitles_to_video(...) 호출로 번인
     if tmp_out != save_path:
         try:
             os.replace(tmp_out, save_path)
@@ -335,6 +363,7 @@ def create_video_with_segments(
 
     print(f"✅ (자막 미적용) 영상 저장 완료: {save_path}")
     return save_path
+
 
 ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 
@@ -360,6 +389,48 @@ def add_subtitles_to_video(input_video_path, ass_path, output_path):
     subprocess.run(cmd, check=True)
     return output_path
 
+from pydub import AudioSegment
+import math, os
+
+def _mix_voice_and_bgm(voice_path: str | None, bgm_path: str | None, out_path: str,
+                       bgm_gain_db: float = -18.0, add_tail_ms: int = 250) -> str | None:
+    """
+    - voice만 있으면 그대로 복사(꼬리 무음 추가)
+    - bgm만 있으면 길이에 맞춰 자르고 내보냄
+    - 둘 다 있으면 voice 길이에 bgm을 루프/트림해서 -18dB로 깔고 overlay
+    """
+    if not voice_path and not bgm_path:
+        return None
+
+    voice = AudioSegment.silent(duration=0)
+    bgm   = AudioSegment.silent(duration=0)
+
+    if voice_path and os.path.exists(voice_path):
+        voice = AudioSegment.from_file(voice_path)
+    if bgm_path and os.path.exists(bgm_path):
+        bgm = AudioSegment.from_file(bgm_path)
+
+    if len(voice) == 0 and len(bgm) == 0:
+        return None
+
+    if len(voice) == 0:
+        # 보이스가 없으면 BGM만 트림
+        out = bgm[:]
+        out.export(out_path, format="mp3")
+        return out_path
+
+    # 보이스가 있으면 길이에 맞춰 BGM을 루프/트림하고 감쇠
+    target_len = len(voice) + add_tail_ms
+    if len(bgm) == 0:
+        bed = AudioSegment.silent(duration=target_len)
+    else:
+        rep = math.ceil(target_len / len(bgm))
+        bed = (bgm * max(1, rep))[:target_len]
+        bed = bed + bgm_gain_db  # 음량 감쇠(예: -18dB)
+
+    mixed = bed.overlay(voice)  # 보이스를 위에 얹는다
+    mixed.export(out_path, format="mp3")
+    return out_path
 
 def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path="", save_path="assets/dark_text_video.mp4"):
     video_width, video_height = 720, 1080
