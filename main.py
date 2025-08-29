@@ -1040,7 +1040,7 @@ with st.sidebar:
                             if seg.get("ssml"):
                                 dense_events += _build_dense_from_ssml(seg["ssml"], seg["start"], seg["end"], fps=30.0)
                             else:
-                                dense_events += auto_densify_for_subs([seg], tempo="fast", words_per_piece=4,
+                                dense_events += auto_densify_for_subs([seg], tempo="fast", words_per_piece=2,
                                                                     min_tail_words=2, chunk_strategy=None,
                                                                     marks_voice_key=st.session_state.selected_polly_voice_key,
                                                                     max_chars_per_piece=14, min_piece_dur=0.50)

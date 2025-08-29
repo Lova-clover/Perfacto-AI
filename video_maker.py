@@ -9,6 +9,7 @@ import numpy as np
 from moviepy.audio.AudioClip import AudioArrayClip
 import gc
 import imageio_ffmpeg
+from moviepy.audio.fx.all import audio_loop
 
 def create_motion_clip(img_path, duration, width, height):
     base_clip_original_size = ImageClip(img_path)
