@@ -50,18 +50,29 @@ def ensure_min_frames(events, fps=30.0, min_frames=2):
         out.append({**e, "start": round(s,3), "end": round(ed,3)})
     return out
 
-def drop_or_fix_empty_text(events):
-    """빈 텍스트 cue는 제거(완전 공백은 렌더러가 무시). 단, 두 cue가 같은 텍스트면 앞 cue로 합침."""
+# main.py
+def drop_or_fix_empty_text(events, merge_if_overlap_or_gap=0.06):
+    """
+    - 텍스트가 '진짜' 비어 있으면만 제거(NBSP / \N 제거 후도 비어야 함)
+    - 같은 텍스트라도, 시간이 겹치거나 gap<=merge_if_overlap_or_gap 일 때만 앞 cue로 병합
+    """
     if not events: return events
+    NBSP = "\u00A0"; ASS_NL = r"\N"
     out = []
     for e in events:
         txt = (e.get("text") or "").strip()
-        if not txt or not txt.replace(NBSP, "").replace(ASS_NL, "").strip():
-            # skip (렌더러가 무시할 내용)
+        vis = txt.replace(NBSP, "").replace(ASS_NL, "").strip()
+        if not vis:
+            # 완전 빈 텍스트만 제거
             continue
         if out and out[-1]["text"] == txt:
-            # 같은 텍스트가 연속이면 시간만 확장
-            out[-1]["end"] = max(out[-1]["end"], e["end"])
+            prev_end = float(out[-1]["end"]); cur_start = float(e["start"])
+            gap = max(0.0, cur_start - prev_end)
+            # 겹치거나 gap이 아주 짧을 때만 병합
+            if gap <= merge_if_overlap_or_gap:
+                out[-1]["end"] = max(out[-1]["end"], e["end"])
+            else:
+                out.append(e)
         else:
             out.append(e)
     return out
@@ -1028,7 +1039,7 @@ with st.sidebar:
                             st.error(f"TTS 생성 실패: 오디오 파일 용량이 비정상적입니다 ({sz} bytes).")
                             st.stop()
 
-                        # 기존 dense 생성 부분 교체
+                        # === 기존 dense 생성 부분 교체(생성 그대로) ===
                         dense_events = auto_densify_for_subs(
                             segments,
                             tempo="fast",
@@ -1040,13 +1051,72 @@ with st.sidebar:
                             min_piece_dur=0.50
                         )
 
-                        # ① 경계 보강 → ② 텍스트 준비(줄 강제/보호) → ③ 중복/공란 정리
+                        # === ① 경계 보강 ===
                         dense_events = harden_ko_sentence_boundaries(dense_events)
-                        dense_events = [{**e, "text": prepare_text_for_ass(e["text"], one_line_threshold=12, biline_target=14)} for e in dense_events]
-                        dense_events = dedupe_adjacent_texts(dense_events)        # 중복 텍스트 합치기
-                        dense_events = drop_or_fix_empty_text(dense_events)       # 완전 공란 제거
 
-                        # ④ 타이밍 안정화(겹침 방지/최소 노출/프레임 스냅/최소 프레임)
+                        # === ② 텍스트 보호/정리(줄 강제 없이 "보호" 위주) ===
+                        def drop_or_fix_empty_text(events):
+                            out = []
+                            for e in events:
+                                t = (e.get("text") or "").strip()
+                                if not t.replace(NBSP, ""):
+                                    t = NBSP
+                                out.append({**e, "text": t})
+                            return out
+
+                        def ensure_min_frames(events, fps=30.0, min_frames=2):
+                            tick = 1.0 / float(fps)
+                            min_d = min_frames * tick
+                            out = []
+                            for i, e in enumerate(events):
+                                s, ed = float(e["start"]), float(e["end"])
+                                if ed - s < min_d:
+                                    ed = s + min_d
+                                # 다음 cue와 겹치지 않도록 마지막에 한번 더 clamp
+                                out.append({**e, "start": round(s, 3), "end": round(ed, 3)})
+                            # 인접 겹침 방지
+                            for i in range(len(out) - 1):
+                                if out[i]["end"] > out[i+1]["start"]:
+                                    out[i]["end"] = max(out[i]["start"], out[i+1]["start"] - 0.001)
+                            return out
+
+                        def prepare_text_for_ass(text: str, one_line_threshold=12, biline_target=14):
+                            """
+                            - '1줄이면 무조건 1줄' 원칙을 반영하되, 상위 generate_ass_subtitle가 최종 판단.
+                            - 여기서는 가벼운 보호만: 숫자+단위, 수량 어구 NBSP, 말꼬리 보호.
+                            """
+                            t = (text or "").strip()
+                            if not t:
+                                return NBSP
+                            # 보호(숫자+단위/수량 등) — 기존 bind_compounds가 있다면 활용
+                            try:
+                                t = bind_compounds(t)
+                            except Exception:
+                                pass
+                            # 말꼬리 보호(옵션 함수가 있다면)
+                            try:
+                                from re import compile
+                                def _protect_short_tail_nbsp_local(s: str) -> str:
+                                    NB = "\u00A0"
+                                    TAILS = [r"같죠\?", r"그렇죠\?", r"그죠\?", r"그죠",
+                                            r"이죠\?", r"이죠", r"죠\?", r"죠",
+                                            r"입니다", r"예요", r"이에요", r"이다", r"다$"]
+                                    pat = compile(r"\s+(?=(" + "|".join(TAILS) + r"))")
+                                    return pat.sub(NB, s)
+                                t = _protect_short_tail_nbsp_local(t)
+                            except Exception:
+                                pass
+                            # 1줄 선호 → 길이가 아주 짧으면 아예 1줄 고정
+                            if len(t) <= one_line_threshold:
+                                return t
+                            # 2줄 필요 판단은 generate_ass_subtitle에서 최종 처리(\N 삽입)
+                            return t
+
+                        dense_events = [{**e, "text": prepare_text_for_ass(e["text"], one_line_threshold=12, biline_target=14)} for e in dense_events]
+                        dense_events = dedupe_adjacent_texts(dense_events)
+                        dense_events = drop_or_fix_empty_text(dense_events)
+
+                        # === ③ 타이밍 안정화 ===
                         dense_events = clamp_no_overlap(dense_events, margin=0.02)
                         dense_events = enforce_min_duration_non_merging(dense_events, min_dur=0.50, margin=0.02)
                         dense_events = quantize_events(dense_events, fps=30.0)

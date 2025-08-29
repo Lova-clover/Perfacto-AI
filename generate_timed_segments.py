@@ -539,147 +539,302 @@ def _assign_pitch(text: str) -> int:
         return -18    # 결론/단정
     return 0
 
+import os, re, math, unicodedata
+from typing import List, Dict
+
+NBSP = "\u00A0"
+
+def _ass_time(t: float) -> str:
+    """float 초 -> ASS 시간 H:MM:SS.cs (centi-second, 2자리)"""
+    if t < 0: t = 0.0
+    h = int(t // 3600)
+    m = int((t % 3600) // 60)
+    s = int(t % 60)
+    cs = int(round((t - math.floor(t)) * 100))
+    if cs == 100:
+        s += 1
+        cs = 0
+    if s == 60:
+        m += 1
+        s = 0
+    if m == 60:
+        h += 1
+        m = 0
+    return f"{h:d}:{m:02d}:{s:02d}.{cs:02d}"
+
+def _sanitize_ass_text(text: str) -> str:
+    """
+    ASS 텍스트로 안전화:
+    - 줄바꿈은 \N
+    - 빈 문자열/공백은 NBSP 보정
+    - { } 는 전각으로 치환(ASS 오버라이드 태그 충돌 방지)
+    - 선행/후행 공백 정리(단, NBSP는 유지)
+    """
+    t = (text or "").replace("\r", "")
+    t = t.replace("{", "｛").replace("}", "｝")  # override tag 충돌 방지
+    # 이미 \N이 있으면 유지, 실제 개행은 \N으로
+    t = t.replace("\n", r"\N")
+    # 완전 공란 방지
+    if not t.strip().replace(NBSP, ""):
+        t = NBSP
+    # 불필요한 탭/연속 스페이스 축약(단 NBSP는 유지)
+    t = re.sub(r"[ \t]{2,}", " ", t)
+    return t.strip()
+
+def _best_two_line_break(text: str, max_len: int, min_each: int = 3) -> str:
+    """
+    2줄이 '필요한 경우'에만 가장 보기 좋은 지점에서 \N 삽입.
+    - NBSP 앞/뒤는 끊지 않음
+    - 우선순위: 공백(스페이스) > 약한 구두점(, · : - /) > 강한 구두점(？ ?)
+    - 두 줄 모두 min_each 이상, 각 줄 길이 <= max_len 이 되도록 시도
+    - 실패하면 마지막 폴백: max_len에 근접한 자연스러운 위치
+    """
+    raw = text
+    # 줄바꿈/제어문자 제거(라인 계산용)
+    plain = raw.replace(r"\N", " ").replace("\n", " ")
+
+    # 이미 1줄로 충분하면 그대로
+    if len(plain) <= max_len:
+        return raw
+
+    # NBSP는 non-break로 취급하므로, 후보 탐색 시 제외
+    # 이상적인 분기점: 대략 절반 근처
+    tgt = max_len  # 2줄 목표라면 대략 첫 줄 max_len 부근이 자연스러움
+
+    # 후보 수집(우선순위 그룹)
+    def _cands(chars):
+        idx = []
+        for m in re.finditer(chars, plain):
+            i = m.start()
+            # NBSP 근처 금지: '단어 묶음 보호'
+            if i > 0 and plain[i-1] == NBSP: 
+                continue
+            if i < len(plain)-1 and plain[i+1] == NBSP:
+                continue
+            idx.append(i)
+        return idx
+
+    spaces = _cands(r" ")
+    mild   = _cands(r"[,·:\-\/]")
+    strong = _cands(r"[?？]")
+
+    groups = [spaces, mild, strong]
+    best = None
+    best_score = 10**9
+
+    for cand_group, weight in zip(groups, [0, 1, 2]):
+        for i in cand_group:
+            left  = plain[:i].rstrip()
+            right = plain[i+1:].lstrip()
+            if len(left) < min_each or len(right) < min_each:
+                continue
+            if len(left) > max_len or len(right) > max_len:
+                continue
+            # 스코어: 목표점과 근접 + 그룹 가중치(공백이 가장 선호)
+            score = abs(len(left) - tgt) * 2 + weight * 10
+            if score < best_score:
+                best_score, best = (score, i)
+
+        if best is not None:
+            break  # 더 좋은 그룹 탐색 전 종료(공백에서 성공 시 고정)
+
+    if best is None:
+        # 폴백: max_len에 가장 가까운 공백 또는 안전 위치
+        cut = None
+        for i in range(min_each, len(plain) - min_each):
+            if plain[i] == " " and len(plain[:i]) <= max_len:
+                cut = i
+        if cut is None:
+            cut = min(max_len, len(plain)-min_each)
+        left, right = plain[:cut].rstrip(), plain[cut:].lstrip()
+        return f"{left}\\N{right}"
+
+    left, right = plain[:best].rstrip(), plain[best+1:].lstrip()
+    return f"{left}\\N{right}"
+
+def _prepare_text_for_lines(text: str, max_chars_per_line: int, max_lines: int) -> str:
+    """
+    1줄이면 무조건 1줄 유지.
+    2줄이 '필요한 경우'(길이 초과에 한해)만 스마트 브레이크.
+    이미 \N이 들어온 경우는 그대로 존중(추가 분해 금지).
+    """
+    if not text:
+        return NBSP
+
+    # 이미 \N이 있으면(사용자/상위 로직에서 강제 분해) 그대로 둠
+    if r"\N" in text:
+        return text
+
+    # 1줄로 충분하면 그대로
+    if len(text) <= max_chars_per_line or max_lines <= 1:
+        return text
+
+    # 2줄 허용: 좋은 지점에서만 분리
+    text2 = _best_two_line_break(text, max_chars_per_line, min_each=max(3, int(max_chars_per_line*0.3)))
+    # 혹시라도 결과가 과도하게 길면 마지막 폴백(하드 컷)
+    if any(len(x) > max_chars_per_line for x in text2.split(r"\N")) and max_lines >= 2:
+        raw = text.replace(r"\N", " ")
+        cut = max_chars_per_line
+        text2 = raw[:cut].rstrip() + r"\N" + raw[cut:].lstrip()
+
+    # 라인 개수 제한
+    parts = text2.split(r"\N")
+    if len(parts) > max_lines:
+        text2 = r"\N".join(parts[:max_lines-1] + [" ".join(parts[max_lines-1:])])
+
+    # 비어있는 라인이 생기지 않게 NBSP 보강
+    fixed = []
+    for p in text2.split(r"\N"):
+        pp = p if p.strip().replace(NBSP, "") else NBSP
+        fixed.append(pp)
+    return r"\N".join(fixed)
+
+def _strip_trailing_punct_last_line(text: str) -> str:
+    """
+    마지막 줄 끝의 '보이는 마침표/여분 공백'만 살짝 제거(렌더 안정성).
+    물음표/느낌표/종결어미 등은 보존.
+    """
+    if not text:
+        return text
+    lines = text.split(r"\N")
+    last = lines[-1]
+    # 완전 공란 보호
+    if not last.strip().replace(NBSP, ""):
+        last = NBSP
+    # 아주 약한 마침표/중복 공백만 정리
+    last = re.sub(r"[ \t]+$", "", last)
+    last = re.sub(r"[.]{2,}$", ".", last)   # "..." -> "."
+    # 한 글자짜리 줄 방지용 NBSP
+    if len(last.strip()) == 0:
+        last = NBSP
+    lines[-1] = last
+    return r"\N".join(lines)
+
+def _resolve_template_blocks(template_name: str):
+    """
+    SUBTITLE_TEMPLATES가 있으면 그 스타일 섹션을 최대한 활용.
+    없는 경우 안전한 기본값 반환.
+    """
+    # 기본
+    script_info = [
+        "[Script Info]",
+        "Title: Generated by Perfacto AI",
+        "ScriptType: v4.00+",
+        "WrapStyle: 2",
+        "ScaledBorderAndShadow: yes",
+        "PlayResX: 720",
+        "PlayResY: 1080",
+        ""
+    ]
+    styles = [
+        "[V4+ Styles]",
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
+        "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+        "Alignment, MarginL, MarginR, MarginV, Encoding",
+        # 가독성 좋은 기본(흰색+검은 외곽선), 중앙 하단(2) 정렬
+        "Style: Default, Arial, 50, &H00FFFFFF, &H000000FF, &H00000000, &H64000000, "
+        "-1, 0, 0, 0, 100, 100, 0, 0, 1, 2, 0, 2, 30, 30, 40, 1",
+        ""
+    ]
+    events_header = [
+        "[Events]",
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
+    ]
+
+    try:
+        if 'SUBTITLE_TEMPLATES' in globals() and template_name in SUBTITLE_TEMPLATES:
+            tpl = SUBTITLE_TEMPLATES[template_name]
+            # 다양한 형태 호환: str 블록 / dict / list[str]
+            if isinstance(tpl, str):
+                # 스타일 블록만 문자열로 들어있다고 가정 → styles 대체
+                styles = ["[V4+ Styles]"] + [ln for ln in tpl.splitlines() if ln.strip()] + [""]
+            elif isinstance(tpl, dict):
+                if "script_info" in tpl:
+                    si = tpl["script_info"]
+                    if isinstance(si, (list, tuple)):
+                        script_info = ["[Script Info]"] + [str(x) for x in si if str(x).strip()] + [""]
+                    elif isinstance(si, str):
+                        script_info = ["[Script Info]"] + [ln for ln in si.splitlines() if ln.strip()] + [""]
+                if "styles" in tpl:
+                    st = tpl["styles"]
+                    if isinstance(st, (list, tuple)):
+                        styles = ["[V4+ Styles]"] + [str(x) for x in st if str(x).strip()] + [""]
+                    elif isinstance(st, str):
+                        styles = ["[V4+ Styles]"] + [ln for ln in st.splitlines() if ln.strip()] + [""]
+                if "events_header" in tpl:
+                    eh = tpl["events_header"]
+                    if isinstance(eh, (list, tuple)):
+                        events_header = [str(x) for x in eh if str(x).strip()]
+                    elif isinstance(eh, str):
+                        events_header = [ln for ln in eh.splitlines() if ln.strip()]
+            elif isinstance(tpl, (list, tuple)):
+                # 통째로 섹션 라인들이 들어온 형태라면 그대로 사용 시도
+                # 안전을 위해 [V4+ Styles] 블록만 갈아끼움
+                block = [str(x) for x in tpl if str(x).strip()]
+                if any("Style:" in x or "Format:" in x for x in block):
+                    styles = ["[V4+ Styles]"] + block + [""]
+    except Exception:
+        # 어떤 에러라도 기본값으로 폴백
+        pass
+
+    return script_info, styles, events_header
+
 def generate_ass_subtitle(
-    segments,
-    ass_path,
-    template_name="default",
-    strip_trailing_punct_last=True,
-    # ▼ main.py와 호환용(없어도 동작하도록 기본값 부여)
-    max_chars_per_line=None,
-    max_lines=2,
-):
+    segments: List[Dict],
+    ass_path: str,
+    template_name: str = "educational",
+    strip_trailing_punct_last: bool = True,
+    max_chars_per_line: int = 14,
+    max_lines: int = 2
+) -> str:
     """
-    - main.py가 넘기는 max_chars_per_line, max_lines를 받아 1~2줄로 래핑
-    - 텍스트 내부는 '\n'으로 줄바꿈 → 최종 파일 기록 시에만 '\\N'으로 바꿈
-    - 유니코드 이스케이프 오류(\\N) 방지: 소스 문자열 리터럴에 직접 '\\N'을 쓰지 않음
-    - 폰트 네모(□) 방지: SUBTITLE_TEMPLATES[...]['Fontname']를 'BM JUA'로 설정 권장
+    - 기존 형식 유지: 템플릿 있으면 그대로 활용(없어도 안전 기본값으로 동작).
+    - 1줄이면 무조건 1줄 유지. 2줄은 '필요한 경우'에만 깨짐.
+    - 빈/초단시간 cue가 렌더러에서 사라지지 않도록 NBSP/이스케이프 처리.
+    - 입력 segments: [{start: float, end: float, text: str}, ...]
+    - 반환: 저장된 ass 파일 경로
     """
-    import re
+    if not segments:
+        # 비어도 최소 헤더는 작성 (FFmpeg 필터가 빈 파일로 죽지 않도록)
+        segments = [{"start": 0.00, "end": 0.02, "text": NBSP}]
 
-    settings_all = SUBTITLE_TEMPLATES if 'SUBTITLE_TEMPLATES' in globals() else {}
-    settings = settings_all.get(template_name) or settings_all.get("default") or {}
+    # 템플릿 섹션 준비
+    script_info, styles, events_header = _resolve_template_blocks(template_name)
 
-    def _g(*names, default=None):
-        for n in names:
-            if n in settings:
-                return settings[n]
-        return default
+    # 본문(Events) 라인 생성
+    lines = []
+    for i, ev in enumerate(segments):
+        s = float(ev.get("start", 0.0))
+        e = float(ev.get("end", max(s + 0.02, 0.02)))
+        if e <= s:
+            e = s + 0.02  # 20ms 보장(일부 렌더러에서 0길이 소실 방지)
 
-    fontname   = _g("Fontname", "fontname", default="BM JUA")   # ← BM JUA 권장
-    fontsize   = _g("Fontsize", "fontsize", default=48)
-    primary    = _g("PrimaryColour", "Primary", "primary", default="&H00FFFFFF")
-    outlinecol = _g("OutlineColour", "OutlineColor", "outlineColour", default="&H00000000")
-    outline    = _g("Outline", "Border", "border", default=3)
-    margin_v   = _g("MarginV", "marginV", default=40)
+        raw_text = str(ev.get("text", "") or "")
+        # 1) 라인수 설계(1줄 우선, 필요 시 2줄)
+        plan_text = _prepare_text_for_lines(raw_text, max_chars_per_line, max_lines)
+        # 2) 마지막 줄 불필요한 약한 기호 정리(옵션)
+        if strip_trailing_punct_last:
+            plan_text = _strip_trailing_punct_last_line(plan_text)
+        # 3) ASS 안전화
+        safe_text = _sanitize_ass_text(plan_text)
 
-    # 안전 숫자화
-    try: fontsize = int(fontsize)
-    except: fontsize = 48
-    try: outline = int(outline)
-    except: outline = 3
-    try: margin_v = int(margin_v)
-    except: margin_v = 40
+        # 최종 보루: 완전 공란 방지
+        if not safe_text.strip().replace(NBSP, ""):
+            safe_text = NBSP
 
-    # --- 래핑 유틸: 글자수 기준 1~2줄로 자르기(공백 우선, 없으면 문자 단위)
-    def _wrap_to_lines(text: str) -> str:
-        if not text:
-            return ""
-        # 요청값이 없으면 래핑하지 않음(역호환)
-        if not max_chars_per_line or max_chars_per_line <= 0:
-            return text
+        start_ts = _ass_time(s)
+        end_ts   = _ass_time(e)
+        # 기존 스타일명은 'Default'로 둠(템플릿이 동일 명칭을 갖는 경우가 대부분)
+        dlg = f"Dialogue: 0,{start_ts},{end_ts},Default,,0,0,0,,{safe_text}"
+        lines.append(dlg)
 
-        s = re.sub(r"\s+", " ", text).strip()
-
-        # 이미 한 줄이 충분히 짧으면 그대로
-        if len(s) <= max_chars_per_line:
-            return s
-
-        # 공백 토큰 단위로 먼저 시도
-        tokens = re.findall(r"\S+\s*|\s+", s)
-        lines = []
-        cur = ""
-        for tok in tokens:
-            cand = (cur + tok)
-            # 뒤 공백 제거 기준으로 길이 판단
-            if len(cand.rstrip()) <= max_chars_per_line or not cur:
-                cur = cand
-            else:
-                lines.append(cur.rstrip())
-                cur = tok.lstrip()
-                if len(lines) >= max(1, int(max_lines) - 1):
-                    break
-        if cur and len(lines) < max_lines:
-            lines.append(cur.strip())
-
-        # 공백 토큰으로도 안 되면 문자 단위 폴백
-        if not lines:
-            lines = [s[:max_chars_per_line], s[max_chars_per_line:]]
-        if len(lines) > max_lines:
-            lines = lines[:max_lines]
-
-        # "같죠?" "예요" 같은 짧은 꼬리가 단독 줄이 되면 앞줄에 붙이기
-        TAIL_RE = re.compile(r'^(같죠\?|그렇죠\?|그죠\?|이죠\??|예요|이에요|입니다|니다|다)$')
-        if len(lines) == 2 and TAIL_RE.match(lines[1]):
-            merged = (lines[0].rstrip() + " " + lines[1]).strip()
-            # 너무 길어지면 그대로 두고, 아니면 합치기
-            if len(merged) <= max_chars_per_line:
-                lines = [merged]
-
-        # 여기서는 '\n'로 반환 → 아래 _escape에서 '\\N'으로 변환
-        return "\n".join(x for x in lines if x)
-
-    # --- ASS 이스케이프: 역슬래시, CR 제거, '\n' → '\N'
-    def _escape_ass_text(s: str) -> str:
-        s = str(s or "")
-        s = s.replace("\\", r"\\")     # 역슬래시 이스케이프
-        s = s.replace("\r", "")        # CR 제거
-        s = s.replace("\n", r"\N")     # 최종 줄바꿈은 여기에서만 수행
-        return s
-
-    # --- 파일 작성(이전 포맷과 호환)
+    # 파일 쓰기
+    os.makedirs(os.path.dirname(ass_path) or ".", exist_ok=True)
     with open(ass_path, "w", encoding="utf-8") as f:
-        f.write("[Script Info]\n")
-        f.write("ScriptType: v4.00+\n\n")
-
-        f.write("[V4+ Styles]\n")
-        f.write("Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
-        f.write(
-            f"Style: Bottom,{fontname},{fontsize},{primary},{outlinecol},"
-            f"1,{outline},0,2,10,10,{margin_v},1\n\n"
-        )
-
-        f.write("[Events]\n")
-        f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
-
-        n = len(segments or [])
-        for i, seg in enumerate(segments or []):
-            start = float(seg.get("start", 0.0))
-            end   = float(seg.get("end", 0.0))
-            raw   = seg.get("text") or ""
-
-            # SSML 제거 → 공백 정리
-            txt = strip_ssml_tags(raw)
-            txt = re.sub(r"\s+", " ", txt).strip()
-
-            # 마지막 줄 꼬리 구두점 다듬기(옵션)
-            if strip_trailing_punct_last and i == n - 1:
-                try:
-                    txt = _strip_last_punct_preserve_closers(txt)
-                except Exception:
-                    pass
-
-            # 1~2줄 래핑(요청 시) → 이후 ASS 이스케이프
-            txt = _wrap_to_lines(txt)
-            txt = _escape_ass_text(txt)
-
-            start_ts = format_ass_timestamp(start)
-            end_ts   = format_ass_timestamp(end)
-
-            pitch_val = seg.get("pitch")
-            if pitch_val is None:
-                pitch_val = _assign_pitch(strip_ssml_tags(raw))
-            colour_tag = "{\\c&H0000FF&}" if pitch_val <= -2 else ""
-            f.write(f"Dialogue: 0,{start_ts},{end_ts},Bottom,,0,0,0,,{colour_tag}{txt}\n")
+        f.write("\n".join(script_info) + "\n")
+        f.write("\n".join(styles) + "\n")
+        f.write("\n".join(events_header) + "\n")
+        f.write("\n".join(lines) + "\n")
 
     return ass_path
 
