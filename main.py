@@ -91,18 +91,11 @@ def _visible_len(s: str) -> int:
     return len((s or "").replace(NBSP, " "))
 
 def lock_oneliner_if_short(text: str, threshold: int = 12) -> str:
-    """짧은 문장은 무조건 1줄로(모든 공백→NBSP) 고정."""
     if _visible_len(text) <= threshold:
         return (text or "").replace(" ", NBSP)
     return text
 
 def smart_biline_break(text: str, target: int = 14) -> str:
-    """
-    두 줄이 필요할 만큼 긴 경우, 가운데 근처의 '깨기 좋은 지점'에 강제 줄바꿈(\N) 삽입.
-    1) 공백/쉼표/가운데점/슬래시 우선
-    2) 한국어 조사 경계(은/는/이/가/을/를/도/만/에/에서/로/으로/과/와) 뒤
-    3) 아무것도 없으면 문자 길이 중간 지점
-    """
     raw = (text or "").replace(NBSP, " ")
     if len(raw) <= target * 2:
         return text  # 자동 래핑에 맡김
