@@ -830,6 +830,13 @@ def generate_ass_subtitle(
         if not safe_text.strip().replace(NBSP, ""):
             safe_text = NBSP
 
+        colour_tag = ""
+        p = ev.get("pitch")
+        if isinstance(p, (int, float)) and p <= -6:
+            colour_tag = r"{\c&H0000FF&}"   # 빨강 (ASS는 BGR 순서)
+
+        safe_text = colour_tag + safe_text
+        
         # ★ 스타일명을 'BMJua'로 고정
         dlg = f"Dialogue: 0,{_ass_time(s)},{_ass_time(e)},BMJua,,0,0,0,,{safe_text}"
         lines.append(dlg)

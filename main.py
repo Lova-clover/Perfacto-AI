@@ -6,7 +6,7 @@ from RAG.chain_builder import get_conversational_rag_chain, get_default_chain
 from persona import generate_response_from_persona
 from image_generator import generate_images_for_topic, generate_videos_for_topic
 from elevenlabs_tts import TTS_ELEVENLABS_TEMPLATES, TTS_POLLY_VOICES
-from generate_timed_segments import generate_subtitle_from_script, generate_ass_subtitle, SUBTITLE_TEMPLATES, _auto_split_for_tempo, auto_densify_for_subs, _strip_last_punct_preserve_closers, dedupe_adjacent_texts, harden_ko_sentence_boundaries
+from generate_timed_segments import generate_subtitle_from_script, generate_ass_subtitle, SUBTITLE_TEMPLATES, _auto_split_for_tempo, auto_densify_for_subs, _strip_last_punct_preserve_closers, dedupe_adjacent_texts, harden_ko_sentence_boundaries, _build_dense_from_ssml
 from video_maker import (
     create_video_with_segments,
     create_video_from_videos,
@@ -1035,16 +1035,15 @@ with st.sidebar:
                             st.stop()
 
                         # === 기존 dense 생성 부분 교체(생성 그대로) ===
-                        dense_events = auto_densify_for_subs(
-                            segments,
-                            tempo="fast",
-                            words_per_piece=4,
-                            min_tail_words=2,
-                            chunk_strategy=None,
-                            marks_voice_key=st.session_state.selected_polly_voice_key,
-                            max_chars_per_piece=14,
-                            min_piece_dur=0.50
-                        )
+                        dense_events = []
+                        for seg in segments:  # seg = {"start","end","text","ssml"(optional)}
+                            if seg.get("ssml"):
+                                dense_events += _build_dense_from_ssml(seg["ssml"], seg["start"], seg["end"], fps=30.0)
+                            else:
+                                dense_events += auto_densify_for_subs([seg], tempo="fast", words_per_piece=4,
+                                                                    min_tail_words=2, chunk_strategy=None,
+                                                                    marks_voice_key=st.session_state.selected_polly_voice_key,
+                                                                    max_chars_per_piece=14, min_piece_dur=0.50)
 
                         # === ① 경계 보강 ===
                         dense_events = harden_ko_sentence_boundaries(dense_events)

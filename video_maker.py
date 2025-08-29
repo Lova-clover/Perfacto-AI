@@ -250,9 +250,9 @@ def create_video_with_segments(
         font_path = os.path.join("assets", "fonts", "BMJUA_ttf.ttf")
         l1, l2 = auto_split_title(title_text)
         full_title = l1 + ("\n" + l2 if l2 else "")
-        title_clip_proto, used_caption = _build_text_clip(full_title, font_path, 40, W - 40)
+        title_clip_proto, used_caption = _build_text_clip(full_title, font_path, 32, W - 40)
         if title_clip_proto is not None:
-            title_bar_h = _measure_text_h(full_title, font_path, 40, W - 40, used_caption) + 32
+            title_bar_h = _measure_text_h(full_title, font_path, 32, W - 40, used_caption) + 32
         else:
             title_bar_h = 0
 
