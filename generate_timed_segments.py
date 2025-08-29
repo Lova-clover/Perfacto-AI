@@ -764,6 +764,39 @@ def _first_style_name(styles_lines, default="Default"):
             return m.group(1).strip()
     return default
 
+# 파일 상단 어딘가(전역)에 고정 상수 추가
+ASS_FONT_FILE = os.path.abspath(os.path.join("assets", "fonts", "BMJUA_ttf.ttf"))
+ASS_FONT_FAMILY = "BM JUA"  # BMJUA_ttf.ttf의 내부 패밀리명(일반적으로 이 이름)
+
+def _ensure_styles_with_bmjua(styles_block_lines: list[str]) -> list[str]:
+    """
+    템플릿의 [V4+ Styles] 블록과 무관하게, BM JUA 전용 스타일을 추가해둡니다.
+    이벤트는 이 스타일 이름을 사용합니다.
+    """
+    out = []
+    seen_header = False
+    for ln in styles_block_lines:
+        out.append(ln)
+        if ln.strip().lower().startswith("format:"):
+            seen_header = True
+    if not seen_header:
+        # 혹시 템플릿이 형식을 안썼으면 안전 기본 헤더 추가
+        out = [
+            "[V4+ Styles]",
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
+            "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+            "Alignment, MarginL, MarginR, MarginV, Encoding"
+        ] + out
+
+    # ★ BMJUA 전용 스타일을 'Style: BMJua'로 추가
+    #  - Fontsize/Outline/MarginV는 원래 쓰시던 값 범위에 맞춰 적당히; 필요시 조정
+    out.append(
+        f"Style: BMJua, {ASS_FONT_FAMILY}, 64, &H00FFFFFF, &H000000FF, &H00000000, &H64000000, "
+        f"-1, 0, 0, 0, 100, 100, 0, 0, 1, 4, 0, 2, 30, 30, 60, 1"
+    )
+    out.append("")  # 마지막 공백 줄
+    return out
+
 def generate_ass_subtitle(
     segments,
     ass_path: str,
@@ -772,23 +805,6 @@ def generate_ass_subtitle(
     max_chars_per_line: int = 14,
     max_lines: int = 2
 ) -> str:
-    # ---- 내부 도우미: 스타일 라인에서 Fontname만 BMJUA_ttf로 강제 치환 ----
-    def _force_font_in_styles(styles_lines, font_family="BMJUA_ttf"):
-        out = []
-        for ln in styles_lines:
-            if ln.strip().startswith("Style:"):
-                # "Style: Name, Fontname, Fontsize, ..." 형식 → 두 번째 필드(Fontname) 교체
-                try:
-                    head, body = ln.split(":", 1)
-                    parts = [p.strip() for p in body.split(",")]
-                    if len(parts) >= 2:
-                        parts[1] = font_family
-                        ln = f"{head}: " + ", ".join(parts)
-                except Exception:
-                    pass
-            out.append(ln)
-        return out
-
     # 입력 비어도 최소 헤더는 써서 ffmpeg가 죽지 않게
     if not segments:
         segments = [{"start": 0.00, "end": 0.02, "text": NBSP}]
@@ -796,38 +812,28 @@ def generate_ass_subtitle(
     # 템플릿 섹션 얻기(없으면 안전 기본값)
     script_info, styles, events_header = _resolve_template_blocks(template_name)
 
-    # ★ 폰트 고정: 템플릿 있든 없든 Fontname만 BMJUA_ttf로 강제 교체
-    styles = _force_font_in_styles(styles, font_family="BMJUA_ttf")
+    # ★ 템플릿 스타일 유지 + BM JUA 스타일 추가
+    styles = _ensure_styles_with_bmjua(styles)
 
-    # Events 작성
     lines = []
     for ev in segments:
         s = float(ev.get("start", 0.0))
         e = float(ev.get("end", max(s + 0.02, 0.02)))
         if e <= s:
-            e = s + 0.02  # 초단시간 소실 방지(최소 20ms)
+            e = s + 0.02
 
-        raw_text = str(ev.get("text", "") or "")
-
-        # 1) 1줄 선호·필요 시 2줄(\N 강제). 여기서 줄개수만 ‘계획’하고…
-        planned = _prepare_text_for_lines(raw_text, max_chars_per_line, max_lines)
-
-        # 2) 마지막 줄 끝의 아주 약한 기호/여분 공백만 정리(옵션)
+        # 기존에 하시던 텍스트 정리(1줄 우선/2줄은 필요한 경우만) 그대로
+        plan_text = _prepare_text_for_lines(ev.get("text", "") or "", max_chars_per_line, max_lines)
         if strip_trailing_punct_last:
-            planned = _strip_trailing_punct_last_line(planned)
-
-        # 3) ASS 안전화(중괄호/개행/완전 공란 보호)
-        safe_text = _sanitize_ass_text(planned)
+            plan_text = _strip_trailing_punct_last_line(plan_text)
+        safe_text = _sanitize_ass_text(plan_text)
         if not safe_text.strip().replace(NBSP, ""):
             safe_text = NBSP
 
-        start_ts = _ass_time(s)
-        end_ts   = _ass_time(e)
-        # 스타일 이름은 기존 관례대로 'Default' 사용(템플릿도 이 이름을 보통 가짐)
-        dlg = f"Dialogue: 0,{start_ts},{end_ts},Default,,0,0,0,,{safe_text}"
+        # ★ 스타일명을 'BMJua'로 고정
+        dlg = f"Dialogue: 0,{_ass_time(s)},{_ass_time(e)},BMJua,,0,0,0,,{safe_text}"
         lines.append(dlg)
 
-    # 파일 쓰기(UTF-8)
     os.makedirs(os.path.dirname(ass_path) or ".", exist_ok=True)
     with open(ass_path, "w", encoding="utf-8") as f:
         f.write("\n".join(script_info) + "\n")

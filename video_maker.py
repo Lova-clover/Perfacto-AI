@@ -339,20 +339,27 @@ def create_video_with_segments(
 ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 
 # ✅ 자막 추가 함수
-def add_subtitles_to_video(input_video_path, ass_path, output_path="assets/video_with_subs.mp4"):
+def add_subtitles_to_video(input_video_path, ass_path, output_path):
+    import subprocess, shlex, os
     fonts_dir = os.path.abspath(os.path.join("assets", "fonts"))
+    # 경로에 공백/역슬래시가 있어도 안전하게
+    ass_q = ass_path.replace("\\", "/")
+    fonts_q = fonts_dir.replace("\\", "/")
 
-    command = [
-        ffmpeg_path , "-y", "-i", input_video_path,
-        "-vf", f"ass={ass_path}:fontsdir={fonts_dir}",
-        "-c:a", "copy", output_path
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", input_video_path,
+        "-vf", f"ass='{ass_q}':fontsdir='{fonts_q}'",
+        "-c:v", "libx264",
+        "-c:a", "aac", "-b:a", "192k",
+        # ★ 비디오/오디오 모두 유지(오디오 없으면 무시)
+        "-map", "0:v:0", "-map", "0:a?", 
+        "-shortest",
+        output_path
     ]
-    try:
-        subprocess.run(command, check=True)
-        print(f"✅ 자막 포함 영상 저장 완료: {output_path}")
-    except subprocess.CalledProcessError as e:
-        print("❌ FFmpeg 실행 실패:", e)
+    subprocess.run(cmd, check=True)
     return output_path
+
 
 def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path="", save_path="assets/dark_text_video.mp4"):
     video_width, video_height = 720, 1080
