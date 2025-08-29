@@ -765,47 +765,80 @@ def _first_style_name(styles_lines, default="Default"):
     return default
 
 def generate_ass_subtitle(
-    segments: List[Dict],
+    segments,
     ass_path: str,
     template_name: str = "educational",
     strip_trailing_punct_last: bool = True,
     max_chars_per_line: int = 14,
     max_lines: int = 2
 ) -> str:
-    if not segments:
-        segments = [{"start":0.00,"end":0.02,"text":NBSP}]
+    """
+    - 1줄이면 무조건 1줄 유지, 2줄이 '필요할 때만' 좋은 지점에서 \N 강제
+    - 빈/초단시간 cue 사라짐 방지를 위해 NBSP/이스케이프 처리
+    - 템플릿이 있으면 그대로 활용하되, Style의 Fontname만 BMJUA_ttf로 강제 교체
+    """
+    # ---- 내부 도우미: 스타일 라인에서 Fontname만 BMJUA_ttf로 강제 치환 ----
+    def _force_font_in_styles(styles_lines, font_family="BMJUA_ttf"):
+        out = []
+        for ln in styles_lines:
+            if ln.strip().startswith("Style:"):
+                # "Style: Name, Fontname, Fontsize, ..." 형식 → 두 번째 필드(Fontname) 교체
+                try:
+                    head, body = ln.split(":", 1)
+                    parts = [p.strip() for p in body.split(",")]
+                    if len(parts) >= 2:
+                        parts[1] = font_family
+                        ln = f"{head}: " + ", ".join(parts)
+                except Exception:
+                    pass
+            out.append(ln)
+        return out
 
-    # 1) 템플릿 섹션 불러오기
+    # 입력 비어도 최소 헤더는 써서 ffmpeg가 죽지 않게
+    if not segments:
+        segments = [{"start": 0.00, "end": 0.02, "text": NBSP}]
+
+    # 템플릿 섹션 얻기(없으면 안전 기본값)
     script_info, styles, events_header = _resolve_template_blocks(template_name)
 
-    # 2) ★ 폰트 강제 고정
-    styles = _force_font_in_styles(styles, family=FORCE_FONT_FAMILY)
-    style_name = _first_style_name(styles, default="Default")
+    # ★ 폰트 고정: 템플릿 있든 없든 Fontname만 BMJUA_ttf로 강제 교체
+    styles = _force_font_in_styles(styles, font_family="BMJUA_ttf")
 
-    # 3) Events 라인 생성(텍스트는 1/2줄 규칙+안전화)
+    # Events 작성
     lines = []
     for ev in segments:
         s = float(ev.get("start", 0.0))
         e = float(ev.get("end", max(s + 0.02, 0.02)))
-        if e <= s: e = s + 0.02
+        if e <= s:
+            e = s + 0.02  # 초단시간 소실 방지(최소 20ms)
 
-        raw = str(ev.get("text") or "")
-        txt = _prepare_text_for_lines(raw, max_chars_per_line, max_lines)
+        raw_text = str(ev.get("text", "") or "")
+
+        # 1) 1줄 선호·필요 시 2줄(\N 강제). 여기서 줄개수만 ‘계획’하고…
+        planned = _prepare_text_for_lines(raw_text, max_chars_per_line, max_lines)
+
+        # 2) 마지막 줄 끝의 아주 약한 기호/여분 공백만 정리(옵션)
         if strip_trailing_punct_last:
-            txt = _strip_trailing_punct_last_line(txt)
-        txt = _sanitize_ass_text(txt)
-        if not txt.strip().replace(NBSP, "").replace(ASS_NL, ""):
-            txt = NBSP
+            planned = _strip_trailing_punct_last_line(planned)
 
-        lines.append(f"Dialogue: 0,{_ass_time(s)},{_ass_time(e)},{style_name},,0,0,0,,{txt}")
+        # 3) ASS 안전화(중괄호/개행/완전 공란 보호)
+        safe_text = _sanitize_ass_text(planned)
+        if not safe_text.strip().replace(NBSP, ""):
+            safe_text = NBSP
 
-    # 4) 파일 쓰기(UTF-8)
+        start_ts = _ass_time(s)
+        end_ts   = _ass_time(e)
+        # 스타일 이름은 기존 관례대로 'Default' 사용(템플릿도 이 이름을 보통 가짐)
+        dlg = f"Dialogue: 0,{start_ts},{end_ts},Default,,0,0,0,,{safe_text}"
+        lines.append(dlg)
+
+    # 파일 쓰기(UTF-8)
     os.makedirs(os.path.dirname(ass_path) or ".", exist_ok=True)
     with open(ass_path, "w", encoding="utf-8") as f:
-        for ln in script_info:   f.write(ln.rstrip("\n") + "\n")
-        for ln in styles:        f.write(ln.rstrip("\n") + "\n")
-        for ln in events_header: f.write(ln.rstrip("\n") + "\n")
-        for ln in lines:         f.write(ln.rstrip("\n") + "\n")
+        f.write("\n".join(script_info) + "\n")
+        f.write("\n".join(styles) + "\n")
+        f.write("\n".join(events_header) + "\n")
+        f.write("\n".join(lines) + "\n")
 
     return ass_path
 
