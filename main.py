@@ -50,12 +50,7 @@ def ensure_min_frames(events, fps=30.0, min_frames=2):
         out.append({**e, "start": round(s,3), "end": round(ed,3)})
     return out
 
-# main.py
 def drop_or_fix_empty_text(events, merge_if_overlap_or_gap=0.06):
-    """
-    - 텍스트가 '진짜' 비어 있으면만 제거(NBSP / \N 제거 후도 비어야 함)
-    - 같은 텍스트라도, 시간이 겹치거나 gap<=merge_if_overlap_or_gap 일 때만 앞 cue로 병합
-    """
     if not events: return events
     NBSP = "\u00A0"; ASS_NL = r"\N"
     out = []
