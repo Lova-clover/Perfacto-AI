@@ -36,6 +36,94 @@ VIDEO_TEMPLATE = "영상(영어보이스+한국어자막·가운데)"
 
 
 # ---------- 유틸 ----------
+def ensure_min_frames(events, fps=30.0, min_frames=2):
+    if not events: return events
+    tick = 1.0 / float(fps)
+    min_dur = tick * max(1, int(min_frames))
+    out = []
+    for i, e in enumerate(events):
+        s = float(e["start"]); ed = float(e["end"])
+        if ed - s < min_dur:
+            ed = s + min_dur
+            if i + 1 < len(events):
+                ed = min(ed, float(events[i+1]["start"]) - 0.001)  # 살짝 여유
+        out.append({**e, "start": round(s,3), "end": round(ed,3)})
+    return out
+
+def drop_or_fix_empty_text(events):
+    """빈 텍스트 cue는 제거(완전 공백은 렌더러가 무시). 단, 두 cue가 같은 텍스트면 앞 cue로 합침."""
+    if not events: return events
+    out = []
+    for e in events:
+        txt = (e.get("text") or "").strip()
+        if not txt or not txt.replace(NBSP, "").replace(ASS_NL, "").strip():
+            # skip (렌더러가 무시할 내용)
+            continue
+        if out and out[-1]["text"] == txt:
+            # 같은 텍스트가 연속이면 시간만 확장
+            out[-1]["end"] = max(out[-1]["end"], e["end"])
+        else:
+            out.append(e)
+    return out
+
+def sanitize_ass_text(s: str) -> str:
+    """ASS에서 문제될 수 있는 중괄호를 이스케이프(우리는 override 태그를 텍스트에 넣지 않음)."""
+    s = (s or "")
+    s = s.replace("\\{", "\\{").replace("\\}", "\\}")  # idempotent
+    s = s.replace("{", r"\{").replace("}", r"\}")
+    return s
+
+def prepare_text_for_ass(text: str, one_line_threshold=12, biline_target=14) -> str:
+    t = bind_compounds(text)                 # 결합 표현 보호
+    t = _protect_short_tail_nbsp(t)          # 말꼬리 보호
+    t = lock_oneliner_if_short(t, one_line_threshold)
+    t = smart_biline_break(t, biline_target) # 필요한 경우만 \N 강제
+    t = sanitize_ass_text(t)
+    # 완전 공백 방지(정말 빈 경우는 NBSP 하나라도 넣어 표시 강제)
+    if not t.strip().replace(NBSP, "").replace(ASS_NL, ""):
+        t = NBSP
+    return t
+
+ASS_NL = r"\N"
+
+def _visible_len(s: str) -> int:
+    # 래핑 판단용 길이(개략). NBSP는 공백 취급.
+    return len((s or "").replace(NBSP, " "))
+
+def lock_oneliner_if_short(text: str, threshold: int = 12) -> str:
+    """짧은 문장은 무조건 1줄로(모든 공백→NBSP) 고정."""
+    if _visible_len(text) <= threshold:
+        return (text or "").replace(" ", NBSP)
+    return text
+
+def smart_biline_break(text: str, target: int = 14) -> str:
+    """
+    두 줄이 필요할 만큼 긴 경우, 가운데 근처의 '깨기 좋은 지점'에 강제 줄바꿈(\N) 삽입.
+    1) 공백/쉼표/가운데점/슬래시 우선
+    2) 한국어 조사 경계(은/는/이/가/을/를/도/만/에/에서/로/으로/과/와) 뒤
+    3) 아무것도 없으면 문자 길이 중간 지점
+    """
+    raw = (text or "").replace(NBSP, " ")
+    if len(raw) <= target * 2:
+        return text  # 자동 래핑에 맡김
+
+    import re
+    candidates = [m.start() for m in re.finditer(r"[ ,·/](?!$)", raw)]
+    if not candidates:
+        # 조사 경계
+        candidates = [m.end() for m in re.finditer(r"[은는이가을를도만의에](?!$)", raw)]
+
+    mid = len(raw) // 2
+    pos = None
+    if candidates:
+        pos = min(candidates, key=lambda i: abs(i - mid))
+    else:
+        pos = mid
+
+    left = raw[:pos].rstrip()
+    right = raw[pos:].lstrip()
+    return (left + ASS_NL + right).replace(" ", " ")
+
 NBSP = "\u00A0"
 
 def bind_compounds(
@@ -951,31 +1039,33 @@ with st.sidebar:
                         dense_events = auto_densify_for_subs(
                             segments,
                             tempo="fast",
-                            words_per_piece=4,          # 짧게 
+                            words_per_piece=4,
                             min_tail_words=2,
                             chunk_strategy=None,
                             marks_voice_key=st.session_state.selected_polly_voice_key,
-                            max_chars_per_piece=14,     # 글자수 하드캡(읽기 좋게)
-                            min_piece_dur=0.5          # 최소 표시시간(너무 빨리 사라지는 현상 방지)
+                            max_chars_per_piece=14,
+                            min_piece_dur=0.50
                         )
 
-                        dense_events = harden_ko_sentence_boundaries(dense_events)   # 말꼬리 붙이기
-                        dense_events = [{**e, "text": bind_compounds(e["text"])} for e in dense_events]
-                        dense_events = apply_nbsp_tails(dense_events)
-                        dense_events = dedupe_adjacent_texts(dense_events)
-                        dense_events = clamp_no_overlap(dense_events, margin=0.0)
-                        dense_events = enforce_min_duration_non_merging(dense_events, min_dur=0.5, margin=0.0)
+                        # ① 경계 보강 → ② 텍스트 준비(줄 강제/보호) → ③ 중복/공란 정리
+                        dense_events = harden_ko_sentence_boundaries(dense_events)
+                        dense_events = [{**e, "text": prepare_text_for_ass(e["text"], one_line_threshold=12, biline_target=14)} for e in dense_events]
+                        dense_events = dedupe_adjacent_texts(dense_events)        # 중복 텍스트 합치기
+                        dense_events = drop_or_fix_empty_text(dense_events)       # 완전 공란 제거
 
-                        # (선택) 렌더링 프레임 격자에 스냅 — 깜빡임/미세 어긋남 줄임
-                        dense_events = quantize_events(dense_events, fps=30.0)      
-                        
-                        # 자막/영상 타임라인 통일
+                        # ④ 타이밍 안정화(겹침 방지/최소 노출/프레임 스냅/최소 프레임)
+                        dense_events = clamp_no_overlap(dense_events, margin=0.02)
+                        dense_events = enforce_min_duration_non_merging(dense_events, min_dur=0.50, margin=0.02)
+                        dense_events = quantize_events(dense_events, fps=30.0)
+                        dense_events = ensure_min_frames(dense_events, fps=30.0, min_frames=2)
+
+                        # ⑤ ASS 생성
                         generate_ass_subtitle(
                             segments=dense_events,
                             ass_path=ass_path,
                             template_name=st.session_state.selected_subtitle_template,
                             strip_trailing_punct_last=True,
-                            max_chars_per_line=14,   # 2줄 내로 깔끔히
+                            max_chars_per_line=14,
                             max_lines=2
                         )
                         segments_for_video = dense_events
@@ -1030,9 +1120,13 @@ with st.sidebar:
                                 patch_ass_center(ass_path)
                             st.success(f"자막 파일 생성 완료: {ass_path}")
                             # 🔧 영상 합성에서 참조할 최종 세그먼트 셋업
-                            segments_for_video = [{**e, "text": bind_compounds(e["text"])} for e in segments]
+                            segments_for_video = [{**e, "text": prepare_text_for_ass(e["text"], one_line_threshold=12, biline_target=14)} for e in segments]
+                            segments_for_video = dedupe_adjacent_texts(segments_for_video)
+                            segments_for_video = drop_or_fix_empty_text(segments_for_video)
                             segments_for_video = clamp_no_overlap(segments_for_video, margin=0.02)
+                            segments_for_video = enforce_min_duration_non_merging(segments_for_video, min_dur=0.50, margin=0.02)
                             segments_for_video = quantize_events(segments_for_video, fps=30.0)
+                            segments_for_video = ensure_min_frames(segments_for_video, fps=30.0, min_frames=2)
 
                     # --- 미디어(이미지 or 영상) 수집 ---
                     image_paths, video_paths = [], []
