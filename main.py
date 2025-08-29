@@ -470,7 +470,12 @@ def densify_subtitles_by_words(segments, target_min_events: int):
             if not part: 
                 continue
             is_kor = bool(re.search(r'[\uAC00-\uD7A3]', "".join(part)))
-            text = ('' if is_kor else ' ').join(part).strip()
+            text = ' '.join(part).strip()
+
+            # 공백/문장부호 정리 추가
+            text = re.sub(r'\s+([,?.!])', r'\1', text)         # 문장부호 앞 공백 제거
+            text = re.sub(r'([(\[“‘])\s+', r'\1', text)        # 괄호/인용부호 뒤 공백 제거
+            text = re.sub(r'\s+([)\]”’])', r'\1', text)        # 괄호/인용부호 앞 공백 제거
             part_ratio = len("".join(part)) / base_len
             dur = seg_dur * part_ratio
             t1 = t0 + dur
@@ -1300,6 +1305,12 @@ with st.sidebar:
 
 
                     # --- 합성 ---
+                    DEFAULT_BGM = "assets/[BGM] 힙합 비트 신나는 음악  무료브금  HYP-Show Me - HYP MUSIC - BGM Design.mp3"
+                    bgm_path = st.session_state.bgm_path
+                    if not bgm_path or not os.path.exists(bgm_path):
+                        bgm_path = DEFAULT_BGM if os.path.exists(DEFAULT_BGM) else ""
+                    st.write("🎧 BGM 경로:", bgm_path, "존재:", os.path.exists(bgm_path))
+                    
                     video_output_dir = "assets"
                     os.makedirs(video_output_dir, exist_ok=True)
                     temp_video_path = os.path.join(video_output_dir, "temp_video.mp4")

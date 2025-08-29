@@ -392,7 +392,6 @@ def add_subtitles_to_video(input_video_path, ass_path, output_path):
         "-c:a", "aac", "-b:a", "192k",
         # ★ 비디오/오디오 모두 유지(오디오 없으면 무시)
         "-map", "0:v:0", "-map", "0:a?", 
-        "-shortest",
         output_path
     ]
     subprocess.run(cmd, check=True)

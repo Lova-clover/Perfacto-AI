@@ -46,6 +46,9 @@ def _pitch_to_hex(p):
         return "&HFF0000&"  # blue
     return None
 
+def _strip_trailing_commas(s: str) -> str:
+    return re.sub(r'[,\s]+$', '', (s or '').strip())
+
 def harden_ko_sentence_boundaries(segments):
     """
     한국어 문장 경계를 더 강하게 보정:
@@ -891,7 +894,12 @@ def generate_ass_subtitle(
     for ev in segments:
         s = float(ev.get("start", 0.0))
         e = float(ev.get("end", max(s + 0.02, 0.02)))
-        if e <= s: e = s + 0.02
+        if e <= s:
+            e = s + 0.02
+
+        # ★ 마지막 이벤트는 더 길게 보장 (350ms)
+        if ev is segments[-1]:
+            e = max(e, s + 0.35)
 
         # (2)에서 설명하는 띄어쓰기/줄바꿈 정규화
         raw_text = (ev.get("text") or "")
