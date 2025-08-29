@@ -738,7 +738,7 @@ def create_video_from_videos(
             tiled = tiled[:n_samples]
 
             # 볼륨: 적당히 들리게 (원하면 0.5~0.8 사이로 조절)
-            gain = 0.5
+            gain = 0.2
             tiled = tiled * gain
 
             # 배열 → AudioArrayClip → 내레이션과 합성
