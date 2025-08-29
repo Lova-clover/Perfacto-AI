@@ -654,7 +654,7 @@ def create_dark_text_video(script_text, title_text, audio_path=None, bgm_path=""
     # ===== 오디오 & 저장 =====
     final_audio = audio
     if bgm_path and os.path.exists(bgm_path):
-        bgm = AudioFileClip(bgm_path).volumex(0.05).with_duration(duration)
+        bgm = AudioFileClip(bgm_path).volumex(0.5).with_duration(duration)
         final_audio = CompositeAudioClip([audio, bgm])
 
     final_video = video.with_audio(final_audio).with_fps(24)
