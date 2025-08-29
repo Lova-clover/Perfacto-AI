@@ -37,6 +37,9 @@ VIDEO_TEMPLATE = "영상(영어보이스+한국어자막·가운데)"
 DEFAULT_BGM = "assets/[BGM] 힙합 비트 신나는 음악  무료브금  HYP-Show Me - HYP MUSIC - BGM Design.mp3"
 
 # ---------- 유틸 ----------
+def _strip_trailing_commas(s: str) -> str:
+    return re.sub(r',+\s*$', '', s or '')
+
 def ensure_min_frames(events, fps=30.0, min_frames=2):
     if not events: return events
     tick = 1.0 / float(fps)
@@ -1078,6 +1081,8 @@ with st.sidebar:
                                     min_piece_dur=0.50
                                 )
 
+                        for e in dense_events:
+                            e['text'] = _strip_trailing_commas(e.get('text',''))
 
                         # === ① 경계 보강 ===
                         dense_events = harden_ko_sentence_boundaries(dense_events)
@@ -1150,6 +1155,15 @@ with st.sidebar:
                         dense_events = quantize_events(dense_events, fps=30.0)
                         dense_events = ensure_min_frames(dense_events, fps=30.0, min_frames=2)
 
+                        # 로그확인
+                        st.write("🧪 마지막 3개 조각 미리보기:",
+                                [(round(e["start"],3), round(e["end"],3), e.get("text","")) for e in dense_events[-3:]])
+                        try:
+                            with AudioFileClip(audio_path) as aud:
+                                st.write(f"🔊 오디오 길이: {aud.duration:.3f}s, 자막 끝: {dense_events[-1]['end']:.3f}s")
+                        except Exception as ee:
+                            st.write("🔊 오디오 길이 확인 실패:", ee)
+                        
                         # ⑤ ASS 생성
                         generate_ass_subtitle(
                             segments=dense_events,
