@@ -36,6 +36,93 @@ VIDEO_TEMPLATE = "영상(영어보이스+한국어자막·가운데)"
 
 
 # ---------- 유틸 ----------
+NBSP = "\u00A0"
+
+def bind_compounds(
+    text: str,
+    unit_words=None,        # 숫자 뒤에 붙는 단위/접미
+    counter_words=None,     # 번/수/명/개/칸/차례 등 카운터
+    bignum_prefixes=None,   # 수십/수백/수천/수만/수백만/수억/수조...
+    user_terms=None         # 사용자가 보호하고 싶은 구(낱말 묶음)
+) -> str:
+    """
+    문장 내부에서 '끊기면 어색한 결합 표현'을 자동 감지해 공백을 NBSP로 바꿉니다.
+    (줄바꿈 알고리즘이 NBSP를 분할 지점으로 보지 않아 자연스러운 끊김을 유도)
+
+    - 숫자+단위: 3수, 9점, 1분, 30초, 1cm, 1만 2천 km, 10의 120제곱
+    - 큰수+단위: 수백만 수, 수천만 명 ...
+    - 이름+값: 퀸 9점, 룩 5점, 폰 1점
+    - 양화: (단 )?한/두/세/... + 번/수/명/개/칸/(에)
+    - 사용자 정의 용어: user_terms=["한 번에","수백만 수"] 등
+    """
+    if not text or text.isspace():
+        return text
+
+    unit_words = unit_words or [
+        "수","점","분","초","칸","번","가지","명","개","년","배","%",
+        "km","m","cm","mm","kg","g","mg","℃","℉","°"
+    ]
+    counter_words = counter_words or ["번","수","가지","명","개","칸","차례"]
+    bignum_prefixes = bignum_prefixes or [
+        "수십","수백","수천","수만","수십만","수백만","수천만","수억","수조"
+    ]
+    user_terms = user_terms or []
+
+    t = text
+
+    # 0) 사용자 지정 어구 보호 (그대로 넣으면 가장 유연)
+    #    예: ["한 번에", "수백만 수", "단 한 수"]
+    if user_terms:
+        # 긴 어구부터 치환(부분 중복 방지)
+        for term in sorted(user_terms, key=len, reverse=True):
+            safe = term.replace(" ", NBSP)
+            # 단어 경계 무시하고 그대로 찾아 치환
+            t = t.replace(term, safe)
+
+    # 1) '이름 + 숫자 + (점|수|칸|분|초|%)' 패턴 (퀸 9점, 룩 5점, 폰 1점)
+    #    이름은 한글/영문 단어 한 개로 가정
+    name_val = re.compile(
+        r"([가-힣A-Za-z]+)\s+(\d+(?:\.\d+)?)\s*(점|수|칸|분|초|%)"
+    )
+    def _name_val(m):
+        return f"{m.group(1)}{NBSP}{m.group(2)}{NBSP}{m.group(3)}"
+    t = name_val.sub(_name_val, t)
+
+    # 2) '숫자(복합) + 단위' 패턴 (1만 2천 km, 3 수, 30 초, 1 cm ...)
+    #    - '1만 2천' 같이 내부 공백도 NBSP로
+    unit_alt = "|".join(map(re.escape, unit_words))
+    num_unit = re.compile(
+        rf"((?:\d+(?:\s*[만천백십])?)(?:\s*\d+)*)(?:\s*)({unit_alt})"
+    )
+    def _num_unit(m):
+        left = m.group(1).replace(" ", NBSP)
+        return f"{left}{NBSP}{m.group(2)}"
+    t = num_unit.sub(_num_unit, t)
+
+    # 3) '큰수 접두(수백/수천만/수억/수조...) + 단위' (수백만 수, 수천만 명)
+    big_alt = "|".join(map(re.escape, bignum_prefixes))
+    big_unit = re.compile(rf"({big_alt})\s*({unit_alt})")
+    t = big_unit.sub(lambda m: f"{m.group(1)}{NBSP}{m.group(2)}", t)
+
+    # 4) 지수 표기 '10의 120제곱'
+    expo = re.compile(r"(\d+)\s*의\s*(\d+)\s*제곱")
+    t = expo.sub(lambda m: f"{m.group(1)}{NBSP}의{NBSP}{m.group(2)}{NBSP}제곱", t)
+
+    # 5) 양화 표현 '(단 )?한/두/세/... + 번/수/가지/명/개/칸 (+에)'
+    quant_num = "(한|두|세|네|다섯|여섯|일곱|여덟|아홉|열)"
+    counter_alt = "|".join(map(re.escape, counter_words))
+    quant = re.compile(rf"(단\s+)?{quant_num}\s+({counter_alt})(에)?")
+    def _quant(m):
+        pre = (m.group(1) or "").replace(" ", NBSP)  # "단 " -> "단&nbsp;"
+        core = f"{m.group(2)}{NBSP}{m.group(3)}"     # "한 번"
+        tail = f"{NBSP}{m.group(4)}" if m.group(4) else ""
+        return f"{pre}{core}{tail}"
+    t = quant.sub(_quant, t)
+
+    # 6) 공백 정리(이중 이상 -> 단일), 문두/문미 공백 제거 (NBSP는 유지)
+    t = re.sub(r"[ \t]{2,}", " ", t).strip()
+    return t
+
 def build_image_paths_for_dense_segments(segments_for_video, persona_text: str):
     if "seen_photo_ids" not in st.session_state:
         st.session_state.seen_photo_ids = set()
@@ -864,18 +951,20 @@ with st.sidebar:
                         dense_events = auto_densify_for_subs(
                             segments,
                             tempo="fast",
-                            words_per_piece=3,          # 짧게 
+                            words_per_piece=4,          # 짧게 
                             min_tail_words=2,
                             chunk_strategy=None,
                             marks_voice_key=st.session_state.selected_polly_voice_key,
-                            max_chars_per_piece=16,     # 글자수 하드캡(읽기 좋게)
-                            min_piece_dur=0.42          # 최소 표시시간(너무 빨리 사라지는 현상 방지)
+                            max_chars_per_piece=14,     # 글자수 하드캡(읽기 좋게)
+                            min_piece_dur=0.5          # 최소 표시시간(너무 빨리 사라지는 현상 방지)
                         )
 
                         dense_events = harden_ko_sentence_boundaries(dense_events)   # 말꼬리 붙이기
+                        dense_events = [{**e, "text": bind_compounds(e["text"])} for e in dense_events]
+                        dense_events = apply_nbsp_tails(dense_events)
                         dense_events = dedupe_adjacent_texts(dense_events)
                         dense_events = clamp_no_overlap(dense_events, margin=0.0)
-                        dense_events = enforce_min_duration_non_merging(dense_events, min_dur=0.42, margin=0.0)
+                        dense_events = enforce_min_duration_non_merging(dense_events, min_dur=0.5, margin=0.0)
 
                         # (선택) 렌더링 프레임 격자에 스냅 — 깜빡임/미세 어긋남 줄임
                         dense_events = quantize_events(dense_events, fps=30.0)      
@@ -886,7 +975,7 @@ with st.sidebar:
                             ass_path=ass_path,
                             template_name=st.session_state.selected_subtitle_template,
                             strip_trailing_punct_last=True,
-                            max_chars_per_line=16,   # 2줄 내로 깔끔히
+                            max_chars_per_line=14,   # 2줄 내로 깔끔히
                             max_lines=2
                         )
                         segments_for_video = dense_events
@@ -940,6 +1029,10 @@ with st.sidebar:
                             if is_video_template:
                                 patch_ass_center(ass_path)
                             st.success(f"자막 파일 생성 완료: {ass_path}")
+                            # 🔧 영상 합성에서 참조할 최종 세그먼트 셋업
+                            segments_for_video = [{**e, "text": bind_compounds(e["text"])} for e in segments]
+                            segments_for_video = clamp_no_overlap(segments_for_video, margin=0.02)
+                            segments_for_video = quantize_events(segments_for_video, fps=30.0)
 
                     # --- 미디어(이미지 or 영상) 수집 ---
                     image_paths, video_paths = [], []
