@@ -6,10 +6,22 @@ import os
 import random
 import subprocess
 import numpy as np
-from moviepy.audio.AudioClip import AudioArrayClip
+from moviepy.audio.AudioClip import AudioArrayClip, concatenate_audioclips
 import gc
 import imageio_ffmpeg
-from moviepy.audio.fx.all import audio_loop
+# 상단 임포트 근처
+try:
+    from moviepy.audio.fx import audio_loop          # moviepy 2.x
+except Exception:
+    try:
+        from moviepy.audio.fx.all import audio_loop  # moviepy 1.x
+    except Exception:
+        audio_loop = None
+
+def _loop_audio_manual(clip, duration):
+    rep = int(np.ceil(duration / max(clip.duration, 0.1)))
+    looped = concatenate_audioclips([clip] * max(1, rep))
+    return looped.subclip(0, duration)
 
 def create_motion_clip(img_path, duration, width, height):
     base_clip_original_size = ImageClip(img_path)
@@ -302,20 +314,14 @@ def create_video_with_segments(
         print(f"⚠️ BGM 로드 실패: {e}")
         bgm_clip = None
 
-    # BGM을 target_duration에 맞춰 루프(또는 트림) → 낮은 볼륨으로
     if bgm_clip:
-        try:
-            bgm_loop = audio_loop(bgm_clip, duration=target_duration).volumex(0.08)  # -22~-18dB 수준
-        except Exception:
-            # audio_loop 미지원일 때 수동 반복
-            rep = int(np.ceil(target_duration / max(bgm_clip.duration, 0.1)))
-            parts = []
-            for _ in range(max(1, rep)):
-                parts.append(bgm_clip)
-            bgm_loop = parts[0]
-            for p in parts[1:]:
-                bgm_loop = bgm_loop.concatenate_audioclips([p])
-            bgm_loop = bgm_loop.subclip(0, target_duration).volumex(0.08)
+        if audio_loop is not None:
+            try:
+                bgm_loop = audio_loop(bgm_clip, duration=target_duration).volumex(0.08)
+            except Exception:
+                bgm_loop = _loop_audio_manual(bgm_clip, target_duration).volumex(0.08)
+        else:
+            bgm_loop = _loop_audio_manual(bgm_clip, target_duration).volumex(0.08)
     else:
         bgm_loop = None
 
@@ -709,8 +715,8 @@ def create_video_from_videos(
                 raise RuntimeError("BGM duration is too short")
             # 반복 타일링 + -15dB 정도
             tile = int(math.ceil(narration.duration / max(bgm_raw.duration, 0.1)))
-            bgm_tiled = concatenate_videoclips([bgm_raw] * tile, method="chain").subclip(0, narration.duration)
-            bgm_tiled = bgm_tiled.volumex(0.18)  # 살짝 낮게
+            bgm_tiled = concatenate_audioclips([bgm_raw] * tile).subclip(0, narration.duration)
+            bgm_tiled = bgm_tiled.volumex(0.18)
             final_audio = CompositeAudioClip([narration, bgm_tiled])
         except Exception as e:
             print(f"⚠️ BGM 믹스 실패(무시): {e}")
