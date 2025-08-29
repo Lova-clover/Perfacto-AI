@@ -563,13 +563,6 @@ def _ass_time(t: float) -> str:
     return f"{h:d}:{m:02d}:{s:02d}.{cs:02d}"
 
 def _sanitize_ass_text(text: str) -> str:
-    """
-    ASS 텍스트로 안전화:
-    - 줄바꿈은 \N
-    - 빈 문자열/공백은 NBSP 보정
-    - { } 는 전각으로 치환(ASS 오버라이드 태그 충돌 방지)
-    - 선행/후행 공백 정리(단, NBSP는 유지)
-    """
     t = (text or "").replace("\r", "")
     t = t.replace("{", "｛").replace("}", "｝")  # override tag 충돌 방지
     # 이미 \N이 있으면 유지, 실제 개행은 \N으로
@@ -582,13 +575,6 @@ def _sanitize_ass_text(text: str) -> str:
     return t.strip()
 
 def _best_two_line_break(text: str, max_len: int, min_each: int = 3) -> str:
-    """
-    2줄이 '필요한 경우'에만 가장 보기 좋은 지점에서 \N 삽입.
-    - NBSP 앞/뒤는 끊지 않음
-    - 우선순위: 공백(스페이스) > 약한 구두점(, · : - /) > 강한 구두점(？ ?)
-    - 두 줄 모두 min_each 이상, 각 줄 길이 <= max_len 이 되도록 시도
-    - 실패하면 마지막 폴백: max_len에 근접한 자연스러운 위치
-    """
     raw = text
     # 줄바꿈/제어문자 제거(라인 계산용)
     plain = raw.replace(r"\N", " ").replace("\n", " ")
