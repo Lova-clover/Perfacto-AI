@@ -772,11 +772,6 @@ def generate_ass_subtitle(
     max_chars_per_line: int = 14,
     max_lines: int = 2
 ) -> str:
-    """
-    - 1줄이면 무조건 1줄 유지, 2줄이 '필요할 때만' 좋은 지점에서 \N 강제
-    - 빈/초단시간 cue 사라짐 방지를 위해 NBSP/이스케이프 처리
-    - 템플릿이 있으면 그대로 활용하되, Style의 Fontname만 BMJUA_ttf로 강제 교체
-    """
     # ---- 내부 도우미: 스타일 라인에서 Fontname만 BMJUA_ttf로 강제 치환 ----
     def _force_font_in_styles(styles_lines, font_family="BMJUA_ttf"):
         out = []
