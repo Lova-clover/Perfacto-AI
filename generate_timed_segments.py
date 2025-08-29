@@ -734,10 +734,6 @@ FORCE_FONT_FAMILY = "BMJUA_ttf"                     # 폰트 패밀리명(파일
 FORCE_FONT_DIR    = os.path.join("assets","fonts")  # 실제 파일 위치: assets/fonts/BMJUA_ttf.ttf
 
 def _force_font_in_styles(styles_lines, family: str = FORCE_FONT_FAMILY):
-    """
-    [V4+ Styles]의 모든 Style 행에서 Fontname만 family로 교체.
-    다른 스타일 속성(색상/정렬/굵기/테두리 등)은 그대로 보존.
-    """
     out = []
     fmt_fields = None
     for ln in styles_lines:
@@ -776,11 +772,6 @@ def generate_ass_subtitle(
     max_chars_per_line: int = 14,
     max_lines: int = 2
 ) -> str:
-    """
-    - 템플릿 형식(색/정렬/외곽선 등)은 보존.
-    - 폰트만 'BMJUA_ttf'로 강제 고정(assets/fonts/BMJUA_ttf.ttf).
-    - 1줄이면 1줄 유지, 필요할 때만 2줄(\N). 빈/초단시간 cue 소실 방지.
-    """
     if not segments:
         segments = [{"start":0.00,"end":0.02,"text":NBSP}]
 
