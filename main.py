@@ -1043,21 +1043,35 @@ with st.sidebar:
                         for seg in segments:  # seg = {"start","end","text","ssml"?}
                             if seg.get("ssml"):
                                 base = _build_dense_from_ssml(seg["ssml"], seg["start"], seg["end"], fps=30.0)
-                                # 각 prosody 조각을 단어 단위로 더 쪼개서 템포 빠르게(싱크는 비율로 유지)
+
+                                # ✅ prosody 조각마다 "기존 빠른템포" 규칙으로 자연스럽게 쪼갠다
                                 for ev in base:
-                                    toks = _tokenize_words_for_kr_en(ev.get('text',''))
-                                    target = max(1, math.ceil(len(toks)/2))  # 2단어씩
-                                    finer = densify_subtitles_by_words([ev], target_min_events=target)
-                                    # pitch 보존
-                                    for f in finer:
+                                    fast = auto_densify_for_subs(
+                                        [ {"start": ev["start"], "end": ev["end"], "text": ev["text"]} ],
+                                        tempo="fast",
+                                        words_per_piece=3,           # 2~3 단어 정도로
+                                        min_tail_words=2,
+                                        chunk_strategy=None,
+                                        marks_voice_key=st.session_state.selected_polly_voice_key,
+                                        max_chars_per_piece=14,
+                                        min_piece_dur=0.50
+                                    )
+                                    # prosody에서 계산된 pitch 보존
+                                    for f in fast:
                                         f["pitch"] = ev.get("pitch")
-                                    dense_events.extend(finer)
+                                    dense_events.extend(fast)
+
                             else:
-                                # 기존 빠른 템포 설정 유지 (words_per_piece=2 권장)
-                                dense_events += auto_densify_for_subs([seg], tempo="fast", words_per_piece=2,
-                                                                    min_tail_words=2, chunk_strategy=None,
-                                                                    marks_voice_key=st.session_state.selected_polly_voice_key,
-                                                                    max_chars_per_piece=14, min_piece_dur=0.50)
+                                dense_events += auto_densify_for_subs(
+                                    [seg],
+                                    tempo="fast",
+                                    words_per_piece=3,               # 동일 기준
+                                    min_tail_words=2,
+                                    chunk_strategy=None,
+                                    marks_voice_key=st.session_state.selected_polly_voice_key,
+                                    max_chars_per_piece=14,
+                                    min_piece_dur=0.50
+                                )
 
 
                         # === ① 경계 보강 ===

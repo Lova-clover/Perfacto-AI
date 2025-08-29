@@ -315,7 +315,7 @@ def create_video_with_segments(
             voice_path=(audio_path if (audio_path and os.path.exists(audio_path)) else None),
             bgm_path=chosen_bgm,
             out_path=mixed_path,
-            bgm_gain_db=-14.0,     # 살짝 키움(원래 -18dB)
+            bgm_gain_db=5,     
             add_tail_ms=250
         )
         final_audio = AudioFileClip(mixed_path)

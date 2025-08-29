@@ -31,19 +31,20 @@ def _parse_pitch_value(p):
 
 def _pitch_to_hex(p):
     """
-    p: 퍼센트(float/int) 가정. -20%..+20%를 파란→하양→빨강 그라데이션으로.
-    반환: ASS BGR 형식 ex) &HBBGGRR&
+    ASS는 BGR 순서.
+    - None/미미: 기본(하양)
+    - 낮음(<= -6): 빨강  -> &H0000FF&
+    - 높음(>= +6): 파랑 -> &HFF0000&
     """
     try:
         v = float(p)
     except Exception:
         return None
-    v = max(-20.0, min(20.0, v))
-    t = (v + 20.0) / 40.0  # 0..1
-    r = int(255 * t)
-    b = int(255 * (1.0 - t))
-    g = int(200 * (1.0 - abs(t - 0.5)*2))  # 중간 근처는 살짝 밝게
-    return f"&H{b:02X}{g:02X}{r:02X}&"
+    if v <= -6:
+        return "&H0000FF&"  # red
+    if v >= +6:
+        return "&HFF0000&"  # blue
+    return None
 
 def harden_ko_sentence_boundaries(segments):
     """
@@ -890,21 +891,23 @@ def generate_ass_subtitle(
     for ev in segments:
         s = float(ev.get("start", 0.0))
         e = float(ev.get("end", max(s + 0.02, 0.02)))
-        if e <= s:
-            e = s + 0.02
+        if e <= s: e = s + 0.02
 
-        plan_text = _prepare_text_for_lines(ev.get("text", "") or "", max_chars_per_line, max_lines)
+        # (2)에서 설명하는 띄어쓰기/줄바꿈 정규화
+        raw_text = (ev.get("text") or "")
+        # NBSP → 보통 공백, 중복 공백 정리
+        normalized = " ".join(raw_text.replace("\u00A0", " ").split())
+        plan_text = _prepare_text_for_lines(normalized, max_chars_per_line, max_lines)
         if strip_trailing_punct_last:
             plan_text = _strip_trailing_punct_last_line(plan_text)
         safe_text = _sanitize_ass_text(plan_text)
-        if not safe_text.strip().replace(NBSP, ""):
-            safe_text = NBSP
+        if not safe_text.strip().replace("\u00A0", ""):
+            safe_text = "\u00A0"
 
         col_hex = _pitch_to_hex(ev.get("pitch"))
-        colour_tag = (r"{\c&" + col_hex + r"&}") if col_hex else ""
-        safe_text = colour_tag + safe_text
+        if col_hex:
+            safe_text = "{\\c" + col_hex + "}" + safe_text
 
-        # 스타일은 BMJua 고정(이미 _ensure_styles_with_bmjua 로 등록)
         dlg = f"Dialogue: 0,{_ass_time(s)},{_ass_time(e)},BMJua,,0,0,0,,{safe_text}"
         lines.append(dlg)
 
