@@ -1321,9 +1321,13 @@ with st.sidebar:
                     # --- 합성 ---
                     DEFAULT_BGM = "assets/[BGM] 힙합 비트 신나는 음악  무료브금  HYP-Show Me - HYP MUSIC - BGM Design.mp3"
                     bgm_path = st.session_state.bgm_path
-                    if not bgm_path or not os.path.exists(bgm_path):
-                        bgm_path = DEFAULT_BGM if os.path.exists(DEFAULT_BGM) else ""
-                    st.write("🎧 BGM 경로:", bgm_path, "존재:", os.path.exists(bgm_path))
+                    if not (bgm_path and os.path.exists(bgm_path)):
+                        if os.path.exists(DEFAULT_BGM):
+                            bgm_path = DEFAULT_BGM
+                    # 세이프가드: 세션에도 최종값 반영
+                    st.session_state.bgm_path = bgm_path
+
+                    st.write("🎧 최종 BGM 경로:", bgm_path, "exists:", os.path.exists(bgm_path))
                     
                     video_output_dir = "assets"
                     os.makedirs(video_output_dir, exist_ok=True)
@@ -1336,7 +1340,7 @@ with st.sidebar:
                             script_text=final_script_for_video,
                             title_text="",  # 감성 텍스트: 화면 제목 비사용
                             audio_path=None,
-                            bgm_path=st.session_state.bgm_path,
+                            bgm_path=bgm_path,
                             save_path=temp_video_path
                         )
                         final_video_with_subs_path = created_video_path
@@ -1348,7 +1352,7 @@ with st.sidebar:
                                 audio_path=st.session_state.audio_path if st.session_state.include_voice else None,
                                 topic_title="",
                                 include_topic_title=False,
-                                bgm_path=st.session_state.bgm_path,
+                                bgm_path=bgm_path,
                                 save_path=temp_video_path
                             )
                         else:
@@ -1358,7 +1362,7 @@ with st.sidebar:
                                 audio_path=st.session_state.audio_path if st.session_state.include_voice else None,
                                 topic_title=st.session_state.video_title,
                                 include_topic_title=True,
-                                bgm_path=st.session_state.bgm_path,
+                                bgm_path=bgm_path,
                                 save_path=temp_video_path
                             )
 
