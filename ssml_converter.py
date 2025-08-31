@@ -187,45 +187,78 @@ def convert_line_to_ssml(user_line: str) -> str:
     """
     한 줄 대본을 Amazon Polly 친화 SSML로 분할(구/절 단위 prosody + 짧은 break).
     - 태그: <prosody>, <break>만 사용 (여기서는 <speak>는 붙이지 않음)
-    - 마침표/느낌표/줄임표는 제거(Polly 안정성), 물음표/쉼표는 유지
+    - 마침표/느낌표는 폴백에서만 정리(Polly 안정성), 물음표/쉼표는 유지
     - 원문 어휘/어순 보존, '분할'만 수행
     """
+    try:
+        from xml.sax.saxutils import escape as _xml_escape
+    except Exception:
+        def _xml_escape(s: str) -> str:
+            return (s or "") \
+                .replace("&", "&amp;").replace("<", "&lt;") \
+                .replace(">", "&gt;").replace('"', "&quot;").replace("'", "&apos;")
+
     t = (user_line or "").strip()
     if not t:
         return ""
 
-    # 1) LLM 프롬프트 시도
+    # ── [전처리: 의미 보존/발음 안정화] ─────────────────────────────────────
+    # 마이너스 기호 통일(−, –, — → -), 얇은 공백 등 정리
+    t = t.replace("\xa0", " ").translate(str.maketrans({"–": "-", "—": "-", "−": "-"}))
+
+    # ① 천단위 콤마 제거: 1,234,567 → 1234567  (숫자 사이에만 있는 콤마 모두 제거)
+    t = re.sub(r'(?<=\d),(?=\d)', '', t)
+
+    # ② 숫자+단위 붙이기: "10000 km" → "10000km"  (공백만 제거, 본문 의미 불변)
+    unit_pat = r'(km|m|cm|mm|μm|nm|kg|g|mg|t|L|l|ml|℃|°C|°F|도|%)'
+    t = re.sub(rf'(\d)\s+({unit_pat})(\b)', r'\1\2', t)
+
+    # ③ 비율/속도: "1 / 3" → "1/3" , "30 km/h" → "30 km/h" (가독만 정리)
+    t = re.sub(r'(\d)\s*/\s*(\d)', r'\1/\2', t)        # 분수/비율
+    t = re.sub(r'(\d)\s+(km/h|m/s)', r'\1 \2', t)      # 속도 단위 앞은 한 칸 유지
+
+    # ── [LLM 경로: 있으면 그대로 사용] ────────────────────────────────────
     try:
         prompt = SSML_PROMPT.replace("{{USER_SCRIPT}}", t)
         out = _complete_with_any_llm(prompt) or ""
         out = out.strip()
         if out:
-            # <speak>... </speak>를 감싸서 오면 껍데기만 벗겨 fragment로
-            frag = _unwrap_speak(out)
-
+            frag = _unwrap_speak(out)  # <speak> 감싸져 오면 껍데기 제거
             # 허용 외 태그 제거 (prosody/break만 허용)
             frag = re.sub(r"</?(?!prosody\b|break\b)[a-zA-Z0-9:_-]+\b[^>]*>", "", frag)
-
-            # 연속 break 정리
+            # 연속 break 1회로 축약
             frag = re.sub(r'(?:<break\b[^>]*/>\s*){2,}', '<break time="30ms"/>', frag)
-
             if frag.strip():
                 return frag
     except Exception:
         pass
-    
-    # Polly 제약
-    t = t.replace("…", "")
-    t = re.sub(r"[!]+", "", t)
-    t = re.sub(r"[.]+", "", t)
-    t = re.sub(r"\s+", " ", t).strip()
 
-    # 분절 후보 (담화표지/?, , 뒤)
-    tmp = re.sub(r"(그리고|하지만|근데|그런데|그래서|그러니까|즉|특히|게다가|한편|반면에|다만)\s*", r"\g<0>§", t)
-    tmp = re.sub(r"(?<=[,，、;:·?])\s*", "§", tmp)
-    parts = [p.strip() for p in tmp.split("§") if p.strip()] or [t]
+    # ── [폴백 경로: 소수점 보호 후 문장부호 정리] ──────────────────────────
+    tt = t
+    tt = tt.replace("…", "")
 
-    # 길이 보정
+    # 소수점 보호: 9.0 / 3.14 안의 '.'은 남기고, 나머지 마침표만 제거
+    tt = re.sub(r'(?<=\d)\.(?=\d)', '§DECIMAL§', tt)  # 9.0 -> 9§DECIMAL§0
+    tt = re.sub(r"[.]+", "", tt)                      # 문장 끝 마침표 제거
+    tt = tt.replace('§DECIMAL§', '.')                 # 소수점 복원
+
+    # 느낌표는 제거(Polly 안정성), 공백 정리
+    tt = re.sub(r"[!]+", "", tt)
+    tt = re.sub(r"\s+", " ", tt).strip()
+
+    # ── [분절: 담화표지/?, , / 콜론(시간 제외)] ────────────────────────────
+    tmp = re.sub(r"(그리고|하지만|근데|그런데|그래서|그러니까|즉|특히|게다가|한편|반면에|다만|또한|결국|우선)\s*",
+                 r"\g<0>§", tt)
+    # 콤마: 숫자 밖의 콤마만 분절
+    tmp = re.sub(r'(?<!\d),(?!\d)\s*', "§", tmp)
+    # 물음표/중국권 구두점/세미콜론/가운뎃점
+    tmp = re.sub(r'(?<=[，、;·?])\s*', "§", tmp)
+    # 콜론은 시간이 아닐 때만 분절(예: 12:30 보호)
+    tmp = re.sub(r'(?<!\d):(?!\d)\s*', "§", tmp)
+
+    parts = [p.strip() for p in tmp.split("§") if p.strip()] or [tt]
+
+    # ── [길이 보정: 너무 길면 안전한 공백 기준으로만 자르기] ────────────────
     chunks = []
     for p in parts:
         if len(p) <= 18:
@@ -241,6 +274,7 @@ def convert_line_to_ssml(user_line: str) -> str:
             if cur:
                 chunks.append(cur)
 
+    # ── [스타일: 질문/경어/서술 어미에 따라 rate/pitch 살짝만] ────────────────
     def _style(s: str):
         s2 = s.strip()
         if s2.endswith("?"):
@@ -258,5 +292,5 @@ def convert_line_to_ssml(user_line: str) -> str:
         if i != len(chunks) - 1:
             ssml.append('<break time="30ms"/>')
 
-    # 연속 break 방지
+    # 연속 break 1회로 축약 후 리턴
     return re.sub(r'(?:<break\b[^>]*/>\s*){2,}', '<break time="30ms"/>', "".join(ssml)).strip()

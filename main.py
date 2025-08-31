@@ -1176,7 +1176,7 @@ with st.sidebar:
                         dense_events = drop_or_fix_empty_text(dense_events)
 
                         # === ③ 타이밍 안정화 ===
-                        dense_events = clamp_no_overlap(dense_events, margin=0.02)
+                        dense_events = clamp_no_overlap(dense_events, margin=0.00)
                         dense_events = enforce_min_duration_non_merging(dense_events, min_dur=0.50, margin=0.02)
                         dense_events = quantize_events(dense_events, fps=30.0)
                         dense_events = ensure_min_frames(dense_events, fps=30.0, min_frames=2)

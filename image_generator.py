@@ -147,7 +147,7 @@ def _shrink_to_720_inplace(path: str):
     """
     tmp = path + ".shrink.mp4"
     vf = 'scale=720:-2:force_original_aspect_ratio=increase,crop=720:1080,format=yuv420p'
-    cmd = f'ffmpeg -y -i {shlex.quote(path)} -vf {shlex.quote(vf)} -r 24 -c:v libx264 -preset ultrafast -crf 30 -c:a aac -b:a 96k {shlex.quote(tmp)}'
+    cmd = f'ffmpeg -y -i {shlex.quote(path)} -vf {shlex.quote(vf)} -r 30 -c:v libx264 -preset ultrafast -crf 30 -c:a aac -b:a 96k {shlex.quote(tmp)}'
     subprocess.run(cmd, shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
     os.replace(tmp, path)
 
