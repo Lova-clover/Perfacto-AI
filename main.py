@@ -1242,6 +1242,13 @@ with st.sidebar:
                         if not is_emotional:
                             ass_path = os.path.join("assets", "generated_subtitle.ass")
                             st.write("📝 자막 파일 생성 중...")
+                            with AudioFileClip(audio_path) as aud:
+                                aud_dur = float(aud.duration)       
+                            fps = 30.0
+                            tick = 1.0 / fps
+                            target_end = aud_dur - tick                   # 오디오 끝보다 1프레임 짧게
+                            target_end = math.floor(target_end / tick) * tick
+                            segments[-1]["end"] = max(segments[-1]["end"], target_end)
                             generate_ass_subtitle(
                                 segments=segments,
                                 ass_path=ass_path,

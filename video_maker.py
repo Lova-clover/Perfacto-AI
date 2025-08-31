@@ -323,7 +323,7 @@ def create_video_with_segments(
             bgm_path=chosen_bgm,
             out_path=mixed_path,
             bgm_gain_db=-30, #BGM 소리 크기     
-            add_tail_ms=250
+            add_tail_ms=0
         )
         final_audio = AudioFileClip(mixed_path)
     except Exception as e:
@@ -381,7 +381,6 @@ def create_video_with_segments(
     print(f"✅ (자막 미적용) 영상 저장 완료: {save_path}")
     return save_path
 
-
 ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 
 # ✅ 자막 추가 함수
@@ -420,7 +419,7 @@ from pydub import AudioSegment
 import math, os
 
 def _mix_voice_and_bgm(voice_path: str | None, bgm_path: str | None, out_path: str,
-                       bgm_gain_db: float = 6, add_tail_ms: int = 250) -> str | None:
+                       bgm_gain_db: float = 6, add_tail_ms: int = 0) -> str | None:
     """
     - voice만 있으면 그대로 복사(꼬리 무음 추가)
     - bgm만 있으면 길이에 맞춰 자르고 내보냄
