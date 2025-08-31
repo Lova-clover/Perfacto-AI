@@ -12,13 +12,7 @@ GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
 # =============================================================================
 
 class QuestionSegmentationSystem:
-    def __init__(self, model_name: str = "llama3-8b-8192"):
-        """
-        질문 세분화 시스템 초기화 (Groq Llama-3-8B 모델 사용)
-        
-        Args:
-            model_name: 사용할 모델명 (기본값: llama3-8b-8192)
-        """
+    def __init__(self, model_name: str = "llama-3.1-8b-instant"):
         self.model_name = model_name
         
         # Groq API 설정

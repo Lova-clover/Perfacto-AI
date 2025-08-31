@@ -6,7 +6,6 @@ from langchain_groq import ChatGroq  # ✅ Groq import
 
 
 
-
 def get_conversational_rag_chain(retriever, system_prompt):
     """
     최종적으로 생성된 문장 단위의 출처를 사용하여 답변을 생성하는 RAG 체인을 구성합니다.
