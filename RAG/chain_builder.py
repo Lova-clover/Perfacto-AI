@@ -67,5 +67,5 @@ def get_default_chain(system_prompt):
     prompt = ChatPromptTemplate.from_messages(
         [("system", system_prompt), ("user", "{question}")]
     )
-    llm = ChatGroq(model_name="llama3-70b-8192", temperature=0.7)  # ✅ Groq LLM
+    llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0.7)  # ✅ Groq LLM
     return prompt | llm | StrOutputParser()
