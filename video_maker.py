@@ -350,7 +350,7 @@ def create_video_with_segments(
     os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
     tmp_out = os.path.join(os.path.dirname(save_path) or ".", "_temp_no_subs.mp4")
 
-    video = concatenate_videoclips(clips, method="chain").with_fps(30)
+    video = concatenate_videoclips(clips, method="compose").with_fps(30)
     if final_audio is not None:
         video = _with_audio_compat(video, final_audio)
 
@@ -358,7 +358,8 @@ def create_video_with_segments(
         tmp_out,
         codec="libx264",
         audio_codec="aac",
-        audio_bitrate="192k"
+        audio_bitrate="192k",
+        fps=30
     )
 
     try: video.close()
@@ -396,8 +397,8 @@ def add_subtitles_to_video(input_video_path, ass_path, output_path):
         "-i", input_video_path,
         "-vf", f"ass='{ass_q}':fontsdir='{fonts_q}'",
         "-c:v", "libx264",
-        "-c:a", "aac", "-b:a", "192k", "-r", "30",
-        # ★ 비디오/오디오 모두 유지(오디오 없으면 무시)
+        "-c:a", "aac", "-b:a", "192k", 
+        "-vsync", "0", "-fps_mode", "passthrough",
         "-map", "0:v:0", "-map", "0:a?", 
         output_path
     ]
