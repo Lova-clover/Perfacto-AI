@@ -386,23 +386,34 @@ ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 
 # ✅ 자막 추가 함수
 def add_subtitles_to_video(input_video_path, ass_path, output_path):
-    import subprocess, shlex, os
+    import subprocess, os
     fonts_dir = os.path.abspath(os.path.join("assets", "fonts"))
-    # 경로에 공백/역슬래시가 있어도 안전하게
-    ass_q = ass_path.replace("\\", "/")
+
+    # 경로 정리(공백/역슬래시 대응)
+    ass_q   = os.path.abspath(ass_path).replace("\\", "/")
     fonts_q = fonts_dir.replace("\\", "/")
 
+    # fonts 폴더가 없으면 fontsdir 옵션은 생략 (불필요한 오류 방지)
+    vf = f"ass='{ass_q}':fontsdir='{fonts_q}'" if os.path.isdir(fonts_dir) else f"ass='{ass_q}'"
+
     cmd = [
-        "ffmpeg", "-y",
+        ffmpeg_path, "-y",
+        "-hide_banner", "-loglevel", "error",
         "-i", input_video_path,
-        "-vf", f"ass='{ass_q}':fontsdir='{fonts_q}'",
-        "-c:v", "libx264",
-        "-c:a", "aac", "-b:a", "192k", 
-        "-vsync", "0", "-fps_mode", "passthrough",
-        "-map", "0:v:0", "-map", "0:a?", 
-        output_path
+        "-vf", vf,
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "192k",
+        # 🔑 프레임 재샘플링 금지(타임스탬프 보존)
+        "-vsync", "0",
+        "-map", "0:v:0", "-map", "0:a?",
+        "-movflags", "+faststart",
+        output_path,
     ]
-    subprocess.run(cmd, check=True)
+
+    # 에러 메시지 확인을 위해 캡처
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed:\n{res.stderr.strip()}")
     return output_path
 
 from pydub import AudioSegment
