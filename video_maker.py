@@ -18,6 +18,26 @@ except Exception:
     except Exception:
         audio_loop = None
 
+from PIL import Image
+import hashlib
+
+_IMG_CACHE_DIR = os.path.join("assets", "cache_img")
+os.makedirs(_IMG_CACHE_DIR, exist_ok=True)
+
+def _precompress_img(src, max_w=720, max_h=1080, quality=85):
+    try:
+        sig = f"{src}:{os.path.getsize(src)}"
+        h = hashlib.md5(sig.encode()).hexdigest()[:12]
+        dst = os.path.join(_IMG_CACHE_DIR, f"{h}.jpg")
+        if os.path.exists(dst):
+            return dst
+        im = Image.open(src).convert("RGB")
+        im.thumbnail((max_w, max_h), Image.LANCZOS)  # 720x1080 캡
+        im.save(dst, "JPEG", quality=quality, optimize=True, progressive=True)
+        return dst
+    except Exception:
+        return src
+
 def _st(msg):
     try:
         import streamlit as st
@@ -184,13 +204,41 @@ def create_video_with_segments(
     include_topic_title=True,
     bgm_path="",
     save_path="assets/video.mp4",
-    ass_path=None,   # (호환용) 여기선 사용하지 않음. 자막은 main에서 add_subtitles_to_video로 번인.
+    ass_path=None,  # (선택) 여기서는 자막 번인은 하지 않고, 이후 단계에서 처리 권장
 ):
-    W, H = 720, 1080
-    clips = []
-    total_dur = segments[-1]['end'] if segments else 10.0
+    """
+    메모리 안전 버전:
+      - 각 세그먼트를 개별 mp4 파일로 바로 인코딩(메모리 즉시 해제)
+      - ffmpeg concat demuxer로 무재인코딩 병합
+      - 마지막에 오디오 트랙만 얹어서 최종 파일 생성
+    """
+    import os, gc, math, tempfile, subprocess, hashlib, shutil
+    from PIL import Image
 
-    # ---------- 내부 헬퍼들 ----------
+    # ---------- 기본 설정 ----------
+    W, H = 720, 1080
+    os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+    total_dur = segments[-1]["end"] if segments else 10.0
+
+    # ---------- 이미지 사전 다운스케일(캐시) ----------
+    _IMG_CACHE_DIR = os.path.join("assets", "cache_img")
+    os.makedirs(_IMG_CACHE_DIR, exist_ok=True)
+
+    def _precompress_img(src, max_w=720, max_h=1080, quality=85):
+        """초고해상도 원본을 720x1080 캡으로 JPEG 저장해 메모리 사용량을 낮춤."""
+        try:
+            sig = f"{src}:{os.path.getsize(src)}"
+            h = hashlib.md5(sig.encode()).hexdigest()[:12]
+            dst = os.path.join(_IMG_CACHE_DIR, f"{h}.jpg")
+            if os.path.exists(dst):
+                return dst
+            im = Image.open(src).convert("RGB")
+            im.thumbnail((max_w, max_h), Image.LANCZOS)
+            im.save(dst, "JPEG", quality=quality, optimize=True, progressive=True)
+            return dst
+        except Exception:
+            return src  # 실패 시 원본 사용
+
     def _normalize_image_paths(paths, n_needed):
         paths = list(paths or [])
         if len(paths) < n_needed:
@@ -198,36 +246,61 @@ def create_video_with_segments(
             paths += [last_valid] * (n_needed - len(paths))
         elif len(paths) > n_needed:
             paths = paths[:n_needed]
-        return [p if (p and os.path.exists(p)) else None for p in paths]
+        # 캐시 다운스케일
+        return [(_precompress_img(p) if p and os.path.exists(p) else None) for p in paths]
+
+    image_paths = _normalize_image_paths(image_paths, len(segments))
+
+    # ---------- 간단한 모션(케빈 번즈) ----------
+    def create_motion_clip(img_path, duration, width, height):
+        try:
+            base = ImageClip(img_path)
+            scale = max(width / base.w, height / base.h)
+            clip = base.resized(scale).with_duration(duration)
+            # 살짝 팬(좌상단 → 중앙)
+            def pos(t):
+                if duration <= 0: 
+                    return (0, 0)
+                prog = t / duration
+                return (-12 * (1 - prog), -12 * (1 - prog))
+            return clip.with_position(pos)
+        except Exception:
+            return ColorClip(size=(width, height), color=(0, 0, 0)).with_duration(duration)
 
     def _build_text_clip(text: str, font_path: str, font_size: int, max_width: int):
+        # caption 우선, 실패 시 label 폴백
         try:
             clip = TextClip(
                 text=text + "\n",
-                font=font_path, font_size=font_size,
+                font=font_path if os.path.exists(font_path) else "Arial",
+                font_size=font_size,
                 color="white",
                 stroke_color="skyblue", stroke_width=1,
                 method="caption", size=(max_width, None),
                 align="center",
             )
-            return clip, True
+            used_caption = True
         except TypeError:
             clip = TextClip(
                 text=text + "\n",
-                font=font_path, font_size=font_size,
+                font=font_path if os.path.exists(font_path) else "Arial",
+                font_size=font_size,
                 color="white",
                 method="label",
             )
-            return clip, False
+            used_caption = False
         except Exception:
             return None, False
+        return clip, used_caption
 
     def _measure_text_h(text: str, font_path: str, font_size: int, max_width: int, used_caption: bool):
         try:
             if used_caption:
-                dummy = TextClip(text=text, font=font_path, font_size=font_size, method="caption", size=(max_width, None))
+                dummy = TextClip(text=text, font=font_path if os.path.exists(font_path) else "Arial",
+                                 font_size=font_size, method="caption", size=(max_width, None))
             else:
-                dummy = TextClip(text=text, font=font_path, font_size=font_size, method="label")
+                dummy = TextClip(text=text, font=font_path if os.path.exists(font_path) else "Arial",
+                                 font_size=font_size, method="label")
             h = dummy.h
             try: dummy.close()
             except: pass
@@ -238,38 +311,14 @@ def create_video_with_segments(
     def auto_split_title(text: str, max_first_line_chars=18):
         words = text.split()
         total = sum(len(w) for w in words)
-        target = max_first_line_chars if total > max_first_line_chars*2 else (total // 2 or total)
+        target = max_first_line_chars if total > max_first_line_chars * 2 else (total // 2 or total)
         acc = 0
         for i, w in enumerate(words[:-1]):
             acc += len(w)
             if acc >= target:
-                return " ".join(words[:i+1]), " ".join(words[i+1:])
+                return " ".join(words[:i + 1]), " ".join(words[i + 1:])
         return text, ""
 
-    def _fallback_motion_clip(img_path, duration, width, height):
-        try:
-            base = ImageClip(img_path)
-            scale = max(width / base.w, height / base.h)
-            base = base.resized(scale).with_duration(duration)
-            cx = round((width - base.w) / 2)
-            cy = round((height - base.h) / 2)
-            return base.with_position((cx, cy))
-        except Exception:
-            return ColorClip(size=(width, height), color=(0, 0, 0)).with_duration(duration)
-
-    # ---------- 음성(내레이션) ----------
-    narration = None
-    if audio_path and os.path.exists(audio_path):
-        try:
-            narration = AudioFileClip(audio_path)
-        except Exception as e:
-            print(f"⚠️ 내레이션 로드 실패: {e}")
-            narration = None
-
-    # ---------- 이미지 리스트 정리 ----------
-    image_paths = _normalize_image_paths(image_paths, len(segments))
-
-    # ---------- 타이틀(옵션) ----------
     title_clip_proto, used_caption, title_bar_h = None, False, 0
     title_text = (topic_title or "").strip()
     if include_topic_title and title_text:
@@ -282,103 +331,135 @@ def create_video_with_segments(
         else:
             title_bar_h = 0
 
-    # ---------- 세그먼트별 합성 ----------
-    for i, seg in enumerate(segments):
-        start = seg['start']
-        dur   = max(0.1, seg['end'] - start)
-
-        img_path = image_paths[i]
-        if img_path is None:
-            base = ColorClip(size=(W, H), color=(0, 0, 0)).with_duration(dur)
-        else:
-            try:
-                base = create_motion_clip(img_path, dur, W, H)  # 프로젝트에 있으면 사용
-            except NameError:
-                base = _fallback_motion_clip(img_path, dur, W, H)
-            except Exception:
-                base = ColorClip(size=(W, H), color=(0, 0, 0)).with_duration(dur)
-
-        overlays = [base]
-
-        if title_clip_proto is not None:
-            title_clip = title_clip_proto.with_duration(dur)
-            black_bar  = ColorClip(size=(W, int(title_bar_h)), color=(0, 0, 0)).with_duration(dur).with_position(("center","top"))
-            tx = int(round((W - title_clip.w) / 2))
-            ty = int(max(0, min(round((title_bar_h - title_clip.h) / 2) + 10, title_bar_h - title_clip.h)))
-            overlays += [black_bar, title_clip.with_position((tx, ty))]
-
-        seg_clip = CompositeVideoClip(overlays, size=(W, H)).with_duration(dur)
-        clips.append(seg_clip)
-
-    # ---------- BGM 선택 ----------
-    chosen_bgm = bgm_path if (bgm_path and os.path.exists(bgm_path)) else None
-    target_duration = narration.duration if narration else total_dur
-
-    # 🔧 pydub로 미리 믹스(보이스 없어도 BGM만 길이에 맞춰 깔림)
+    # ---------- 오디오(보이스+BGM) 선믹스 ----------
     mixed_path = os.path.join(os.path.dirname(save_path) or ".", "_mix_audio.mp3")
-    final_audio = None
+    final_audio_path = None
+
+    def _safe_close(*clips):
+        for c in clips:
+            try:
+                if c: c.close()
+            except:
+                pass
+
+    # 우선 pydub 기반 사용자 헬퍼가 있으면 사용
     try:
-        _mix_voice_and_bgm(
+        _mix_voice_and_bgm(  # 프로젝트 내 유틸(이미 있으신 함수)
             voice_path=(audio_path if (audio_path and os.path.exists(audio_path)) else None),
-            bgm_path=chosen_bgm,
+            bgm_path=(bgm_path if (bgm_path and os.path.exists(bgm_path)) else None),
             out_path=mixed_path,
-            bgm_gain_db=-30, #BGM 소리 크기     
-            add_tail_ms=250
+            bgm_gain_db=-30,
+            add_tail_ms=250,
         )
-        final_audio = AudioFileClip(mixed_path)
+        final_audio_path = mixed_path
     except Exception as e:
-        print(f"⚠️ pre-mix 실패 → 즉석 믹스로 폴백: {e}")
-        # ─ 폴백: MoviePy만으로 안전하게 믹스
+        print(f"⚠️ pre-mix 실패 → MoviePy 폴백: {e}")
+        # MoviePy로 간단히 합치고 파일로 굽기
+        narration = None
+        bgm_raw = None
         try:
-            import math
-            parts = []
-            if narration is not None:
-                parts.append(narration)
-            if chosen_bgm and os.path.exists(chosen_bgm):
-                bgm_raw = AudioFileClip(chosen_bgm)
-                need = target_duration if narration is None else narration.duration
-                rep = int(math.ceil(need / max(bgm_raw.duration, 0.1)))
-                bgm_tiled = concatenate_audioclips([bgm_raw] * max(1, rep)).subclip(0, need).volumex(0.15)
-                parts.append(bgm_tiled)
-            if parts:
-                final_audio = CompositeAudioClip(parts)
+            if audio_path and os.path.exists(audio_path):
+                narration = AudioFileClip(audio_path)
+            if bgm_path and os.path.exists(bgm_path):
+                bgm_raw = AudioFileClip(bgm_path)
+            if narration is None and bgm_raw is None:
+                final_audio_path = None
+            else:
+                need = narration.duration if narration is not None else total_dur
+                parts = []
+                if narration is not None:
+                    parts.append(narration)
+                if bgm_raw is not None:
+                    rep = int(math.ceil(need / max(bgm_raw.duration, 0.1)))
+                    bgm_tiled = concatenate_audioclips([bgm_raw] * max(1, rep)).subclip(0, need).volumex(0.15)
+                    parts.append(bgm_tiled)
+                comp = CompositeAudioClip(parts)
+                # 폴백 믹스를 mp3로 굽기 (ffmpeg로 합칠 때 사용)
+                comp.write_audiofile(mixed_path, fps=44100, bitrate="192k", logger=None)
+                final_audio_path = mixed_path
         except Exception as ee:
             print(f"⚠️ 폴백 믹스도 실패: {ee}")
-            final_audio = narration  # 그래도 보이스는 유지
+            final_audio_path = None
+        finally:
+            _safe_close(narration, bgm_raw)
 
-    # ---------- 파일 쓰기 ----------
-    os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
-    tmp_out = os.path.join(os.path.dirname(save_path) or ".", "_temp_no_subs.mp4")
-
-    video = concatenate_videoclips(clips, method="chain").with_fps(30)
-    if final_audio is not None:
-        video = _with_audio_compat(video, final_audio)
-
-    video.write_videofile(
-        tmp_out,
-        codec="libx264",
-        audio_codec="aac",
-        audio_bitrate="192k"
-    )
-
-    try: video.close()
-    except: pass
+    # ---------- 세그먼트별 즉시 인코딩 ----------
+    tmpdir = tempfile.mkdtemp(prefix="imgseg_")
+    part_files = []
     try:
-        for c in clips: c.close()
-    except: pass
-    if narration: 
-        try: narration.close()
+        for i, seg in enumerate(segments):
+            dur = max(0.1, seg["end"] - seg["start"])
+            img_path = image_paths[i]
+
+            base = create_motion_clip(img_path, dur, W, H) if img_path else ColorClip(size=(W, H), color=(0, 0, 0)).with_duration(dur)
+            overlays = [base]
+
+            if title_clip_proto is not None:
+                title_clip = title_clip_proto.with_duration(dur)
+                black_bar  = ColorClip(size=(W, int(title_bar_h)), color=(0, 0, 0)).with_duration(dur).with_position(("center","top"))
+                tx = int(round((W - title_clip.w) / 2))
+                ty = int(max(0, min(round((title_bar_h - title_clip.h) / 2) + 10, title_bar_h - title_clip.h)))
+                overlays += [black_bar, title_clip.with_position((tx, ty))]
+
+            seg_clip = CompositeVideoClip(overlays, size=(W, H)).with_duration(dur)
+            seg_out = os.path.join(tmpdir, f"part_{i:03d}.mp4")
+
+            seg_clip.with_fps(30).write_videofile(
+                seg_out,
+                codec="libx264",
+                audio=False,
+                preset="veryfast",
+                threads=1,
+                logger=None,
+            )
+
+            # 메모리 즉시 반환
+            _safe_close(seg_clip, *overlays)
+            gc.collect()
+
+            part_files.append(seg_out)
+
+        # ---------- ffmpeg concat(무재인코딩) ----------
+        concat_txt = os.path.join(tmpdir, "list.txt")
+        with open(concat_txt, "w", encoding="utf-8") as f:
+            for p in part_files:
+                f.write(f"file '{p.replace('\\', '/')}'\n")
+
+        concat_mp4 = os.path.join(tmpdir, "_concat.mp4")
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_txt, "-c", "copy", concat_mp4],
+            check=True
+        )
+
+        # ---------- 오디오 얹기(비디오는 복사) ----------
+        if final_audio_path and os.path.exists(final_audio_path):
+            # 비디오 무재인코딩 + 오디오만 인코딩
+            subprocess.run(
+                ["ffmpeg", "-y",
+                 "-i", concat_mp4,
+                 "-i", final_audio_path,
+                 "-map", "0:v:0", "-map", "1:a:0",
+                 "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                 "-movflags", "+faststart",
+                 save_path],
+                check=True
+            )
+        else:
+            # 오디오가 없다면 concat 결과를 그대로 사용
+            shutil.copy2(concat_mp4, save_path)
+
+        print(f"✅ (자막 미적용) 영상 저장 완료: {save_path}")
+        return save_path
+
+    finally:
+        # 템프 정리 (문제 추적 필요시 주석 처리)
+        try: shutil.rmtree(tmpdir, ignore_errors=True)
         except: pass
-    gc.collect()
-
-    if tmp_out != save_path:
         try:
-            os.replace(tmp_out, save_path)
-        except Exception:
-            pass
-
-    print(f"✅ (자막 미적용) 영상 저장 완료: {save_path}")
-    return save_path
+            if os.path.exists(mixed_path) and mixed_path != save_path:
+                os.remove(mixed_path)
+        except: pass
+        gc.collect()
 
 
 ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
