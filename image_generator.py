@@ -263,25 +263,21 @@ def generate_videos_for_topic(
 
             w, h = v.get("width"), v.get("height")
             dur = float(v.get("duration", 0) or 0)
-            # 세로 고집을 잠시 완화하고(필요시 유지), 길이도 1.0초로 완화
             if orientation == "portrait" and not (w and h and h > w):
-                pass  # ← 결과가 너무 없으면 이 줄만 남기고 continue 제거
-
-            if dur < max(1.0, float(min_duration or 0)):  # 3.0 → 1.0
+                continue
+            if dur < min_duration:
                 continue
 
-            # 720~1080 선호하되, 없으면 가장 큰 mp4로
-            candidates = [f for f in v.get("video_files", []) if f.get("link","").endswith(".mp4")]
+            candidates = [f for f in v.get("video_files", [])
+                          if f.get("link", "").endswith(".mp4")
+                          and 720 <= (f.get("width") or 0) <= 1080]
+            if not candidates:
+                candidates = [f for f in v.get("video_files", [])
+                              if f.get("link", "").endswith(".mp4")]
             if not candidates:
                 continue
 
-            def score(f):
-                w = f.get("width") or 0
-                if 720 <= w <= 1080:  # 선호 구간
-                    return (0, -w)   # 더 큰 쪽 선호
-                return (1, -w)       # fallback: 큰 거
-
-            picked = sorted(candidates, key=score)[0]
+            picked = sorted(candidates, key=lambda f: f.get("width") or 10**9)[0]
             url = picked["link"]
             save_path = f"assets/video_{start_index + len(saved)}.mp4"
             tmp_path = save_path + ".part"
