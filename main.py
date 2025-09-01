@@ -1199,11 +1199,11 @@ with st.sidebar:
                             full_audio_file_path=audio_path,
                             provider=provider,
                             template=tmpl,
-                            polly_voice_key=st.session_state.selected_polly_voice_key,  # ✅ 실제 선택 보이스 반영
+                            polly_voice_key=st.session_state.selected_polly_voice_key,
                             subtitle_lang="ko",
                             translate_only_if_english=False,
                             tts_lang=st.session_state.selected_tts_lang,
-                            split_mode="new_line",
+                            split_mode="llm",                     # ★ newline → llm
                             strip_trailing_punct_last=False
                         )
                         # === SSML 변환 '후' (실사용본) ===
@@ -1258,114 +1258,30 @@ with st.sidebar:
                             st.error(f"TTS 생성 실패: 오디오 파일 용량이 비정상적입니다 ({sz} bytes).")
                             st.stop()
 
-                        # === 기존 dense 생성 부분 교체(생성 그대로) ===
+                        # === dense_events: 2차 분절 없이 '라인 단위' 그대로 사용 ===
                         dense_events = []
-                        for seg in segments:  # seg = {"start","end","text","ssml"?}
-                            if seg.get("ssml"):
-                                base = _build_dense_from_ssml(seg["ssml"], seg["start"], seg["end"], fps=30.0)
+                        for seg in segments:  # seg = {"start","end","text","ssml","pitch"}
+                            dense_events.append({
+                                "start": float(seg["start"]),
+                                "end":   float(seg["end"]),
+                                "text":  _strip_trailing_commas(seg.get("text", "")),  # 텍스트만 가볍게 정리
+                                "pitch": seg.get("pitch", None),                       # (색상 매핑용) 라인 요약 pitch
+                            })
 
-                                # ✅ prosody 조각마다 "기존 빠른템포" 규칙으로 자연스럽게 쪼갠다
-                                for ev in base:
-                                    fast = auto_densify_for_subs(
-                                        [ {"start": ev["start"], "end": ev["end"], "text": ev["text"]} ],
-                                        tempo="fast",
-                                        words_per_piece=3,           # 2~3 단어 정도로
-                                        min_tail_words=2,
-                                        chunk_strategy=None,
-                                        marks_voice_key=st.session_state.selected_polly_voice_key,
-                                        max_chars_per_piece=14,
-                                        min_piece_dur=0.50
-                                    )
-                                    # prosody에서 계산된 pitch 보존
-                                    for f in fast:
-                                        f["pitch"] = ev.get("pitch")
-                                    dense_events.extend(fast)
+                        # === ② 텍스트 보호/정리 (추가 분절 없이 '보호'만) ===
+                        dense_events = [
+                            {**e, "text": prepare_text_for_ass(e["text"], one_line_threshold=12, biline_target=14)}
+                            for e in dense_events
+                        ]
+                        dense_events = dedupe_adjacent_texts(dense_events)   # 원하시면 이 줄 주석 처리 가능(인접 중복 병합 방지)
+                        dense_events = drop_or_fix_empty_text(dense_events)  # 완전 빈 텍스트 제거/정리
 
-                            else:
-                                dense_events += auto_densify_for_subs(
-                                    [seg],
-                                    tempo="fast",
-                                    words_per_piece=3,               # 동일 기준
-                                    min_tail_words=2,
-                                    chunk_strategy=None,
-                                    marks_voice_key=st.session_state.selected_polly_voice_key,
-                                    max_chars_per_piece=14,
-                                    min_piece_dur=0.50
-                                )
-
-                        for e in dense_events:
-                            e['text'] = _strip_trailing_commas(e.get('text',''))
-
-                        # === ① 경계 보강 ===
-                        dense_events = harden_ko_sentence_boundaries(dense_events)
-
-                        # === ② 텍스트 보호/정리(줄 강제 없이 "보호" 위주) ===
-                        def drop_or_fix_empty_text(events):
-                            out = []
-                            for e in events:
-                                t = (e.get("text") or "").strip()
-                                if not t.replace(NBSP, ""):
-                                    t = NBSP
-                                out.append({**e, "text": t})
-                            return out
-
-                        def ensure_min_frames(events, fps=30.0, min_frames=2):
-                            tick = 1.0 / float(fps)
-                            min_d = min_frames * tick
-                            out = []
-                            for i, e in enumerate(events):
-                                s, ed = float(e["start"]), float(e["end"])
-                                if ed - s < min_d:
-                                    ed = s + min_d
-                                # 다음 cue와 겹치지 않도록 마지막에 한번 더 clamp
-                                out.append({**e, "start": round(s, 3), "end": round(ed, 3)})
-                            # 인접 겹침 방지
-                            for i in range(len(out) - 1):
-                                if out[i]["end"] > out[i+1]["start"]:
-                                    out[i]["end"] = max(out[i]["start"], out[i+1]["start"] - 0.001)
-                            return out
-
-                        def prepare_text_for_ass(text: str, one_line_threshold=12, biline_target=14):
-                            """
-                            - '1줄이면 무조건 1줄' 원칙을 반영하되, 상위 generate_ass_subtitle가 최종 판단.
-                            - 여기서는 가벼운 보호만: 숫자+단위, 수량 어구 NBSP, 말꼬리 보호.
-                            """
-                            t = (text or "").strip()
-                            if not t:
-                                return NBSP
-                            # 보호(숫자+단위/수량 등) — 기존 bind_compounds가 있다면 활용
-                            try:
-                                t = bind_compounds(t)
-                            except Exception:
-                                pass
-                            # 말꼬리 보호(옵션 함수가 있다면)
-                            try:
-                                from re import compile
-                                def _protect_short_tail_nbsp_local(s: str) -> str:
-                                    NB = "\u00A0"
-                                    TAILS = [r"같죠\?", r"그렇죠\?", r"그죠\?", r"그죠",
-                                            r"이죠\?", r"이죠", r"죠\?", r"죠",
-                                            r"입니다", r"예요", r"이에요", r"이다", r"다$"]
-                                    pat = compile(r"\s+(?=(" + "|".join(TAILS) + r"))")
-                                    return pat.sub(NB, s)
-                                t = _protect_short_tail_nbsp_local(t)
-                            except Exception:
-                                pass
-                            # 1줄 선호 → 길이가 아주 짧으면 아예 1줄 고정
-                            if len(t) <= one_line_threshold:
-                                return t
-                            # 2줄 필요 판단은 generate_ass_subtitle에서 최종 처리(\N 삽입)
-                            return t
-
-                        dense_events = [{**e, "text": prepare_text_for_ass(e["text"], one_line_threshold=12, biline_target=14)} for e in dense_events]
-                        dense_events = dedupe_adjacent_texts(dense_events)
-                        dense_events = drop_or_fix_empty_text(dense_events)
-
-                        # === ③ 타이밍 안정화 ===
+                        # === ③ 타이밍 안정화 (병합/추가 분절 없음) ===
                         dense_events = clamp_no_overlap(dense_events, margin=0.00)
                         dense_events = enforce_min_duration_non_merging(dense_events, min_dur=0.50, margin=0.02)
                         dense_events = quantize_events(dense_events, fps=30.0)
                         dense_events = ensure_min_frames(dense_events, fps=30.0, min_frames=2)
+
                         
                         with AudioFileClip(audio_path) as aud:
                             audio_dur = float(aud.duration)

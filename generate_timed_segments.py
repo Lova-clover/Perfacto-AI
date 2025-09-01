@@ -1,5 +1,5 @@
 from deep_translator import GoogleTranslator
-from ssml_converter import convert_line_to_ssml, breath_linebreaks
+from ssml_converter import convert_line_to_ssml, breath_linebreaks, koreanize_if_english
 from html import escape as _xml_escape
 # generate_timed_segments.py
 import os
@@ -10,6 +10,40 @@ import kss
 import boto3, json
 from elevenlabs_tts import TTS_POLLY_VOICES 
 from botocore.exceptions import ClientError
+
+def _drop_special_except_q(text: str) -> str:
+    # 한글/영문/숫자/공백/물음표만 남김
+    return re.sub(r"[^0-9A-Za-z\uac00-\ud7a3?\s]", "", text or "")
+
+def _summarize_line_pitch(ssml: str) -> float | None:
+    """라인 전체의 pitch를 요약. 빨강/파랑 임계에 의미 있게 반응하도록 설계."""
+    pieces = _parse_ssml_pieces(ssml or "")
+    if not pieces:
+        return None
+    vals = [float(p.get("pitch_pct", 0)) for p in pieces if "pitch_pct" in p]
+    if not vals:
+        return None
+    # 규칙: 낮음 경고 우선, 그다음 높음, 아니면 평균
+    low = min(vals)
+    high = max(vals)
+    if low <= -4:           # 빨강 임계 충족 시 그 값을 사용
+        return low
+    if high >= +8:          # 파랑 임계 충족 시 그 값을 사용
+        return high
+    return sum(vals)/len(vals)
+
+def split_script_to_lines(script_text, mode="newline"):
+    text = script_text or ""
+    if mode == "punct":
+        parts = re.split(r'(?<=[,.])\s*', text.strip())
+        return [p for p in map(str.strip, parts) if p]
+    elif mode == "kss":
+        return [s.strip() for s in kss.split_sentences(text) if s.strip()]
+    elif mode == "llm":                       # ★ 추가: LLM 브레스 분절을 실제 세그먼트로 사용
+        lines = breath_linebreaks(text)
+        return [ln.strip() for ln in lines if ln.strip()]
+    else:
+        return [ln.strip() for ln in text.splitlines() if ln.strip()]
 
 def _pitch_to_hex(p):
     """
@@ -887,6 +921,13 @@ def generate_ass_subtitle(
         raw_text = (ev.get("text") or "")
         # NBSP → 보통 공백, 중복 공백 정리
         normalized = " ".join(raw_text.replace("\u00A0", " ").split())
+        raw_text = (ev.get("text") or "")
+        normalized = " ".join(raw_text.replace("\u00A0", " ").split())
+        cleaned = _drop_special_except_q(normalized)                # ★ 추가
+        plan_text = _prepare_text_for_lines(cleaned, max_chars_per_line, max_lines)
+        if strip_trailing_punct_last:
+            plan_text = _strip_trailing_punct_last_line(plan_text)
+        safe_text = _sanitize_ass_text(plan_text)
         plan_text = _prepare_text_for_lines(normalized, max_chars_per_line, max_lines)
         if strip_trailing_punct_last:
             plan_text = _strip_trailing_punct_last_line(plan_text)
@@ -979,24 +1020,25 @@ def generate_subtitle_from_script(
     # --- 3) 라인별 SSML 생성(Polly) 또는 원문(타 공급자)
     prov = provider.lower()
     tts_lines = []
-    if prov == "polly":
-        for ln in clean_lines:
-            try:
-                # prosody/break (<speak> 미포함) 생성
-                frag = convert_line_to_ssml(ln)
-            except Exception:
-                frag = f'<prosody rate="150%" volume="medium">{_xml_escape(ln)}</prosody>'
-            safe = _validate_ssml(frag)
-            if not safe.strip().startswith("<speak"):
-                safe = f"<speak>{safe}</speak>"
-            tts_lines.append(safe)
-    else:
-        # (지금은 Polly만 쓰신다 하셨지만, 호환성 유지)
-        tts_lines = clean_lines[:]
+    ssml_meta_lines = []          # ★ 모든 공급자 공통: 메타 파싱용 SSML
 
-    # 필요 시 번역(Polly가 아닌 경우에만; Polly는 SSML 그대로 Ko/En 읽음)
-    if tts_lang in ("en", "ko") and prov != "polly":
-        tts_lines = _maybe_translate_lines(tts_lines, target=tts_lang, only_if_src_is_english=False)
+    for ln in clean_lines:
+        ln_for_ssml = koreanize_if_english(ln)   # ★ 영문이면 의미 동일 한국어로
+        try:
+            frag = convert_line_to_ssml(ln_for_ssml)  # <prosody>...</prosody> (+ <break/>)
+        except Exception:
+            frag = f'<prosody rate="150%" volume="medium">{_xml_escape(ln_for_ssml)}</prosody>'
+
+        safe = _validate_ssml(frag)
+        if not safe.strip().startswith("<speak"):
+            safe = f"<speak>{safe}</speak>"
+        ssml_meta_lines.append(safe)
+
+    # TTS에 넘길 라인: Polly면 SSML, 아니면 평문
+    if prov == "polly":
+        tts_lines = ssml_meta_lines[:]
+    else:
+        tts_lines = clean_lines[:]
 
     # --- 4) 라인별 TTS 생성 → 병합
     audio_paths = generate_tts_per_line(
@@ -1012,13 +1054,17 @@ def generate_subtitle_from_script(
     # text: 원문(또는 표시용 자막 기본값), ssml: Polly에 실제 보낸 SSML
     segments_base = []
     for i, s in enumerate(segments_raw):
-        line_text = base_lines[i]  # 화면 자막의 기본 텍스트(원문/편집전)
+        line_text = base_lines[i]
+        ssml_meta = ssml_meta_lines[i]                # ★ 저장
+        pitch_sum = _summarize_line_pitch(ssml_meta)  # ★ 저장
         segments_base.append({
             "start": float(s["start"]),
             "end":   float(s["end"]),
             "text":  re.sub(r"\s+", " ", line_text).strip(),
-            "ssml":  tts_lines[i],
+            "ssml":  ssml_meta,
+            "pitch": pitch_sum,                       # ★ 라인 컬러링용 요약 pitch
         })
+
 
     # --- 6) 여기서는 ASS/자막 분해를 하지 않는다(메인에서 처리)
     # generate_ass_subtitle(...) 호출 금지
