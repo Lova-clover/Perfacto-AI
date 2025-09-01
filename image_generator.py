@@ -8,6 +8,30 @@ from typing import Iterable, List, Tuple, Optional, Set, Dict, Any
 load_dotenv()
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
 
+# === Add: English-enforcer ===
+import re
+from functools import lru_cache
+try:
+    from deep_translator import GoogleTranslator
+except Exception:
+    GoogleTranslator = None
+
+@lru_cache(maxsize=1024)
+def _ensure_english(text: str) -> str:
+    t = (text or "").strip()
+    if not t:
+        return t
+    # 이미 영문/숫자/기본 기호만 있으면 그대로
+    if re.fullmatch(r"[A-Za-z0-9 ,./°%-]+", t):
+        return t
+    # deep_translator 사용 가능 시 자동 번역
+    if GoogleTranslator is not None:
+        try:
+            return GoogleTranslator(source="auto", target="en").translate(t) or t
+        except Exception:
+            pass
+    return t  # 실패 시 원문 유지
+
 # ===== Global throttle & cache =====
 # 연속 호출 사이 최소 간격(초). 300~500ms 권장.
 _MIN_INTERVAL_SEC = float(os.getenv("PEXELS_MIN_INTERVAL_SEC", "0.35"))
@@ -155,7 +179,8 @@ def _shrink_to_720_inplace(path: str):
 def generate_image_pexels(query: str, save_path: str, per_page: int = 1) -> str:
     sess = _pexels_session()
     per_page = max(1, min(per_page, 80))
-    params = {"query": query, "per_page": per_page, "page": 1}
+    q_en = _ensure_english(query)
+    params = {"query": q_en, "per_page": per_page, "page": 1}
     data = _pexels_get_json(sess, "https://api.pexels.com/v1/search", params)
     photos = data.get("photos", [])
     if not photos:
@@ -192,7 +217,8 @@ def generate_images_for_topic(
     current_page = max(1, page)
 
     while len(image_paths) < num_images:
-        params = {"query": query, "per_page": per_page, "page": current_page}
+        q_en = _ensure_english(query)
+        params = {"query": q_en, "per_page": per_page, "page": current_page}
         data = _pexels_get_json(sess, "https://api.pexels.com/v1/search", params)
         photos = data.get("photos", [])
         if not photos:
@@ -247,7 +273,8 @@ def generate_videos_for_topic(
     current_page = max(1, page)
 
     while len(saved) < num_videos:
-        params = {"query": query, "per_page": per_page, "page": current_page}
+        q_en = _ensure_english(query)
+        params = {"query": q_en, "per_page": per_page, "page": current_page}
         data = _pexels_get_json(sess, "https://api.pexels.com/videos/search", params)
         videos = data.get("videos", [])
         if not videos:
