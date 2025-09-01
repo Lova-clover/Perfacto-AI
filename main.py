@@ -54,8 +54,9 @@ def _split_script_for_tts(script_text: str):
         sents = [s.strip() for s in re.split(r'(?<=[.!?？])\s*', script_text or "") if s.strip()]
         return sents or [script_text.strip()]
 
-from io import BytesIO
+from io import BytesIO, StringIO
 import importlib
+import pandas as pd
 
 def build_ssml_log_file(orig_lines: list[str], used_ssml_lines: list[str] | None = None):
     """
@@ -65,10 +66,7 @@ def build_ssml_log_file(orig_lines: list[str], used_ssml_lines: list[str] | None
     """
     rows = []
     for i, orig in enumerate(orig_lines, start=1):
-        if used_ssml_lines and (i-1) < len(used_ssml_lines) and (used_ssml_lines[i-1] or "").strip():
-            ssml = used_ssml_lines[i-1]
-        else:
-            ssml = convert_line_to_ssml(orig)
+        ssml = (used_ssml_lines[i-1].strip() if (used_ssml_lines and i-1 < len(used_ssml_lines) and (used_ssml_lines[i-1] or "").strip()) else convert_line_to_ssml(orig))
         try:
             br = breath_linebreaks(orig)
         except Exception:
@@ -77,10 +75,10 @@ def build_ssml_log_file(orig_lines: list[str], used_ssml_lines: list[str] | None
 
     df = pd.DataFrame(rows, columns=["No", "원문", "SSML", "줄바꿈"])
 
-    # 1) XLSX 시도 (openpyxl → xlsxwriter)
+    # 1) XLSX 시도 (xlsxwriter 우선 → openpyxl)
     buf = BytesIO()
     engine = None
-    for cand in ("openpyxl", "xlsxwriter"):
+    for cand in ("xlsxwriter", "openpyxl"):
         try:
             importlib.import_module(cand)
             engine = cand
@@ -94,10 +92,11 @@ def build_ssml_log_file(orig_lines: list[str], used_ssml_lines: list[str] | None
         buf.seek(0)
         return buf.getvalue(), "xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-    # 2) 최종 폴백: CSV
-    df.to_csv(buf, index=False)
-    buf.seek(0)
-    return buf.getvalue(), "csv", "text/csv"
+    # 2) 폴백: CSV (Excel 호환 위해 UTF-8-SIG)
+    sbuf = StringIO()
+    df.to_csv(sbuf, index=False)
+    csv_bytes = sbuf.getvalue().encode("utf-8-sig")
+    return csv_bytes, "csv", "text/csv"
 
 def _log_ssml_preview(orig_lines, generated_ssml_lines=None, title="SSML 변환 로그"):
     """
@@ -1228,7 +1227,8 @@ with st.sidebar:
                                 st.info("생성 함수가 SSML 라인을 반환하지 않았습니다. 위의 '미리보기'만 표시합니다.")
                         except Exception as e:
                             print("[SSML] preview-after error:", e)
-   
+                        st.session_state["_orig_lines_for_tts"] = _orig_lines_for_tts
+                        st.session_state["_used_ssml_lines"] = used_ssml_lines if used_ssml_lines else []
                         try:
                             if not st.session_state.bgm_path or not os.path.exists(st.session_state.bgm_path):
                                 st.session_state.bgm_path = DEFAULT_BGM
@@ -1712,22 +1712,22 @@ with st.sidebar:
                 except Exception as e:
                     st.error(f"영상 파일 읽기 오류: {e}")
                     data_for_download = b""
-            script_hash = hashlib.md5("\n".join(_orig_lines_for_tts).encode("utf-8")).hexdigest()[:8]
-            data_bytes, ext, mime = build_ssml_log_file(
-                _orig_lines_for_tts,
-                used_ssml_lines if used_ssml_lines else None
-            )
-
-            st.download_button(
-                label="🧾 SSML 로그 다운로드",
-                data=data_bytes,
-                file_name=f"ssml_log_{script_hash}.{ext}",
-                mime=mime,
-                key=f"download_ssml_log_{script_hash}"
-            )
-
-            if ext == "csv":
-                st.info("openpyxl/xlsxwriter가 없어 CSV로 내려보냈습니다. 엑셀로 열 수 있습니다.")
+            # --- SSML 로그 다운로드 버튼 (엑셀 또는 CSV) ---
+            orig_lines = st.session_state.get("_orig_lines_for_tts") or []
+            used_lines = st.session_state.get("_used_ssml_lines") or []
+            if orig_lines:
+                import hashlib as _hl
+                script_hash = _hl.md5("\n".join(orig_lines).encode("utf-8")).hexdigest()[:8]
+                data_bytes, ext, mime = build_ssml_log_file(orig_lines, used_lines if used_lines else None)
+                st.download_button(
+                    label=f"🧾 SSML 로그 다운로드 ({ext.upper()})",
+                    data=data_bytes,
+                    file_name=f"ssml_log_{script_hash}.{ext}",
+                    mime=mime,
+                    key=f"download_ssml_log_{script_hash}"
+                )
+                if ext == "csv":
+                    st.caption("※ openpyxl/xlsxwriter 미설치로 CSV로 제공됩니다. Excel에서 바로 열 수 있어요.")
             st.download_button(
                 label="🎬 영상 다운로드",
                 data=data_for_download,

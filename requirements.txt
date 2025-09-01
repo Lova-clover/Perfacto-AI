@@ -47,5 +47,5 @@ yt-dlp
 openai-whisper
 google-api-python-client
 playwright>=1.44.0
-
+xlsxwriter
 
