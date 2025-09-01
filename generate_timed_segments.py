@@ -11,24 +11,6 @@ import boto3, json
 from elevenlabs_tts import TTS_POLLY_VOICES 
 from botocore.exceptions import ClientError
 
-# --- pitch helpers -------------------------------------------------
-def _parse_pitch_value(p):
-    """숫자/문자 형태 pitch 값을 float %로 정규화."""
-    if p is None:
-        return None
-    if isinstance(p, (int, float)):
-        return float(p)
-    s = str(p).strip().lower()
-    if s in ("low", "lo"):
-        return -12.0
-    if s in ("mid", "medium", "normal", "default"):
-        return 0.0
-    if s in ("high", "hi"):
-        return +12.0
-    import re
-    m = re.search(r"(-?\d+(?:\.\d+)?)", s)
-    return float(m.group(1)) if m else None
-
 def _pitch_to_hex(p):
     """
     ASS는 BGR 순서.

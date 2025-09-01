@@ -24,6 +24,8 @@ import os
 import requests
 import re
 import json
+import pandas as pd
+from io import BytesIO
 import nest_asyncio
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
@@ -51,6 +53,33 @@ def _split_script_for_tts(script_text: str):
         import re
         sents = [s.strip() for s in re.split(r'(?<=[.!?？])\s*', script_text or "") if s.strip()]
         return sents or [script_text.strip()]
+
+def build_ssml_log_excel(orig_lines: list[str], used_ssml_lines: list[str] | None = None) -> bytes:
+    """
+    원문/SSML/브레스 줄바꿈 3컬럼 엑셀을 생성해 bytes로 반환.
+    - used_ssml_lines가 있으면 그걸 쓰고, 없으면 convert_line_to_ssml()로 생성
+    - '줄바꿈'은 각 원문 줄에 breath_linebreaks()를 적용한 텍스트
+    """
+    rows = []
+    for i, orig in enumerate(orig_lines, start=1):
+        if used_ssml_lines and (i-1) < len(used_ssml_lines) and (used_ssml_lines[i-1] or "").strip():
+            ssml = used_ssml_lines[i-1]
+        else:
+            ssml = convert_line_to_ssml(orig)
+
+        try:
+            br = breath_linebreaks(orig)  # 줄 단위 브레스 라인브레이크
+        except Exception:
+            br = orig
+
+        rows.append({"No": i, "원문": orig, "SSML": ssml, "줄바꿈": br})
+
+    df = pd.DataFrame(rows, columns=["No", "원문", "SSML", "줄바꿈"])
+    buf = BytesIO()
+    # 엔진 지정 불필요(환경에 따라 openpyxl 사용). 포맷팅은 생략(호환성↑).
+    df.to_excel(buf, index=False)
+    buf.seek(0)
+    return buf.getvalue()
 
 def _log_ssml_preview(orig_lines, generated_ssml_lines=None, title="SSML 변환 로그"):
     """
@@ -1167,7 +1196,10 @@ with st.sidebar:
                                 s["ssml"] for s in segments
                                 if isinstance(s.get("ssml"), str) and s["ssml"].strip()
                             ]
-
+                        except Exception as e:
+                            used_ssml_lines = []
+                            print("[SSML] used_ssml_lines build error:", e)
+                        try:
                             if used_ssml_lines:
                                 _log_ssml_preview(
                                     _orig_lines_for_tts,
@@ -1175,15 +1207,27 @@ with st.sidebar:
                                     title="실제 사용된 SSML(생성기 반환)"
                                 )
                             else:
-                                # 반환에 ssml 라인이 없으면 안내만
-                                try:
-                                    import streamlit as st
-                                    st.info("생성 함수가 SSML 라인을 반환하지 않았습니다. 위의 '미리보기'만 표시합니다.")
-                                except Exception:
-                                    print("[SSML] no ssml lines in segments; preview-only.")
+                                st.info("생성 함수가 SSML 라인을 반환하지 않았습니다. 위의 '미리보기'만 표시합니다.")
                         except Exception as e:
                             print("[SSML] preview-after error:", e)
-                        
+                        # === SSML 엑셀 로그 생성/다운로드 ===
+                        try:
+                            import hashlib
+                            script_hash = hashlib.md5("\n".join(_orig_lines_for_tts).encode("utf-8")).hexdigest()[:8]
+                            xlsx_bytes = build_ssml_log_excel(
+                                _orig_lines_for_tts,
+                                used_ssml_lines if used_ssml_lines else None  # 실사용본 있으면 사용
+                            )
+                            st.download_button(
+                                label="🧾 SSML 로그 엑셀 다운로드",
+                                data=xlsx_bytes,
+                                file_name=f"ssml_log_{script_hash}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key=f"download_ssml_excel_{script_hash}"
+                            )
+                        except Exception as e:
+                            st.warning(f"SSML 엑셀 로그 생성 실패: {e}")
+   
                         try:
                             if not st.session_state.bgm_path or not os.path.exists(st.session_state.bgm_path):
                                 st.session_state.bgm_path = DEFAULT_BGM

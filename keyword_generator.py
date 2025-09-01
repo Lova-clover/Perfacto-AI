@@ -12,7 +12,7 @@ GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
 # =============================================================================
 
 class QuestionSegmentationSystem:
-    def __init__(self, model_name: str = "llama-3.1-8b-instant"):
+    def __init__(self, model_name: str = "openai/gpt-oss-120b"):
         """
         질문 세분화 시스템 초기화 (Groq llama-3.1-8b-instant 모델 사용)
         
