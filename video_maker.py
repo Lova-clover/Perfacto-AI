@@ -397,7 +397,7 @@ def create_video_with_segments(
     try:
         for i, seg in enumerate(segments):
             VIS_MIN = 0.55
-            dur   = max(VIS_MIN, float(seg['end']) - float(start))
+            dur   = max(VIS_MIN, float(seg['end']) - float(seg['start']))
             img_path = image_paths[i]
 
             base = (
