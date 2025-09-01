@@ -31,7 +31,7 @@ import math
 from moviepy import AudioFileClip
 nest_asyncio.apply()
 load_dotenv()
-try
+
 VIDEO_TEMPLATE = "영상(영어보이스+한국어자막·가운데)"
 # --- BGM 기본 경로(사용자 요청: 고정 사용) ---
 DEFAULT_BGM = "assets/[BGM] 힙합 비트 신나는 음악  무료브금  HYP-Show Me - HYP MUSIC - BGM Design.mp3"
