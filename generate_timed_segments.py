@@ -902,45 +902,46 @@ def generate_ass_subtitle(
     lines = []
     for ev in segments:
         s = float(ev.get("start", 0.0))
-        e = float(ev.get("end", max(s + 0.02, 0.02)))
-        if e <= s:
-            e = s + 0.02
+        e = float(ev.get("end", s + 0.02))
+        if e <= s: e = s + 0.02
         if ev is segments[-1]:
-            e = max(e, s + 0.35)  # 마지막 이벤트 최소 노출 보장
+            e = max(e, s + 0.35)
 
         raw_text = (ev.get("text") or "")
 
-        # ① LLM 호흡 분절 먼저 (원문 기준)
+        # ① LLM 호흡 분절(원문 기준)
         try:
             br_lines = breath_linebreaks(raw_text)
         except Exception:
             br_lines = []
 
-        # ② 각 줄을 개별 정제(물음표만 남기고 특수문자 제거 → 괄호/마침표 보존 규칙 적용 → ASS 안전화)
+        # ② 각 줄을 개별 정제(여기서 \N은 아직 만들지 않음!)
         def _line_clean(s: str) -> str:
-            s = _strip_last_punct_preserve_closers(s)     # 괄호/닫힘기호 보존 규칙
-            s = _drop_special_except_q(s)                 # '?'만 남기고 특수문자 제거
-            s = _sanitize_ass_text(s)                     # ASS 안전화(중괄호 등 이스케이프)
+            s = _strip_last_punct_preserve_closers(s)  # 괄호/닫힘기호 보존
+            s = _drop_special_except_q(s)              # '?'만 남기고 특수문자 제거
+            s = _sanitize_ass_text(s)                  # ASS 안전화({} 이스케이프 등)
             return s.strip()
 
         if isinstance(br_lines, (list, tuple)) and br_lines:
             cleaned_lines = [_line_clean(ln) for ln in br_lines if ln and ln.strip()]
-            # ③ 줄 단위 정제 후에 \N으로 합치기 (ASS 줄바꿈 보존)
-            normalized = r"\N".join(cleaned_lines[:max_lines])
+            # 🔥 수정: LLM이 준 줄바꿈을 전부 반영
+            normalized = r"\N".join(cleaned_lines)
         else:
             normalized = _line_clean(raw_text)
 
-        # ④ 최종 줄 너비/줄수 제한(텍스트에 \N 있으면 _prepare_text_for_lines가 그대로 존중)
-        plan_text = _prepare_text_for_lines(
-            normalized,
-            max_chars_per_line=max_chars_per_line,
-            max_lines=max_lines
-        )
-        safe_text = plan_text
-        if not safe_text.strip().replace("\u00A0", ""):
-            safe_text = "\u00A0"  # 완전 빈 문자열 방지
+        # ④ 길이 제한 등 최종 정리. \N 이 있으면 이 함수는 그대로 존중하도록 보장해야 함
+        if r"\N" in normalized:
+            plan_text = normalized
+        else:
+            plan_text = _prepare_text_for_lines(
+                normalized,
+                max_chars_per_line=max_chars_per_line,
+                max_lines=max_lines
+            )
 
-        # ⑤ pitch → 컬러 적용
+        safe_text = plan_text if plan_text.strip().replace("\u00A0","") else "\u00A0"
+
+        # ⑤ pitch → 색상
         col_hex = _pitch_to_hex(ev.get("pitch"))
         if col_hex:
             safe_text = "{\\c" + col_hex + "}" + safe_text
