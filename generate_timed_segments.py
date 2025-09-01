@@ -121,7 +121,7 @@ def _parse_ssml_pieces(ssml: str):
         })
     return [p for p in pieces if p["text"]]
 
-def _quantize_segments(segs, fps=30.0, clamp_start=None, clamp_end=None):
+def _quantize_segments(segs, fps=24.0, clamp_start=None, clamp_end=None):
     """ASS/비디오 타임라인(24fps)에 맞춰 시작/끝을 프레임 단위로 스냅."""
     tick = 1.0 / float(fps)
     out, prev_end = [], None
@@ -149,7 +149,7 @@ def _pitch_level_from_attr(pitch_str: str) -> str:
     if v <= -10: return "low"
     return "mid"
 
-def _build_dense_from_ssml(line_ssml: str, seg_start: float, seg_end: float, fps: float = 30.0):
+def _build_dense_from_ssml(line_ssml: str, seg_start: float, seg_end: float, fps: float = 24.0):
     """
     한 줄(오디오 한 파일) SSML을 prosody 조각 단위로 시간 분배 → dense events 반환
     - 각 이벤트에 pitch(숫자 %), pitch_level(high/mid/low) 포함

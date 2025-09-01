@@ -323,7 +323,7 @@ def create_video_with_segments(
             bgm_path=chosen_bgm,
             out_path=mixed_path,
             bgm_gain_db=-30, #BGM 소리 크기     
-            add_tail_ms=0
+            add_tail_ms=250
         )
         final_audio = AudioFileClip(mixed_path)
     except Exception as e:
@@ -350,7 +350,7 @@ def create_video_with_segments(
     os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
     tmp_out = os.path.join(os.path.dirname(save_path) or ".", "_temp_no_subs.mp4")
 
-    video = concatenate_videoclips(clips, method="compose").with_fps(30)
+    video = concatenate_videoclips(clips, method="chain").with_fps(30)
     if final_audio is not None:
         video = _with_audio_compat(video, final_audio)
 
@@ -358,8 +358,7 @@ def create_video_with_segments(
         tmp_out,
         codec="libx264",
         audio_codec="aac",
-        audio_bitrate="192k",
-        fps=30
+        audio_bitrate="192k"
     )
 
     try: video.close()
@@ -381,45 +380,35 @@ def create_video_with_segments(
     print(f"✅ (자막 미적용) 영상 저장 완료: {save_path}")
     return save_path
 
+
 ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 
 # ✅ 자막 추가 함수
 def add_subtitles_to_video(input_video_path, ass_path, output_path):
-    import subprocess, os
+    import subprocess, shlex, os
     fonts_dir = os.path.abspath(os.path.join("assets", "fonts"))
-
-    # 경로 정리(공백/역슬래시 대응)
-    ass_q   = os.path.abspath(ass_path).replace("\\", "/")
+    # 경로에 공백/역슬래시가 있어도 안전하게
+    ass_q = ass_path.replace("\\", "/")
     fonts_q = fonts_dir.replace("\\", "/")
 
-    # fonts 폴더가 없으면 fontsdir 옵션은 생략 (불필요한 오류 방지)
-    vf = f"ass='{ass_q}':fontsdir='{fonts_q}'" if os.path.isdir(fonts_dir) else f"ass='{ass_q}'"
-
     cmd = [
-        ffmpeg_path, "-y",
-        "-hide_banner", "-loglevel", "error",
+        "ffmpeg", "-y",
         "-i", input_video_path,
-        "-vf", vf,
-        "-c:v", "libx264", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "192k",
-        # 🔑 프레임 재샘플링 금지(타임스탬프 보존)
-        "-vsync", "0",
-        "-map", "0:v:0", "-map", "0:a?",
-        "-movflags", "+faststart",
-        output_path,
+        "-vf", f"ass='{ass_q}':fontsdir='{fonts_q}'",
+        "-c:v", "libx264",
+        "-c:a", "aac", "-b:a", "192k", "-r", "30",
+        # ★ 비디오/오디오 모두 유지(오디오 없으면 무시)
+        "-map", "0:v:0", "-map", "0:a?", 
+        output_path
     ]
-
-    # 에러 메시지 확인을 위해 캡처
-    res = subprocess.run(cmd, capture_output=True, text=True)
-    if res.returncode != 0:
-        raise RuntimeError(f"ffmpeg failed:\n{res.stderr.strip()}")
+    subprocess.run(cmd, check=True)
     return output_path
 
 from pydub import AudioSegment
 import math, os
 
 def _mix_voice_and_bgm(voice_path: str | None, bgm_path: str | None, out_path: str,
-                       bgm_gain_db: float = 6, add_tail_ms: int = 0) -> str | None:
+                       bgm_gain_db: float = 6, add_tail_ms: int = 250) -> str | None:
     """
     - voice만 있으면 그대로 복사(꼬리 무음 추가)
     - bgm만 있으면 길이에 맞춰 자르고 내보냄

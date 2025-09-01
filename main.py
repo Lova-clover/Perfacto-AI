@@ -1242,13 +1242,6 @@ with st.sidebar:
                         if not is_emotional:
                             ass_path = os.path.join("assets", "generated_subtitle.ass")
                             st.write("📝 자막 파일 생성 중...")
-                            with AudioFileClip(audio_path) as aud:
-                                aud_dur = float(aud.duration)       
-                            fps = 30.0
-                            tick = 1.0 / fps
-                            target_end = aud_dur - tick                   # 오디오 끝보다 1프레임 짧게
-                            target_end = math.floor(target_end / tick) * tick
-                            segments[-1]["end"] = max(segments[-1]["end"], target_end)
                             generate_ass_subtitle(
                                 segments=segments,
                                 ass_path=ass_path,
@@ -1274,7 +1267,7 @@ with st.sidebar:
                             st.write("🎯 문장별로 페르소나 기반 키워드를 만들어 개별 영상 검색을 수행합니다.")
 
                             # 1) 문장 리스트
-                            sentence_units = [s['text'] for s in segments]
+                            sentence_units = [s['text'] for s in segments_for_video]
 
                             # 2) 페르소나 지시문
                             persona_text = ""
