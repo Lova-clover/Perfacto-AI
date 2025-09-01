@@ -396,7 +396,8 @@ def create_video_with_segments(
     part_files = []
     try:
         for i, seg in enumerate(segments):
-            dur = max(0.1, seg["end"] - seg["start"])
+            VIS_MIN = 0.55
+            dur   = max(VIS_MIN, float(seg['end']) - float(start))
             img_path = image_paths[i]
 
             base = (
@@ -901,7 +902,8 @@ def create_video_from_videos(
     ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 
     for i, seg in enumerate(segments):
-        duration = max(0.1, seg["end"] - seg["start"])
+        VIS_MIN = 0.55
+        duration   = max(VIS_MIN, float(seg['end']) - float(seg["start"]))
         src_path = video_paths[i % len(video_paths)] if video_paths else None
 
         if (not src_path) or (not os.path.exists(src_path)):

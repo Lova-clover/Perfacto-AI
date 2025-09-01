@@ -1278,11 +1278,33 @@ with st.sidebar:
                             max_lines=2
                         )
                         segments_for_video = build_sentence_video_segments(
-                            sentence_segments=segments,    # generate_subtitle_from_script가 만든 문장/TTS 라인
-                            dense_events=dense_events,     # 촘촘 자막 타임라인
-                            audio_path=audio_path,         # 최종 오디오 길이에 맞춰 마지막 세그먼트 '늘림'
+                            sentence_segments=segments,
+                            dense_events=dense_events,
+                            audio_path=audio_path,
                             fps=30
                         )
+
+                        # 🔧 시각클립 최소 길이 보장(병합). 0.55s 미만이면 앞 세그먼트에 흡수.
+                        def _merge_tiny_visuals(segs, min_dur=0.55):
+                            out = []
+                            for s in segs:
+                                if not out:
+                                    out.append(dict(s)); continue
+                                dur = float(s["end"]) - float(s["start"])
+                                if dur < min_dur:
+                                    out[-1]["end"] = max(out[-1]["end"], float(s["end"]))
+                                else:
+                                    out.append(dict(s))
+                            # 마지막도 너무 짧으면 직전과 병합
+                            if out and (out[-1]["end"] - out[-1]["start"]) < min_dur:
+                                if len(out) >= 2:
+                                    out[-2]["end"] = out[-1]["end"]
+                                    out.pop()
+                                else:
+                                    out[-1]["end"] = out[-1]["start"] + min_dur
+                            return out
+
+                        segments_for_video = _merge_tiny_visuals(segments_for_video, min_dur=0.55)
 
 
                         try:
