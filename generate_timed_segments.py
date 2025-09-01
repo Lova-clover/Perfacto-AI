@@ -12,12 +12,9 @@ from elevenlabs_tts import TTS_POLLY_VOICES
 from botocore.exceptions import ClientError
 
 def split_script_to_lines(script_text, mode="llm"):
-    """
-    항상 LLM(호흡 라인브레이크)으로만 분절한다.
-    다른 mode 인자는 무시한다.
-    """
+    """항상 LLM 브레스 분절을 사용한다."""
     text = script_text or ""
-    lines = breath_linebreaks(text)                 # LLM 호출
+    lines = breath_linebreaks(text)  # LLM 호출
     return [ln.strip() for ln in lines if ln.strip()]
 
 def _drop_special_except_q(text: str) -> str:
@@ -908,29 +905,42 @@ def generate_ass_subtitle(
         e = float(ev.get("end", max(s + 0.02, 0.02)))
         if e <= s:
             e = s + 0.02
-
-        # ★ 마지막 이벤트는 더 길게 보장 (350ms)
         if ev is segments[-1]:
-            e = max(e, s + 0.35)
+            e = max(e, s + 0.35)  # 마지막 이벤트 최소 노출 보장
 
-        # (2)에서 설명하는 띄어쓰기/줄바꿈 정규화
         raw_text = (ev.get("text") or "")
-        # NBSP → 보통 공백, 중복 공백 정리
-        normalized = " ".join(raw_text.replace("\u00A0", " ").split())
-        raw_text = (ev.get("text") or "")
-        normalized = " ".join(raw_text.replace("\u00A0", " ").split())
-        cleaned = _drop_special_except_q(normalized)                # ★ 추가
-        plan_text = _prepare_text_for_lines(cleaned, max_chars_per_line, max_lines)
-        if strip_trailing_punct_last:
-            plan_text = _strip_trailing_punct_last_line(plan_text)
-        safe_text = _sanitize_ass_text(plan_text)
-        plan_text = _prepare_text_for_lines(normalized, max_chars_per_line, max_lines)
-        if strip_trailing_punct_last:
-            plan_text = _strip_trailing_punct_last_line(plan_text)
-        safe_text = _sanitize_ass_text(plan_text)
+
+        # ① LLM 호흡 분절 먼저 (원문 기준)
+        try:
+            br_lines = breath_linebreaks(raw_text)
+        except Exception:
+            br_lines = []
+
+        # ② 각 줄을 개별 정제(물음표만 남기고 특수문자 제거 → 괄호/마침표 보존 규칙 적용 → ASS 안전화)
+        def _line_clean(s: str) -> str:
+            s = _strip_last_punct_preserve_closers(s)     # 괄호/닫힘기호 보존 규칙
+            s = _drop_special_except_q(s)                 # '?'만 남기고 특수문자 제거
+            s = _sanitize_ass_text(s)                     # ASS 안전화(중괄호 등 이스케이프)
+            return s.strip()
+
+        if isinstance(br_lines, (list, tuple)) and br_lines:
+            cleaned_lines = [_line_clean(ln) for ln in br_lines if ln and ln.strip()]
+            # ③ 줄 단위 정제 후에 \N으로 합치기 (ASS 줄바꿈 보존)
+            normalized = r"\N".join(cleaned_lines[:max_lines])
+        else:
+            normalized = _line_clean(raw_text)
+
+        # ④ 최종 줄 너비/줄수 제한(텍스트에 \N 있으면 _prepare_text_for_lines가 그대로 존중)
+        plan_text = _prepare_text_for_lines(
+            normalized,
+            max_chars_per_line=max_chars_per_line,
+            max_lines=max_lines
+        )
+        safe_text = plan_text
         if not safe_text.strip().replace("\u00A0", ""):
-            safe_text = "\u00A0"
+            safe_text = "\u00A0"  # 완전 빈 문자열 방지
 
+        # ⑤ pitch → 컬러 적용
         col_hex = _pitch_to_hex(ev.get("pitch"))
         if col_hex:
             safe_text = "{\\c" + col_hex + "}" + safe_text
