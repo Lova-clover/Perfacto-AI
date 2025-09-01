@@ -31,12 +31,85 @@ import math
 from moviepy import AudioFileClip
 nest_asyncio.apply()
 load_dotenv()
-
+try
 VIDEO_TEMPLATE = "영상(영어보이스+한국어자막·가운데)"
 # --- BGM 기본 경로(사용자 요청: 고정 사용) ---
 DEFAULT_BGM = "assets/[BGM] 힙합 비트 신나는 음악  무료브금  HYP-Show Me - HYP MUSIC - BGM Design.mp3"
 
 # ---------- 유틸 ----------
+FPS = 30
+
+def _snap_to_fps(t, fps=FPS):
+    return max(0.0, round(float(t) * fps) / fps)
+
+def _merge_short_segments(segments, min_dur=0.8):
+    """문장 구간이 너무 짧으면 앞/뒤와 붙여 전환 과다 방지"""
+    if not segments: return segments
+    out = [segments[0].copy()]
+    for s in segments[1:]:
+        prev = out[-1]
+        if (s["end"] - s["start"]) < min_dur:
+            # 이전과 붙일 수 있으면 붙임
+            if (prev["end"] >= s["start"] - 1e-6):
+                prev["end"] = max(prev["end"], s["end"])
+                prev["text"] = (prev.get("text","").rstrip()+" "+s.get("text","")).strip()
+            else:
+                out.append(s.copy())
+        else:
+            out.append(s.copy())
+    return out
+
+def build_sentence_video_segments(sentence_segments, dense_events, audio_path=None, fps=FPS):
+    """
+    문장(=sentence_segments) 경계로만 화면 전환.
+    각 문장 구간의 start/end는 그 문장에 속한 dense_events의 시작~끝 범위를 덮도록 확장.
+    마지막 end는 오디오 길이에 스냅/연장.
+    """
+    # 1) dense를 문장별로 투영해 범위 잡기
+    out = []
+    for sent in sentence_segments:
+        s0, e0 = float(sent["start"]), float(sent["end"])
+        txt = sent.get("text","")
+        # 이 문장을 덮는 dense 범위로 확장
+        starts = []
+        ends = []
+        for d in dense_events:
+            if not (d["end"] <= s0 or d["start"] >= e0):  # overlap
+                starts.append(d["start"])
+                ends.append(d["end"])
+        if starts and ends:
+            s = min(starts)
+            e = max(ends)
+        else:
+            s, e = s0, e0
+        out.append({"start": s, "end": e, "text": txt})
+
+    # 2) 오디오 길이에 맞춰 마지막 세그먼트 연장
+    if audio_path and os.path.exists(audio_path) and out:
+        with AudioFileClip(audio_path) as aud:
+            aud_dur = float(aud.duration or 0.0)
+        # 프레임 격자에 맞춰 약간 여유를 두고 연장
+        tail = _snap_to_fps(aud_dur + 0.02, fps)
+        if out[-1]["end"] < tail:
+            out[-1]["end"] = tail
+
+    # 3) 프레임 스냅 & 너무 짧은 것 병합
+    for s in out:
+        s["start"] = _snap_to_fps(s["start"], fps)
+        s["end"]   = _snap_to_fps(s["end"], fps)
+        if s["end"] <= s["start"]:
+            s["end"] = s["start"] + (1.0/fps)
+    out = _merge_short_segments(out, min_dur=0.8)
+
+    # 4) 인접 겹침 정리
+    out_sorted = sorted(out, key=lambda x: x["start"])
+    for i in range(1, len(out_sorted)):
+        out_sorted[i]["start"] = max(out_sorted[i]["start"], out_sorted[i-1]["end"])
+        if out_sorted[i]["end"] <= out_sorted[i]["start"]:
+            out_sorted[i]["end"] = out_sorted[i]["start"] + (1.0/fps)
+
+    return out_sorted
+
 import hashlib, os
 
 def _fingerprint_video(path: str) -> str:
@@ -1204,8 +1277,13 @@ with st.sidebar:
                             max_chars_per_line=14,
                             max_lines=2
                         )
-                        segments_for_subtitles = dense_events
-                        segments_for_video = segments      # ← 문장(처음 쪼갠 라인) 기준으로 전환
+                        segments_for_video = build_sentence_video_segments(
+                            sentence_segments=segments,    # generate_subtitle_from_script가 만든 문장/TTS 라인
+                            dense_events=dense_events,     # 촘촘 자막 타임라인
+                            audio_path=audio_path,         # 최종 오디오 길이에 맞춰 마지막 세그먼트 '늘림'
+                            fps=30
+                        )
+
 
                         try:
                             if audio_clips is not None:
@@ -1273,14 +1351,12 @@ with st.sidebar:
                             st.write("🎯 문장별로 페르소나 기반 키워드를 만들어 개별 영상 검색을 수행합니다.")
 
                             # 1) 문장 리스트
-                            sentence_units = [s['text'] for s in segments_for_video]
-
-                            # 2) 페르소나 지시문
-                            persona_text = ""
+                            sentence_units = [s.get("text", "") for s in segments_for_video]
+                            
+                            # 선택된 스크립트 페르소나의 지시문을 persona_text로 안전 취득
                             try:
                                 pidx = st.session_state.get("selected_script_persona_index", None)
-                                if pidx is not None:
-                                    persona_text = st.session_state.persona_blocks[pidx]["text"]
+                                persona_text = st.session_state.persona_blocks[pidx]["text"] if pidx is not None else ""
                             except Exception:
                                 persona_text = ""
 
@@ -1345,7 +1421,7 @@ with st.sidebar:
                             st.write(f"🔁 영상 중복 제거: {before} → {after}")
 
                             # ✅ 부족분은 새로 검색해서 채우기(라운드로빈)
-                            need = len(segments) - len(video_paths)
+                            need = len(segments_for_video) - len(video_paths)
                             if need > 0:
                                 st.info(f"🔎 중복 제거로 {need}개 부족 → 고유 영상 재검색 시작")
                                 added = 0
@@ -1440,12 +1516,22 @@ with st.sidebar:
                         )
                         final_video_with_subs_path = created_video_path
                     else:
+                        # ✅ 위 '미디어 수집'에서 이미 video_paths를 확보함
+                        N = len(segments_for_video)
+                        include_voice = bool(st.session_state.get("include_voice", True))
+                        bgm_path = st.session_state.get("bgm_path") or "assets/[BGM] 힙합 비트 신나는 음악  무료브금  HYP-Show Me - HYP MUSIC - BGM Design.mp3"
+                        temp_video_path = os.path.join("assets", "video_from_videos.mp4")
+
+                        # (선택) 개수/정합성 로그
+                        st.write(f"✅ TTS 라인 수: {len(segments)} / 전환 구간 수: {len(segments_for_video)} / 확보한 영상 수: {len(video_paths)}")
+
+
                         if is_video_template:
                             created_video_path = create_video_from_videos(
-                                video_paths=video_paths,
-                                segments=segments_for_video,  # ✅ 병합/조정된 구간 사용
-                                audio_path=st.session_state.audio_path if st.session_state.include_voice else None,
-                                topic_title="",
+                                video_paths=video_paths[:N],
+                                segments=segments_for_video,
+                                audio_path=(audio_path if include_voice else None),
+                                topic_title="",                 # 상단 타이틀 미사용
                                 include_topic_title=False,
                                 bgm_path=bgm_path,
                                 save_path=temp_video_path
