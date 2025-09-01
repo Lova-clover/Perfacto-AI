@@ -1180,6 +1180,11 @@ with st.sidebar:
                         dense_events = enforce_min_duration_non_merging(dense_events, min_dur=0.50, margin=0.02)
                         dense_events = quantize_events(dense_events, fps=30.0)
                         dense_events = ensure_min_frames(dense_events, fps=30.0, min_frames=2)
+                        
+                        with AudioFileClip(audio_path) as aud:
+                            audio_dur = float(aud.duration)
+                        if dense_events:
+                            dense_events[-1]["end"] = max(dense_events[-1]["end"], round(audio_dur, 3))
 
                         # 로그확인
                         st.write("🧪 마지막 3개 조각 미리보기:",
@@ -1199,7 +1204,8 @@ with st.sidebar:
                             max_chars_per_line=14,
                             max_lines=2
                         )
-                        segments_for_video = dense_events
+                        segments_for_subtitles = dense_events
+                        segments_for_video = segments      # ← 문장(처음 쪼갠 라인) 기준으로 전환
 
                         try:
                             if audio_clips is not None:
