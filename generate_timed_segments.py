@@ -998,6 +998,12 @@ def generate_subtitle_from_script(
         return s.strip()
 
     # --- 1) 스크립트 → 라인
+    base_lines = split_script_to_lines(script_text or "", mode=split_mode)
+    base_lines = [ln for ln in base_lines if ln.strip()]
+    if not base_lines:
+        return [], None, ass_path
+
+    # SSML 태그 제거한 클린 텍스트(SSML 생성을 위해)
     clean_lines = split_script_to_lines(script_text, mode="llm")
 
     # --- 2) Polly 보이스/언어 정합
