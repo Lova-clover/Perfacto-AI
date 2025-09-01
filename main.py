@@ -1274,7 +1274,7 @@ with st.sidebar:
                             st.write("🎯 문장별로 페르소나 기반 키워드를 만들어 개별 영상 검색을 수행합니다.")
 
                             # 1) 문장 리스트
-                            sentence_units = [s['text'] for s in segments_for_video]
+                            sentence_units = [s['text'] for s in segments]
 
                             # 2) 페르소나 지시문
                             persona_text = ""
@@ -1444,7 +1444,7 @@ with st.sidebar:
                         if is_video_template:
                             created_video_path = create_video_from_videos(
                                 video_paths=video_paths,
-                                segments=segments_for_video,  # ✅ 병합/조정된 구간 사용
+                                segments=segments,  # ✅ 병합/조정된 구간 사용
                                 audio_path=st.session_state.audio_path if st.session_state.include_voice else None,
                                 topic_title="",
                                 include_topic_title=False,
