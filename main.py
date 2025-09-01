@@ -13,6 +13,7 @@ from video_maker import (
     add_subtitles_to_video,
     create_dark_text_video
 )
+from ssml_converter import convert_line_to_ssml, breath_linebreaks
 from deep_translator import GoogleTranslator
 from file_handler import get_documents_from_files
 from upload import upload_to_youtube
@@ -37,6 +38,44 @@ VIDEO_TEMPLATE = "영상(영어보이스+한국어자막·가운데)"
 DEFAULT_BGM = "assets/[BGM] 힙합 비트 신나는 음악  무료브금  HYP-Show Me - HYP MUSIC - BGM Design.mp3"
 
 # ---------- 유틸 ----------
+def _split_script_for_tts(script_text: str):
+    """
+    TTS/SSML 변환 전에 문장을 안전하게 줄 단위로 쪼갭니다.
+    - 프로젝트 내 _auto_split_for_tempo가 있으면 그걸 우선 사용
+    - 실패 시 간단한 정규식 폴백
+    """
+    try:
+        lines = [s for s in _auto_split_for_tempo(script_text) if s and s.strip()]
+        return lines or [script_text.strip()]
+    except Exception:
+        import re
+        sents = [s.strip() for s in re.split(r'(?<=[.!?？])\s*', script_text or "") if s.strip()]
+        return sents or [script_text.strip()]
+
+def _log_ssml_preview(orig_lines, generated_ssml_lines=None, title="SSML 변환 로그"):
+    """
+    원문 ↔ 변환된 SSML을 나란히 보여주는 디버그 로그.
+    - Streamlit UI(Expander + code)와 콘솔(print) 모두 출력
+    - generated_ssml_lines가 없으면 convert_line_to_ssml()로 미리보기 생성
+    """
+    try:
+        import streamlit as st
+        with st.expander(f"🧪 {title}", expanded=False):
+            for i, line in enumerate(orig_lines, 1):
+                st.markdown(f"**{i}. 원문**: {line}")
+                ssml = (generated_ssml_lines[i-1]
+                        if (generated_ssml_lines and i-1 < len(generated_ssml_lines))
+                        else convert_line_to_ssml(line))
+                st.code(ssml, language="xml")
+    except Exception:
+        print(f"[SSML] {title}")
+        for i, line in enumerate(orig_lines, 1):
+            ssml = (generated_ssml_lines[i-1]
+                    if (generated_ssml_lines and i-1 < len(generated_ssml_lines))
+                    else convert_line_to_ssml(line))
+            print(f"L{i:02d} ORIG: {line}")
+            print(f"L{i:02d} SSML: {ssml}")
+
 FPS = 30
 
 def _snap_to_fps(t, fps=FPS):
@@ -742,7 +781,7 @@ def get_scene_keywords_batch(sentence_units, persona_text: str):
 [요구]
 - 각 문장에 대해 1줄의 키워드만 생성
 - i번째 줄은 'i. one short phrase' 형식
-- 각 키워드는 3~6단어의 영어 구문, 반드시 1개만
+- 각 키워드는 3~6단어의 "영어" 구문, 반드시 영어로 1개만
 - 반드시 키워드만, 라벨/설명/따옴표/줄바꿈 추가 금지
 - 같은(혹은 거의 같은) 키워드/구를 여러 줄에 반복 사용하지 말 것. 유사 개념이면 스타일·시간대·로케이션을 바꿔 변주할 것.
 
@@ -1101,6 +1140,12 @@ with st.sidebar:
                         st.write("🗣️ 라인별 TTS 생성/병합 및 세그먼트 산출 중...")
                         provider = "elevenlabs" if st.session_state.selected_tts_provider == "ElevenLabs" else "polly"
                         tmpl = st.session_state.selected_tts_template if provider == "elevenlabs" else st.session_state.selected_polly_voice_key
+                        # === SSML 변환 '전' 미리보기 ===
+                        try:
+                            _orig_lines_for_tts = _split_script_for_tts(final_script_for_video)
+                            _log_ssml_preview(_orig_lines_for_tts, title="변환 전(컨버터 기준 미리보기)")
+                        except Exception as e:
+                            print("[SSML] preview-before error:", e)
                         
                         segments, audio_clips, ass_path = generate_subtitle_from_script(
                             script_text=final_script_for_video,
@@ -1115,6 +1160,29 @@ with st.sidebar:
                             split_mode="new_line",
                             strip_trailing_punct_last=False
                         )
+                        # === SSML 변환 '후' (실사용본) ===
+                        try:
+                            # segments 각 요소에 ssml이 들어오는 구조면 이 리스트가 채워집니다.
+                            used_ssml_lines = [
+                                s["ssml"] for s in segments
+                                if isinstance(s.get("ssml"), str) and s["ssml"].strip()
+                            ]
+
+                            if used_ssml_lines:
+                                _log_ssml_preview(
+                                    _orig_lines_for_tts,
+                                    used_ssml_lines,
+                                    title="실제 사용된 SSML(생성기 반환)"
+                                )
+                            else:
+                                # 반환에 ssml 라인이 없으면 안내만
+                                try:
+                                    import streamlit as st
+                                    st.info("생성 함수가 SSML 라인을 반환하지 않았습니다. 위의 '미리보기'만 표시합니다.")
+                                except Exception:
+                                    print("[SSML] no ssml lines in segments; preview-only.")
+                        except Exception as e:
+                            print("[SSML] preview-after error:", e)
                         
                         try:
                             if not st.session_state.bgm_path or not os.path.exists(st.session_state.bgm_path):
