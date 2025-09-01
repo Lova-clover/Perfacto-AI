@@ -915,7 +915,7 @@ def create_video_from_videos(
                 if raw.duration < duration:
                     # 부족하면 반복
                     repeat = int(math.ceil(duration / max(raw.duration, 0.1)))
-                    rep = concatenate_videoclips([raw] * repeat, method="chain").subclip(0, duration)
+                    rep = concatenate_videoclips([raw] * repeat, method="chain").subclipped(0, duration)
                     base = _resize_cover(rep, video_width, video_height)
                 else:
                     base = _resize_cover(raw.subclipped(0, duration), video_width, video_height)
