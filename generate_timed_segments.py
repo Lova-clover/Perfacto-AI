@@ -11,6 +11,15 @@ import boto3, json
 from elevenlabs_tts import TTS_POLLY_VOICES 
 from botocore.exceptions import ClientError
 
+def split_script_to_lines(script_text, mode="llm"):
+    """
+    항상 LLM(호흡 라인브레이크)으로만 분절한다.
+    다른 mode 인자는 무시한다.
+    """
+    text = script_text or ""
+    lines = breath_linebreaks(text)                 # LLM 호출
+    return [ln.strip() for ln in lines if ln.strip()]
+
 def _drop_special_except_q(text: str) -> str:
     # 한글/영문/숫자/공백/물음표만 남김
     return re.sub(r"[^0-9A-Za-z\uac00-\ud7a3?\s]", "", text or "")
@@ -31,19 +40,6 @@ def _summarize_line_pitch(ssml: str) -> float | None:
     if high >= +8:          # 파랑 임계 충족 시 그 값을 사용
         return high
     return sum(vals)/len(vals)
-
-def split_script_to_lines(script_text, mode="newline"):
-    text = script_text or ""
-    if mode == "punct":
-        parts = re.split(r'(?<=[,.])\s*', text.strip())
-        return [p for p in map(str.strip, parts) if p]
-    elif mode == "kss":
-        return [s.strip() for s in kss.split_sentences(text) if s.strip()]
-    elif mode == "llm":                       # ★ 추가: LLM 브레스 분절을 실제 세그먼트로 사용
-        lines = breath_linebreaks(text)
-        return [ln.strip() for ln in lines if ln.strip()]
-    else:
-        return [ln.strip() for ln in text.splitlines() if ln.strip()]
 
 def _pitch_to_hex(p):
     """
@@ -1002,13 +998,7 @@ def generate_subtitle_from_script(
         return s.strip()
 
     # --- 1) 스크립트 → 라인
-    base_lines = split_script_to_lines(script_text or "", mode=split_mode)
-    base_lines = [ln for ln in base_lines if ln.strip()]
-    if not base_lines:
-        return [], None, ass_path
-
-    # SSML 태그 제거한 클린 텍스트(SSML 생성을 위해)
-    clean_lines = [strip_ssml_tags(_strip_punct_and_quotes(l)) for l in base_lines]
+    clean_lines = split_script_to_lines(script_text, mode="llm")
 
     # --- 2) Polly 보이스/언어 정합
     if provider.lower() == "polly":
