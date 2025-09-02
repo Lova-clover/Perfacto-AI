@@ -1062,7 +1062,7 @@ def generate_subtitle_from_script(
         return [], None, ass_path
 
     # SSML 태그 제거한 클린 텍스트(SSML 생성을 위해)
-    clean_lines = split_script_to_lines(script_text, mode="llm")
+    clean_lines = split_script_to_lines(script_text, mode=split_mode)
 
     # --- 2) Polly 보이스/언어 정합
     if provider.lower() == "polly":
@@ -1106,17 +1106,36 @@ def generate_subtitle_from_script(
 
     # --- 5) ★★★ 라인 단위 'base 세그먼트' 구성: SSML을 심는다
     # text: 원문(또는 표시용 자막 기본값), ssml: Polly에 실제 보낸 SSML
+    if len(clean_lines) != len(base_lines):
+        try:
+            import streamlit as st
+            st.warning(f"라인 불일치: base={len(base_lines)} vs clean={len(clean_lines)} → base 기준으로 강제 정렬")
+        except Exception:
+            print(f"[warn] 라인 불일치: base={len(base_lines)} vs clean={len(clean_lines)}")
+        clean_lines = base_lines[:]
+        ssml_meta_lines = ssml_meta_lines[:len(base_lines)]
+
+    # 오디오 병합 후, 세그먼트/텍스트/SSML 최소길이로 동기화
+    segments_raw = merge_audio_files(audio_paths, full_audio_file_path)
+    n = min(len(segments_raw), len(base_lines), len(ssml_meta_lines))
+    if n != len(segments_raw):
+        try:
+            st.warning(f"TTS 세그먼트 수 불일치: audio={len(segments_raw)} vs base={len(base_lines)} → min={n}로 맞춤")
+        except Exception:
+            print(f"[warn] 세그먼트 수 불일치: audio={len(segments_raw)} base={len(base_lines)} → {n}")
+
     segments_base = []
-    for i, s in enumerate(segments_raw):
+    for i in range(n):
+        s = segments_raw[i]
         line_text = base_lines[i]
-        ssml_meta = ssml_meta_lines[i]                # ★ 저장
-        pitch_sum = _summarize_line_pitch(ssml_meta)  # ★ 저장
+        ssml_meta = ssml_meta_lines[i]
+        pitch_sum = _summarize_line_pitch(ssml_meta)
         segments_base.append({
             "start": float(s["start"]),
             "end":   float(s["end"]),
             "text":  re.sub(r"\s+", " ", line_text).strip(),
             "ssml":  ssml_meta,
-            "pitch": pitch_sum,                       # ★ 라인 컬러링용 요약 pitch
+            "pitch": pitch_sum,
         })
 
 
