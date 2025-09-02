@@ -58,6 +58,8 @@ def _heuristic_breath_lines(text: str, strict: bool = True) -> list[str]:
         # ✨ LLM 실패 시엔 '추가 분절/병합' 절대 하지 않고 원문 라인 그대로 사용
         return [t]
 
+import streamlit as st
+
 def breath_linebreaks(text: str, honor_newlines: bool = True) -> list[str]:
     t = (text or "").strip()
     if not t:
@@ -69,17 +71,18 @@ def breath_linebreaks(text: str, honor_newlines: bool = True) -> list[str]:
     # === LLM 호출 ===
     prompt = BREATH_PROMPT.replace("{{TEXT}}", t)
     out = _complete_with_any_llm(prompt) or ""
-    # 🔎 디버그 로그 추가
-    print("\n[breath_linebreaks] LLM raw output ↓↓↓")
-    print(out if out else "(빈 응답)")
-    print("↑↑↑ [breath_linebreaks] LLM raw output 끝\n")
+
+    # 🔎 Streamlit 로그 출력
+    preview = out if out else "(빈 응답)"
+    st.write("🧪 [breath_linebreaks] LLM raw output:")
+    st.code(preview, language="text")
 
     out = out.strip()
     if out:
         return [ln for ln in out.splitlines() if ln.strip()]
 
     # === 폴백 ===
-    print("[breath_linebreaks] ⚠️ LLM이 비어 있어서 휴리스틱 분절 사용")
+    st.warning("⚠️ [breath_linebreaks] LLM 응답이 비어서 휴리스틱 분절 사용")
     return _heuristic_breath_lines(t, strict=True)
 
 
