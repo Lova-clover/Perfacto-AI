@@ -1187,15 +1187,9 @@ with st.sidebar:
                         st.write("🗣️ 라인별 TTS 생성/병합 및 세그먼트 산출 중...")
                         provider = "elevenlabs" if st.session_state.selected_tts_provider == "ElevenLabs" else "polly"
                         tmpl = st.session_state.selected_tts_template if provider == "elevenlabs" else st.session_state.selected_polly_voice_key
-                        # === SSML 변환 '전' 미리보기 ===
-                        try:
-                            _orig_lines_for_tts = _split_script_for_tts(final_script_for_video)
-                            _log_ssml_preview(_orig_lines_for_tts, title="변환 전(컨버터 기준 미리보기)")
-                        except Exception as e:
-                            print("[SSML] preview-before error:", e)
                         
                         script_text = koreanize_if_english(final_script_for_video)
-                        sentence_lines = breath_linebreaks(script_text, honor_newlines=True, log=True)
+                        sentence_lines = breath_linebreaks(script_text, honor_newlines=True, log=False)
                         script_text_for_tts = "\n".join(sentence_lines)
                         
                         segments, audio_clips, ass_path = generate_subtitle_from_script(
@@ -1221,19 +1215,7 @@ with st.sidebar:
                         except Exception as e:
                             used_ssml_lines = []
                             print("[SSML] used_ssml_lines build error:", e)
-                        try:
-                            if used_ssml_lines:
-                                _log_ssml_preview(
-                                    _orig_lines_for_tts,
-                                    used_ssml_lines,
-                                    title="실제 사용된 SSML(생성기 반환)"
-                                )
-                            else:
-                                st.info("생성 함수가 SSML 라인을 반환하지 않았습니다. 위의 '미리보기'만 표시합니다.")
-                        except Exception as e:
-                            print("[SSML] preview-after error:", e)
-                        st.session_state["_orig_lines_for_tts"] = _orig_lines_for_tts
-                        st.session_state["_used_ssml_lines"] = used_ssml_lines if used_ssml_lines else []
+                        
                         try:
                             if not st.session_state.bgm_path or not os.path.exists(st.session_state.bgm_path):
                                 st.session_state.bgm_path = DEFAULT_BGM
