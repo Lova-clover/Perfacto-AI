@@ -225,6 +225,8 @@ def convert_line_to_ssml(user_line: str) -> str:
         return ""
 
     # ── [전처리: 의미 보존/발음 안정화] ─────────────────────────────────────
+    t = re.sub(r'\s*(?<!\d)(?:\.\s*){2,}(?!\d)', ' ', t)  # 점열 → 공백
+    t = t.replace('…', ' ')
     # 마이너스 기호 통일(−, –, — → -), 얇은 공백 등 정리
     t = t.replace("\xa0", " ").translate(str.maketrans({"–": "-", "—": "-", "−": "-"}))
 
@@ -245,10 +247,13 @@ def convert_line_to_ssml(user_line: str) -> str:
         out = _complete_with_any_llm(prompt) or ""
         out = out.strip()
         if out:
-            frag = _unwrap_speak(out)  # <speak> 감싸져 오면 껍데기 제거
-            # 허용 외 태그 제거 (prosody/break만 허용)
+            frag = _unwrap_speak(out)
+            # 허용 외 태그 제거
             frag = re.sub(r"</?(?!prosody\b|break\b)[a-zA-Z0-9:_-]+\b[^>]*>", "", frag)
-            # 연속 break 1회로 축약
+            # ✅ 점열 제거 (태그 바깥 텍스트의 '숫자 아닌' 점만)
+            frag = re.sub(r'(?<!\d)(?:\s*\.\s*){1,}(?!\d)', '', frag)
+            frag = frag.replace('…', '')
+            # 연속 break 축약
             frag = re.sub(r'(?:<break\b[^>]*/>\s*){2,}', '<break time="30ms"/>', frag)
             if frag.strip():
                 return frag
@@ -257,12 +262,11 @@ def convert_line_to_ssml(user_line: str) -> str:
 
     # ── [폴백 경로: 소수점 보호 후 문장부호 정리] ──────────────────────────
     tt = t
+    # 소수점 보호 후, '띄어쓴 점열'과 '연속점' 모두 제거
     tt = tt.replace("…", "")
-
-    # 소수점 보호: 9.0 / 3.14 안의 '.'은 남기고, 나머지 마침표만 제거
-    tt = re.sub(r'(?<=\d)\.(?=\d)', '§DECIMAL§', tt)  # 9.0 -> 9§DECIMAL§0
-    tt = re.sub(r"[.]+", "", tt)                      # 문장 끝 마침표 제거
-    tt = tt.replace('§DECIMAL§', '.')                 # 소수점 복원
+    tt = re.sub(r'(?<=\d)\.(?=\d)', '§DECIMAL§', tt)            # 소수점 보호
+    tt = re.sub(r'(?<!\d)(?:\s*\.\s*){1,}(?!\d)', ' ', tt)      # 띄어쓴 점열/연속점 제거
+    tt = tt.replace('§DECIMAL§', '.')
 
     # 느낌표는 제거(Polly 안정성), 공백 정리
     tt = re.sub(r"[!]+", "", tt)
