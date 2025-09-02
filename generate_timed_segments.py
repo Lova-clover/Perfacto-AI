@@ -893,7 +893,7 @@ def _ensure_styles_with_bmjua(styles_block_lines: list[str]) -> list[str]:
     # ★ BMJUA 전용 스타일을 'Style: BMJua'로 추가
     #  - Fontsize/Outline/MarginV는 원래 쓰시던 값 범위에 맞춰 적당히; 필요시 조정
     out.append(
-        f"Style: BMJua, {ASS_FONT_FAMILY}, 48, &H00FFFFFF, &H000000FF, &H00000000, &H64000000, " #글자크기 48로 수정
+        f"Style: BMJua, {ASS_FONT_FAMILY}, 58, &H00FFFFFF, &H000000FF, &H00000000, &H64000000, " #글자크기 58로 수정
         f"-1, 0, 0, 0, 100, 100, 0, 0, 1, 4, 0, 2, 30, 30, 60, 1"
     )
     out.append("")  # 마지막 공백 줄

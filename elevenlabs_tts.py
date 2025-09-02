@@ -159,31 +159,55 @@ import re as _re
 def _strip_ssml_tags_local(s: str) -> str:
     return _re.sub(r"<[^>]+>", "", s or "")
 
-def generate_polly_tts(text, save_path, polly_voice_name_key, *, speed=1.0, volume_db=0):
-    voice_id = TTS_POLLY_VOICES.get(polly_voice_name_key, TTS_POLLY_VOICES.get("korean_female", "Seoyeon"))
+import time
+
+def generate_polly_tts(text, save_path, polly_voice_name_key, *, speed=1.0, volume_db=0,
+                       max_retries=None, retry_delay=10):
+    """
+    Polly로 음성을 합성합니다.
+    실패 시 에러 대신 계속 재시도할 수 있으며,
+    재시도할 때마다 로그를 찍습니다.
+    """
+    voice_id = TTS_POLLY_VOICES.get(
+        polly_voice_name_key,
+        TTS_POLLY_VOICES.get("korean_female", "Seoyeon")
+    )
 
     payload = (text or "").strip()
     if not payload.startswith("<speak"):
         payload = f"<speak>{payload}</speak>"
 
-    # ✅ pitch가 들어있으면 Standard로, 아니면 Neural 유지
     def _pick_engine_from_ssml(ssml: str) -> str:
         return "standard" if ' pitch="' in (ssml or "") else "neural"
 
-    polly = boto3.client("polly", region_name="ap-northeast-2")
-
-    def _synth(engine="neural"):
-        return polly.synthesize_speech(
-            Text=payload, TextType="ssml", OutputFormat="mp3",
-            VoiceId=voice_id, Engine=engine
-        )
-
     engine = _pick_engine_from_ssml(payload)
-    resp = _synth(engine=engine)  # ← 여기만 바뀜
 
-    with open(save_path, "wb") as f:
-        f.write(resp["AudioStream"].read())
-    return save_path
+    attempt = 0
+    while True:
+        try:
+            attempt += 1
+            polly = boto3.client("polly", region_name="ap-northeast-2")
+            resp = polly.synthesize_speech(
+                Text=payload, TextType="ssml", OutputFormat="mp3",
+                VoiceId=voice_id, Engine=engine
+            )
+            with open(save_path, "wb") as f:
+                f.write(resp["AudioStream"].read())
+            print(f"✅ Polly 합성 성공: {save_path} (시도 {attempt}회차)")
+            return save_path
+
+        except (BotoCoreError, ClientError) as e:
+            msg = f"⚠️ Polly 합성 실패 (시도 {attempt}): {e}"
+            try:
+                st.warning(msg)
+            except Exception:
+                print(msg)
+
+            if max_retries is not None and attempt >= max_retries:
+                raise RuntimeError(f"Polly TTS 실패: {attempt}회 시도 후 중단")
+
+            time.sleep(retry_delay)
+
 
 def generate_tts(
     text,
