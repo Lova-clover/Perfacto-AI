@@ -1194,8 +1194,12 @@ with st.sidebar:
                         except Exception as e:
                             print("[SSML] preview-before error:", e)
                         
+                        script_text = koreanize_if_english(final_script_for_video)
+                        sentence_lines = breath_linebreaks(script_text, honor_newlines=True, log=True)
+                        script_text_for_tts = "\n".join(sentence_lines)
+                        
                         segments, audio_clips, ass_path = generate_subtitle_from_script(
-                            script_text=final_script_for_video,               
+                            script_text=script_text_for_tts,               
                             ass_path=os.path.join("assets", "generated_subtitle.ass"),
                             full_audio_file_path=audio_path,
                             provider=provider,
@@ -1204,7 +1208,7 @@ with st.sidebar:
                             subtitle_lang="ko",
                             translate_only_if_english=False,
                             tts_lang=st.session_state.selected_tts_lang,
-                            split_mode="llm",                       
+                            split_mode="newline",                       
                             strip_trailing_punct_last=False
                         )
                         # === SSML 변환 '후' (실사용본) ===

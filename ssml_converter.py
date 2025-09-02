@@ -60,7 +60,10 @@ def _heuristic_breath_lines(text: str, strict: bool = True) -> list[str]:
 
 import streamlit as st
 
-def breath_linebreaks(text: str, honor_newlines: bool = True) -> list[str]:
+# 전역 캐시
+_BREATH_CACHE: dict[str, list[str]] = {}
+
+def breath_linebreaks(text: str, honor_newlines: bool = True, *, log: bool=False) -> list[str]:
     t = (text or "").strip()
     if not t:
         return []
@@ -68,23 +71,28 @@ def breath_linebreaks(text: str, honor_newlines: bool = True) -> list[str]:
     if honor_newlines and "\n" in t:
         return [ln.strip() for ln in t.splitlines() if ln.strip()]
 
-    # === LLM 호출 ===
+    # 캐시 확인
+    if t in _BREATH_CACHE:
+        return _BREATH_CACHE[t]
+
+    # LLM 호출
     prompt = BREATH_PROMPT.replace("{{TEXT}}", t)
     out = _complete_with_any_llm(prompt) or ""
-
-    # 🔎 Streamlit 로그 출력
-    preview = out if out else "(빈 응답)"
-    st.write("🧪 [breath_linebreaks] LLM raw output:")
-    st.code(preview, language="text")
-
     out = out.strip()
+
+    if log:
+        import streamlit as st
+        st.write("🧪 [breath_linebreaks] LLM raw output:")
+        st.code(out if out else "(빈 응답)", language="text")
+
     if out:
-        return [ln for ln in out.splitlines() if ln.strip()]
+        lines = [ln for ln in out.splitlines() if ln.strip()]
+        _BREATH_CACHE[t] = lines
+        return lines
 
-    # === 폴백 ===
-    st.warning("⚠️ [breath_linebreaks] LLM 응답이 비어서 휴리스틱 분절 사용")
-    return _heuristic_breath_lines(t, strict=True)
-
+    # 폴백: 빈 응답이면 원문 그대로 1줄
+    _BREATH_CACHE[t] = [t]
+    return [t]
 
 BREATH_PROMPT = """역할: 너는 한국어 대본의 호흡(브레스) 라인브레이크 편집기다.
 출력은 텍스트만, 줄바꿈으로만 호흡을 표현한다. 다른 기호·주석·설명·마크다운·태그를 절대 쓰지 않는다.
