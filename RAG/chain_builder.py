@@ -2,8 +2,9 @@ from langchain_core.documents import Document as LangChainDocument
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableMap, RunnableLambda, RunnablePassthrough
-from langchain_groq import ChatGroq  # ✅ Groq import
-
+#from langchain_groq import ChatGroq  # ✅ Groq import
+from langchain_openai import ChatOpenAI
+import os
 
 
 
@@ -11,8 +12,11 @@ def get_conversational_rag_chain(retriever, system_prompt):
     """
     최종적으로 생성된 문장 단위의 출처를 사용하여 답변을 생성하는 RAG 체인을 구성합니다.
     """
-    llm = ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0.1)  # ✅ Groq LLM 설정
-
+    llm = ChatOpenAI(
+        model="gpt-4o-mini",        # 🔑 nano 모델
+        temperature=0.1,
+        api_key=os.getenv("OPENAI_API_KEY")
+    )
     
     rag_prompt_template = f"""{system_prompt}
 
@@ -67,5 +71,10 @@ def get_default_chain(system_prompt):
     prompt = ChatPromptTemplate.from_messages(
         [("system", system_prompt), ("user", "{question}")]
     )
-    llm = ChatGroq(model_name="llama-3.3-70b-versatile", temperature=0.7)  # ✅ Groq LLM
+    # ✅ OpenAI nano 계열 모델
+    llm = ChatOpenAI(
+        model="gpt-4o-mini",
+        temperature=0.7,
+        api_key=os.getenv("OPENAI_API_KEY")
+    )
     return prompt | llm | StrOutputParser()

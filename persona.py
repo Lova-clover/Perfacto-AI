@@ -1,10 +1,15 @@
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_groq import ChatGroq  # Groq LLM 사용 시
+#from langchain_groq import ChatGroq  # Groq LLM 사용 시
+from langchain_openai import ChatOpenAI
 import streamlit as st
 
 def generate_response_from_persona(prompt_text: str) -> str:
-    llm = ChatGroq(api_key=st.secrets["GROQ_API_KEY"], model_name="llama-3.3-70b-versatile")
+    llm = ChatOpenAI(
+        api_key=st.secrets["OPENAI_API_KEY"],  # ✅ secrets.toml에 저장된 키 사용
+        model="gpt-4o-mini",                   # ✅ nano 계열 모델
+        temperature=0.7
+    )
     output_parser = StrOutputParser()
 
     prompt = ChatPromptTemplate.from_messages([
