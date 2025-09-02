@@ -648,15 +648,19 @@ def _ass_time(t: float) -> str:
 
 def _sanitize_ass_text(text: str) -> str:
     t = (text or "").replace("\r", "")
-    t = t.replace("{", "｛").replace("}", "｝")  # override tag 충돌 방지
-    # \N 은 이미 상위 로직에서 삽입된 경우 그대로 둔다
-    # 실제 줄바꿈(\n)은 ASS 줄바꿈(\N)으로 변환
+    # 텍스트 내부 중괄호만 전각으로 (ASS override 충돌 방지)
+    t = t.replace("{", "｛").replace("}", "｝")
+
+    # ⚠️ 이미 들어 있는 \N(대문자)은 '줄바꿈 제어코드' → 절대 건드리지 않음
+    # 실제 줄바꿈(\n)만 ASS 줄바꿈 코드로 변환
     if "\n" in t:
         t = t.replace("\n", r"\N")
+
     # 완전 공란 방지
     if not t.strip().replace(NBSP, ""):
         t = NBSP
-    # 불필요한 탭/연속 스페이스 축약
+
+    # 탭/연속 스페이스 축약(역슬래시에는 영향 없음)
     t = re.sub(r"[ \t]{2,}", " ", t)
     return t.strip()
 

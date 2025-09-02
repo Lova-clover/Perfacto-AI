@@ -474,24 +474,28 @@ ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 
 # ✅ 자막 추가 함수
 def add_subtitles_to_video(input_video_path, ass_path, output_path):
-    import subprocess, shlex, os
+    import subprocess, os
     fonts_dir = os.path.abspath(os.path.join("assets", "fonts"))
-    # 경로에 공백/역슬래시가 있어도 안전하게
-    ass_q = ass_path.replace("\\", "/")
+
+    # 백슬래시는 슬래시로 정규화(Windows 안전)
+    ass_q   = ass_path.replace("\\", "/")
     fonts_q = fonts_dir.replace("\\", "/")
+
+    # ✅ subtitles 필터 사용 + 인용 단순화
+    vf_expr = f"subtitles={ass_q}:fontsdir={fonts_q}"
 
     cmd = [
         "ffmpeg", "-y",
         "-i", input_video_path,
-        "-vf", f"ass='{ass_q}':fontsdir='{fonts_q}'",
+        "-vf", vf_expr,
         "-c:v", "libx264",
         "-c:a", "aac", "-b:a", "192k", "-r", "30",
-        # ★ 비디오/오디오 모두 유지(오디오 없으면 무시)
-        "-map", "0:v:0", "-map", "0:a?", 
+        "-map", "0:v:0", "-map", "0:a?",
         output_path
     ]
     subprocess.run(cmd, check=True)
     return output_path
+
 
 from pydub import AudioSegment
 import math, os
