@@ -177,6 +177,10 @@ def generate_polly_tts(text, save_path, polly_voice_name_key, *, speed=1.0, volu
     if not payload.startswith("<speak"):
         payload = f"<speak>{payload}</speak>"
 
+    # ✅ 안전망: Polly에 넘기기 전에 ellipsis 제거
+    import re
+    payload = re.sub(r'<prosody[^>]*>…</prosody>', '', payload)
+    
     def _pick_engine_from_ssml(ssml: str) -> str:
         return "standard" if ' pitch="' in (ssml or "") else "neural"
 
