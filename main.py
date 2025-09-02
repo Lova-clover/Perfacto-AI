@@ -1194,17 +1194,8 @@ with st.sidebar:
                         except Exception as e:
                             print("[SSML] preview-before error:", e)
                         
-                        # === (1) LLM 브레스: 단 한 번 호출해서 확정 (로그는 1회만)
-                        sentence_lines = breath_linebreaks(
-                            koreanize_if_english(final_script_for_video),
-                            honor_newlines=True,   # 원래 줄바꿈 있으면 존중
-                            log=True,              # 화면에 한번만 미리보기
-                            require_llm=True       # LLM 실패 시 중단(휴리스틱 금지)
-                        )
-                        script_text_for_tts = "\n".join(sentence_lines)  # 이후 전 과정의 싱글 소스
-                        
                         segments, audio_clips, ass_path = generate_subtitle_from_script(
-                            script_text=script_text_for_tts,                 # ← LLM 분절 고정본
+                            script_text=final_script_for_video,               
                             ass_path=os.path.join("assets", "generated_subtitle.ass"),
                             full_audio_file_path=audio_path,
                             provider=provider,
@@ -1213,7 +1204,7 @@ with st.sidebar:
                             subtitle_lang="ko",
                             translate_only_if_english=False,
                             tts_lang=st.session_state.selected_tts_lang,
-                            split_mode="newline",                            # ★ 내부에서 LLM 재호출 금지
+                            split_mode="llm",                       
                             strip_trailing_punct_last=False
                         )
                         # === SSML 변환 '후' (실사용본) ===
@@ -1294,11 +1285,6 @@ with st.sidebar:
 
                         # 이후 코드 호환을 위해 이름 유지
                         dense_events = line_events  # 자막/SSML과 동일 타임라인
-                        # 🎬 영상 전환도 동일 타임라인로 고정 (텍스트는 원 라인 유지)
-                        segments_for_video = [
-                            {"start": ev["start"], "end": ev["end"], "text": sanitize_ass_text(segments[i].get("text",""))}
-                            for i, ev in enumerate(dense_events)
-                        ]
                         
                         with AudioFileClip(audio_path) as aud:
                             audio_dur = float(aud.duration)
