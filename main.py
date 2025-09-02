@@ -6,7 +6,13 @@ from RAG.chain_builder import get_conversational_rag_chain, get_default_chain
 from persona import generate_response_from_persona
 from image_generator import generate_images_for_topic, generate_videos_for_topic
 from elevenlabs_tts import TTS_ELEVENLABS_TEMPLATES, TTS_POLLY_VOICES
-from generate_timed_segments import generate_subtitle_from_script, generate_ass_subtitle, SUBTITLE_TEMPLATES, _auto_split_for_tempo, auto_densify_for_subs, _strip_last_punct_preserve_closers, dedupe_adjacent_texts, harden_ko_sentence_boundaries, _build_dense_from_ssml
+from generate_timed_segments import (
+    generate_subtitle_from_script,
+    generate_ass_subtitle,
+    SUBTITLE_TEMPLATES,
+    _auto_split_for_tempo,
+    dedupe_adjacent_texts,   # 쓰시면 유지, 안쓰면 빼셔도 됩니다
+)
 from video_maker import (
     create_video_with_segments,
     create_video_from_videos,
@@ -1261,29 +1267,35 @@ with st.sidebar:
                             st.stop()
 
                         # === dense_events: 2차 분절 없이 '라인 단위' 그대로 사용 ===
-                        dense_events = []
-                        for seg in segments:  # seg = {"start","end","text","ssml","pitch"}
-                            dense_events.append({
-                                "start": float(seg["start"]),
-                                "end":   float(seg["end"]),
-                                "text":  _strip_trailing_commas(seg.get("text", "")),  # 텍스트만 가볍게 정리
-                                "pitch": seg.get("pitch", None),                       # (색상 매핑용) 라인 요약 pitch
+                        # === 2차 분절 금지: 라인 1:1 그대로 자막 생성 ===
+                        line_events = []
+                        for i, seg in enumerate(segments):
+                            s = float(seg["start"]); e = float(seg["end"])
+                            # 가독성 보호만 (줄 수는 절대 늘리지 않음)
+                            txt = prepare_text_for_ass(seg.get("text", ""), one_line_threshold=12, biline_target=14)
+
+                            # SSML에서 대표 pitch 읽어서 (자막 색상) 이벤트에 실어줌
+                            pitch_val = None
+                            ssml = (seg.get("ssml") or (used_ssml_lines[i] if i < len(used_ssml_lines) else None)) or ""
+                            m = re.search(r'pitch="\s*([+-]?\d+)\s*st"', ssml)
+                            if m:
+                                try:
+                                    pitch_val = int(m.group(1))
+                                except:
+                                    pitch_val = None
+
+                            line_events.append({
+                                "start": s, "end": e, "text": txt, "pitch": pitch_val
                             })
 
-                        # === ② 텍스트 보호/정리 (추가 분절 없이 '보호'만) ===
-                        dense_events = [
-                            {**e, "text": prepare_text_for_ass(e["text"], one_line_threshold=10**9, biline_target=10**9)}
-                            for e in dense_events
-                        ]
-                        dense_events = dedupe_adjacent_texts(dense_events)   # 원하시면 이 줄 주석 처리 가능(인접 중복 병합 방지)
-                        dense_events = drop_or_fix_empty_text(dense_events)  # 완전 빈 텍스트 제거/정리
+                        # 시간 보정만 수행(분절/병합 없음)
+                        line_events = clamp_no_overlap(line_events, margin=0.02)
+                        line_events = enforce_min_duration_non_merging(line_events, min_dur=0.50, margin=0.02)
+                        line_events = quantize_events(line_events, fps=30.0)
+                        line_events = ensure_min_frames(line_events, fps=30.0, min_frames=2)
 
-                        # === ③ 타이밍 안정화 (병합/추가 분절 없음) ===
-                        dense_events = clamp_no_overlap(dense_events, margin=0.00)
-                        dense_events = enforce_min_duration_non_merging(dense_events, min_dur=0.50, margin=0.02)
-                        dense_events = quantize_events(dense_events, fps=30.0)
-                        dense_events = ensure_min_frames(dense_events, fps=30.0, min_frames=2)
-
+                        # 이후 코드 호환을 위해 이름 유지
+                        dense_events = line_events
                         
                         with AudioFileClip(audio_path) as aud:
                             audio_dur = float(aud.duration)
@@ -1308,12 +1320,7 @@ with st.sidebar:
                             max_chars_per_line=14,
                             max_lines=2
                         )
-                        segments_for_video = build_sentence_video_segments(
-                            sentence_segments=segments,
-                            dense_events=dense_events,
-                            audio_path=audio_path,
-                            fps=30
-                        )
+                        segments_for_video = segments
 
                         # 🔧 시각클립 최소 길이 보장(병합). 0.55s 미만이면 앞 세그먼트에 흡수.
                         def _merge_tiny_visuals(segs, min_dur=0.55):
