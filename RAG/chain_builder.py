@@ -69,3 +69,12 @@ def get_default_chain(system_prompt):
     )
     llm = ChatGroq(model_name="openai/gpt-oss-120b", temperature=0.7)  # ✅ Groq LLM
     return prompt | llm | StrOutputParser()
+
+def _complete_with_any_llm(prompt: str) -> str | None:
+    try:
+        llm = ChatGroq(model_name="openai/gpt-oss-120b", temperature=0.7)
+        chain = ChatPromptTemplate.from_messages([("user", "{question}")]) | llm | StrOutputParser()
+        return chain.invoke({"question": prompt})
+    except Exception as e:
+        st.error(f"⚠️ LLM 호출 실패: {e}")
+        return None

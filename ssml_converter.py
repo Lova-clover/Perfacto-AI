@@ -87,26 +87,42 @@ def breath_linebreaks(text: str, honor_newlines: bool = True) -> list[str]:
 
 
 BREATH_PROMPT = """역할: 너는 한국어 대본의 호흡(브레스) 라인브레이크 편집기다.
-출력은 텍스트만, 줄바꿈으로만 호흡을 표현한다. 다른 기호·주석·설명·마크다운·태그 금지.
+출력은 텍스트만, 줄바꿈으로만 호흡을 표현한다. 다른 기호·주석·설명·마크다운·태그를 절대 쓰지 않는다.
 
-[하드 규칙 — 반드시 모두 충족]
-- 원문 보존: 글자·어순·어미·숫자·단위·기호 그대로. (의역/치환/삭제 금지)
-- 줄바꿈만 추가: 기존 텍스트 순서를 바꾸거나 병합/분할 재배열 금지.
-- 빈 줄 금지: 연속 빈 줄/마지막 빈 줄 생성 금지.
-- 라인 길이(하드 상한): 각 줄은 ‘3–6 단어’ 또는 ‘8–18글자’를 만족해야 한다.
-  · 상한을 넘기면, 의미 단위(공백/구두점)에서 반드시 줄바꿈을 추가하여 규칙을 만족시켜라.
-  · 숫자+단위(예: 100km, 5°C, 500㎦)는 절대 분리하지 말고 한 줄에 붙여 둬라.
-  · “… 수 있다/없다/것이다/해야 한다 …” 같은 보조 용언은 한 줄로 유지.
-- 질문부호 ‘?’ 뒤는 새 줄 시작 가능(선택).
-- **쉼표(,) 뒤는 줄바꿈 우선**: 한 문장 안에서도 리듬을 분명히 하라. (단, 1–2단어 초단문은 금지)
-- 담화표지(하지만/그리고/그러나/따라서/즉 등)는 강조용 단독 줄 허용. 단, 1–2단어 초단문은 금지(이웃과 합쳐 3단어 이상).
-- 출력 형식: 라인브레이크 적용된 텍스트만. 맨 앞/뒤의 불필요한 공백/빈 줄 없음.
+[불변 규칙]
+
+원문 완전 보존: 글자·공백·숫자·단위·어미·어순을 그대로 유지한다. 줄바꿈만 추가한다.
+
+빈 줄 금지: 연속 빈 줄을 만들지 않는다(모든 줄은 실제 텍스트여야 함).
+
+한 줄 길이 가이드: 기본 3–6단어(또는 8–18글자) 권장. 지나치게 짧은 1–2단어 줄은 피한다.
+
+수치·부호 결합 유지: -173도, 1만 2천 km 같은 숫자+단위/부호는 한 줄에 붙여 둔다.
+
+문장 어미 보존: ~습니다/~합니다/~다/~이다/~것입니다/~수 없습니다 등은 앞말과 한 줄로 유지한다.
+
+질문부호: ?에서는 줄을 바꿔도 좋다(질문 뒤 새 리듬 시작).
+
+담화표지 처리 — 핵심
+
+담화표지 단독 줄 허용: 물론/따라서/즉/그러니까/그리고/그러나/하지만/한쪽으로는/다른 쪽으로는 등은 강조 목적일 때 단독 줄 가능.
+
+단, 담화표지 뒤에 아주 짧은 주어·지시어가 오면 같은 줄로 묶는다:
+예) 하지만 우리는, 그리고 우리는, 한쪽으로는 태양의, 다른 쪽으로는 태양이.
+
+보조 용언·문말 구문 유지 — 매우 중요
+
+… 수 있다/없다, … 것이다/것입니다, … 해야 한다, … 할 수 없다 등은 중간에서 끊지 말고 한 줄에 둔다.
+
+예) 지구에서 생명체는 살아남을수 없습니다 ← 한 줄 유지.
+
+명사구/조사 단위: 명사구 내부나 조사 바로 앞·뒤에서 어색하게 끊지 않는다.
 
 [입력]
 {{TEXT}}
 
 [출력]
-(라인브레이크만 적용된 텍스트)
+라인브레이크가 적용된 텍스트만 출력. 맨 앞·뒤 불필요한 빈 줄 금지.
 """
 
 SSML_PROMPT = """역할: 너는 한국어 대본을 숏폼용 Amazon Polly SSML로 변환하는 변환기다.
@@ -165,19 +181,16 @@ def _complete_with_any_llm(prompt: str) -> str | None:
         except Exception:
             pass
     try:
-        chain = get_default_chain()
-        for payload in ({"question": prompt}, {"input": prompt}, prompt):
-            try:
-                out = chain.invoke(payload)
-                if isinstance(out, str):
-                    return out
-                if isinstance(out, dict):
-                    texts = [str(v) for v in out.values() if isinstance(v, (str, bytes))]
-                    return max(texts, key=len) if texts else None
-            except Exception:
-                continue
-    except Exception:
-        pass
+        # system_prompt를 명시적으로 줌
+        chain = get_default_chain("너는 한국어 대본의 호흡(브레스) 라인브레이크 편집기다.")
+        out = chain.invoke({"question": prompt})
+        if isinstance(out, str):
+            return out
+        if isinstance(out, dict):
+            texts = [str(v) for v in out.values() if isinstance(v, (str, bytes))]
+            return max(texts, key=len) if texts else None
+    except Exception as e:
+        st.error(f"⚠️ LLM 호출 실패: {e}")
     return None
 
 def _unwrap_speak(ssml: str) -> str:
