@@ -11,7 +11,7 @@ def get_conversational_rag_chain(retriever, system_prompt):
     """
     최종적으로 생성된 문장 단위의 출처를 사용하여 답변을 생성하는 RAG 체인을 구성합니다.
     """
-    llm = ChatGroq(model_name="openai/gpt-oss-120b", temperature=0.1)  # ✅ Groq LLM 설정
+    llm = ChatGroq(model_name="openai/gpt-oss-20b", temperature=0.1)  # ✅ Groq LLM 설정
 
     
     rag_prompt_template = f"""{system_prompt}
@@ -67,5 +67,5 @@ def get_default_chain(system_prompt):
     prompt = ChatPromptTemplate.from_messages(
         [("system", system_prompt), ("user", "{question}")]
     )
-    llm = ChatGroq(model_name="openai/gpt-oss-120b", temperature=0.7)  # ✅ Groq LLM
+    llm = ChatGroq(model_name="openai/gpt-oss-20b", temperature=0.7)  # ✅ Groq LLM
     return prompt | llm | StrOutputParser()
