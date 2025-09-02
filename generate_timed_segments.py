@@ -497,6 +497,38 @@ def _maybe_translate_lines(lines, target='ko', only_if_src_is_english=True):
         # 번역 실패 시 원문 유지 (크래시 방지)
         return lines
 
+# generate_timed_segments.py
+from ssml_converter import segment_all_in_one  # NEW
+
+def build_segments_from_script(user_script: str, persona_hint: str = "", log: bool=False):
+    """
+    (추천) 토큰 최소화 경로:
+      - segment_all_in_one() 1회 호출 → lines, ssml_lines, keywords_per_line 추출
+      - 비었을 경우 기존 per-line 폴백
+    """
+    pack = segment_all_in_one(user_script, persona_hint=persona_hint, log=log)
+    lines = list(pack.get("breath_lines") or [])
+    ssml_lines = list(pack.get("ssml_by_line") or [])
+    keywords_per_line = list(pack.get("keywords_by_line") or [])
+
+    # 길이 정합 보정
+    n = len(lines)
+    if len(ssml_lines) != n:
+        ssml_lines = (ssml_lines + [""]*n)[:n]
+    if len(keywords_per_line) != n:
+        keywords_per_line = (keywords_per_line + [[]]*n)[:n]
+
+    # 완전 실패시(빈 리스트) → 기존 폴백
+    if not lines:
+        # 간단 폴백: 원문 1줄만, SSML 자동 변환
+        one = (user_script or "").strip()
+        lines = [one] if one else []
+        ssml_lines = [convert_line_to_ssml(one)] if one else []
+        keywords_per_line = [[one[:40]]] if one else []
+
+    return lines, ssml_lines, keywords_per_line
+
+
 def _validate_ssml(text: str) -> str:
     """
     Polly 호출 전 SSML 안전성 검사 및 보정
