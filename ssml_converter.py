@@ -248,13 +248,12 @@ def convert_line_to_ssml(user_line: str) -> str:
         out = out.strip()
         if out:
             frag = _unwrap_speak(out)
-            # 허용 외 태그 제거
             frag = re.sub(r"</?(?!prosody\b|break\b)[a-zA-Z0-9:_-]+\b[^>]*>", "", frag)
-            # ✅ 점열 제거 (태그 바깥 텍스트의 '숫자 아닌' 점만)
-            frag = re.sub(r'(?<!\d)(?:\s*\.\s*){1,}(?!\d)', '', frag)
-            frag = frag.replace('…', '')
-            # 연속 break 축약
+            # 연속 break 1회 축약
             frag = re.sub(r'(?:<break\b[^>]*/>\s*){2,}', '<break time="30ms"/>', frag)
+            # ✅ 점열 제거 (숫자 아닌 ‘…’ 또는 연속점)
+            frag = frag.replace("…", "")
+            frag = re.sub(r'(?<!\d)(?:\s*\.\s*){2,}(?!\d)', '', frag)
             if frag.strip():
                 return frag
     except Exception:

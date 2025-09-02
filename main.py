@@ -1307,9 +1307,9 @@ with st.sidebar:
                             ass_path=ass_path,
                             template_name=st.session_state.selected_subtitle_template,
                             strip_trailing_punct_last=True,
-                            max_chars_per_line=None,  # ← 래핑 끔
-                            max_lines=None,           # ← 래핑 끔
-                            wrap_mode="preserve"      # ← 핵심
+                            max_chars_per_line=14,  # ← 래핑 끔
+                            max_lines=2,           # ← 래핑 끔
+                            wrap_mode="smart"      # ← 핵심
                         )
                         segments_for_video = segments
 

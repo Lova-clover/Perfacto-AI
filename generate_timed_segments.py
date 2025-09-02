@@ -10,6 +10,7 @@ import kss
 import boto3, json
 from elevenlabs_tts import TTS_POLLY_VOICES 
 from botocore.exceptions import ClientError
+from main import _visible_len, lock_oneliner_if_short
 
 def _split_script_by_llm_breath(script_text: str) -> list[str]:
     """
@@ -939,12 +940,20 @@ def generate_ass_subtitle(
             return t
 
         if wrap_mode == "preserve":
-            # 🚫 절대 줄바꿈/래핑 안 함 → 원문 그대로 한 줄
+            # 🚫 래핑 없음: 원문 그대로(비어있으면 NBSP)
             plan_text = _line_clean(raw_text).strip() or NBSP
         else:
-            # 🔀 기존처럼 \N 존중 + 가공
+            # ✅ 14자 기준: 1줄이면 락, 넘으면 2줄 강제
             normalized = _line_clean(raw_text)
-            plan_text = normalized
+            maxc = max_chars_per_line or 14
+            maxl = max_lines or 2
+
+            if _visible_len(normalized) <= maxc:
+                # 1줄 고정: 공백을 NBSP로 잠가 자동 줄바꿈 방지
+                plan_text = lock_oneliner_if_short(normalized, threshold=maxc)
+            else:
+                # 2줄 강제 래핑
+                plan_text = _prepare_text_for_lines(normalized, maxc, maxl)
 
         # ③ pitch → 색상
         col_hex = _pitch_to_hex(ev.get("pitch"))
