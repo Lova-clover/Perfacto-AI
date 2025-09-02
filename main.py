@@ -1187,18 +1187,7 @@ with st.sidebar:
                         provider = "elevenlabs" if st.session_state.selected_tts_provider == "ElevenLabs" else "polly"
                         tmpl = st.session_state.selected_tts_template if provider == "elevenlabs" else st.session_state.selected_polly_voice_key
                         # === SSML 변환 '전' 미리보기 ===
-                        # (미리보기용: 나중에 LLM 분절 결과로 대체)
-                        try:
-                            # 미리보기는 일단 원문을 라인 단위로 보여주고,
-                            # 아래에서 '진짜' 분절(LLM 1회)을 반영해 다시 사용합니다.
-                            _orig_lines_for_tts = [ln.strip() for ln in koreanize_if_english(final_script_for_video).splitlines() if ln.strip()]
-                            if not _orig_lines_for_tts:
-                                _orig_lines_for_tts = [koreanize_if_english(final_script_for_video).strip()]
-                            _log_ssml_preview(_orig_lines_for_tts, title="변환 전(컨버터 기준 미리보기)")
-                        except Exception as e:
-                            print("[SSML] preview-before error:", e)
 
-                        # ✅ 여기서 LLM '1회'로 분절·SSML 라인 동시 획득 (캐시 사용)
                         try:
                             # 선택한 스크립트 페르소나 지시문을 힌트로 넘기면 일관도↑(없어도 OK)
                             try:
