@@ -14,7 +14,7 @@ def get_conversational_rag_chain(retriever, system_prompt):
     """
     llm = ChatOpenAI(
         model="gpt-5-mini",        # 🔑 nano 모델
-        temperature=0.7,
+        temperature=1,
         api_key=os.getenv("OPENAI_API_KEY")
     )
     
@@ -74,7 +74,7 @@ def get_default_chain(system_prompt):
     # ✅ OpenAI nano 계열 모델
     llm = ChatOpenAI(
         model="gpt-5-mini",
-        temperature=0.7,
+        temperature=1,
         api_key=os.getenv("OPENAI_API_KEY")
     )
     return prompt | llm | StrOutputParser()
