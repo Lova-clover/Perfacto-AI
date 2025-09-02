@@ -971,23 +971,24 @@ def format_ass_timestamp(seconds):
     return f"{h:01}:{m:02}:{s:02}.{cs:02}"
 
 
-def split_script_to_lines(script_text, mode="llm"):
+def split_script_to_lines(script_text: str, mode="llm") -> list[str]:
     text = (script_text or "").strip()
     if not text:
         return []
 
-    if mode == "newline":
-        # 사용자가 준 개행을 그대로 1차 분절
-        return [ln.strip() for ln in text.splitlines() if ln.strip()]
+    # ✨ 개행이 있으면 우선 하드 경계로 쪼갬
+    if "\n" in text:
+        base_lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    else:
+        base_lines = [text]
 
-    # mode == "llm": 단락(빈 줄) 보존 후, 단락별 브레스
-    paras = re.split(r"\n\s*\n+", text) if "\n" in text else [text]
+    if mode == "newline":
+        return base_lines
+
+    # mode == "llm": 각 줄을 breath_linebreaks에 넣되, honor_newlines=True로 추가 분절 방지
     out = []
-    for p in paras:
-        # 단락 내부 개행도 먼저 쪼개어 하드 경계로 처리
-        base = [s for s in p.splitlines() if s.strip()] or [p]
-        for s in base:
-            out.extend([ln.strip() for ln in breath_linebreaks(s) if ln.strip()])
+    for line in base_lines:
+        out.extend(breath_linebreaks(line, honor_newlines=True))
     return out
 
 # --- 변경 2: generate_subtitle_from_script 시그니처/로직 확장 ---

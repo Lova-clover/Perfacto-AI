@@ -50,61 +50,33 @@ def koreanize_if_english(text: str) -> str:
     # 3) 실패 시 원문 유지
     return t
     
-def _heuristic_breath_lines(text: str) -> list[str]:
-    """LLM 부재 시 쓰는 간단 브레스 분할 (1~3조각 권장, 원문 보존/줄바꿈만 추가)"""
+def _heuristic_breath_lines(text: str, strict: bool = True) -> list[str]:
     t = (text or "").strip()
     if not t:
         return []
-    # 담화표지/연결어/구두점 뒤에서 1차 분할(경계 토큰은 앞 조각에 둠)
-    t = re.sub(r"(그리고|하지만|근데|그런데|그래서|그러니까|즉|특히|게다가|한편|반면에|다만)\s*", r"\g<0>§", t)
-    t = re.sub(r"(고|지만|는데요?|면서|며|라면|면|니까|다가|으며|거나|든지)(?=\s|\Z)", r"\1§", t)
-    t = re.sub(r"(?<=[,，、;:·?])\s*", "§", t)
-    parts = [p.strip() for p in t.split("§") if p.strip()] or [t]
+    if strict:
+        # ✨ LLM 실패 시엔 '추가 분절/병합' 절대 하지 않고 원문 라인 그대로 사용
+        return [t]
 
-    # 길이 보정(8~18자/3~6단어 권장)
-    out = []
-    for p in parts:
-        if len(p) <= 18:
-            out.append(p)
-        else:
-            cur = p
-            while len(cur) > 18:
-                window = cur[:24]
-                spaces = [m.start() for m in re.finditer(r"\s", window)]
-                cut = spaces[-1] if spaces else 18
-                out.append(cur[:cut].strip())
-                cur = cur[cut:].strip()
-            if cur:
-                out.append(cur)
+def breath_linebreaks(text: str, honor_newlines: bool = True) -> list[str]:
+    t = (text or "").strip()
+    if not t:
+        return []
 
-    # 1~2단어 초단문은 이웃과 병합
-    def _wc(s): return len(re.findall(r'\S+', s))
-    i = 1
-    while i < len(out):
-        if _wc(out[i]) < 2:
-            out[i-1] = (out[i-1].rstrip() + " " + out[i].lstrip()).strip()
-            out.pop(i)
-        else:
-            i += 1
+    # ✨ 사용자가 이미 라인브레이크를 준 경우: 그걸 하드 경계로
+    if honor_newlines and "\n" in t:
+        return [ln.strip() for ln in t.splitlines() if ln.strip()]
 
-    return out
-
-def breath_linebreaks(text: str) -> list[str]:
-    """
-    LLM에게 호흡 라인브레이크를 요청하되,
-    반드시 BREATH_PROMPT를 사용하고,
-    실패 시에만 휴리스틱 폴백을 탄다.
-    """
-    prompt = BREATH_PROMPT.replace("{{TEXT}}", (text or "").strip())
+    # LLM 시도
+    prompt = BREATH_PROMPT.replace("{{TEXT}}", t)
     out = _complete_with_any_llm(prompt) or ""
     out = out.strip()
+    if out:
+        # LLM이 라인으로 돌려줬으면 그대로
+        return [ln for ln in out.splitlines() if ln.strip()]
 
-    if not out:
-        # LLM 실패 → 휴리스틱 폴백
-        return _heuristic_breath_lines(text)
-
-    # 빈 줄/공백 라인 제거
-    return [ln for ln in out.splitlines() if ln.strip()]
+    # ✨ LLM 실패 → strict 폴백: 원문 줄 그대로
+    return _heuristic_breath_lines(t, strict=True)
 
 BREATH_PROMPT = """역할: 너는 한국어 대본의 호흡(브레스) 라인브레이크 편집기다.
 출력은 텍스트만, 줄바꿈으로만 호흡을 표현한다. 다른 기호·주석·설명·마크다운·태그를 절대 쓰지 않는다.
