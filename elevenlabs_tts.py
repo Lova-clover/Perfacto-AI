@@ -179,7 +179,11 @@ def generate_polly_tts(text, save_path, polly_voice_name_key, *, speed=1.0, volu
 
     # ✅ 안전망: Polly에 넘기기 전에 ellipsis 제거
     import re
-    payload = re.sub(r'\.{2,}', '', payload)
+    # ✅ prosody 안에 …만 있는 블록은 완전히 제거
+    payload = re.sub(r'<prosody[^>]*>…</prosody>', '', payload)
+
+    # ✅ prosody 밖: …, .., ... 은 마침표 하나로 치환
+    payload = re.sub(r'(?<!\d)(?:…|\.{2,})(?!\d)', '.', payload)
     
     def _pick_engine_from_ssml(ssml: str) -> str:
         return "standard" if ' pitch="' in (ssml or "") else "neural"
