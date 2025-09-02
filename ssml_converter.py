@@ -314,5 +314,10 @@ def convert_line_to_ssml(user_line: str) -> str:
         if i != len(chunks) - 1:
             ssml.append('<break time="30ms"/>')
 
+    # ❌ 점점점만 남은 경우는 제거
+    joined_text = "".join(chunks).strip()
+    if joined_text in (".", "..", "..."):
+        return ""
+
     # 연속 break 1회로 축약 후 리턴
     return re.sub(r'(?:<break\b[^>]*/>\s*){2,}', '<break time="30ms"/>', "".join(ssml)).strip()
