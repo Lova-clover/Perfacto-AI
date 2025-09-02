@@ -30,6 +30,7 @@ import os
 import requests
 import re
 import json
+import hashlib as _hl
 import pandas as pd
 from io import BytesIO
 import nest_asyncio
@@ -57,19 +58,28 @@ from io import BytesIO, StringIO
 import importlib
 import pandas as pd
 
-def build_ssml_log_file(orig_lines: list[str], used_ssml_lines: list[str] | None = None):
+# === 기존 build_ssml_log_file 대체 ===
+def build_ssml_log_file(
+    orig_lines: list[str],
+    used_ssml_lines: list[str] | None = None,
+    used_br_lines: list[str] | None = None,
+):
     """
-    원문/SSML/브레스 3컬럼 로그를 파일 바이트로 생성.
-    가능하면 XLSX, 없으면 CSV로 폴백.
+    원문/SSML/브레스 3컬럼 로그를 파일 바이트로 생성 (LLM 호출 없음).
+    - SSML/브레스는 세션에 저장된 라인만 사용
+    - 값이 없으면 빈 칸으로 둠 (LLM 재호출 금지)
     반환값: (data_bytes, ext, mime)
     """
     rows = []
     for i, orig in enumerate(orig_lines, start=1):
-        ssml = (used_ssml_lines[i-1].strip() if (used_ssml_lines and i-1 < len(used_ssml_lines) and (used_ssml_lines[i-1] or "").strip()) else convert_line_to_ssml(orig))
-        try:
-            br = breath_linebreaks(orig)
-        except Exception:
-            br = orig
+        ssml = ""
+        if used_ssml_lines and i-1 < len(used_ssml_lines):
+            ssml = (used_ssml_lines[i-1] or "").strip()
+
+        br = ""
+        if used_br_lines and i-1 < len(used_br_lines):
+            br = (used_br_lines[i-1] or "").strip()
+
         rows.append({"No": i, "원문": orig, "SSML": ssml, "줄바꿈": br})
 
     df = pd.DataFrame(rows, columns=["No", "원문", "SSML", "줄바꿈"])
@@ -1192,6 +1202,10 @@ with st.sidebar:
                         sentence_lines = breath_linebreaks(script_text, honor_newlines=False, log=False)
                         script_text_for_tts = "\n".join(sentence_lines)
                         
+                        # ✅ 토큰 없이 로그 만들 수 있도록 세션에 저장
+                        st.session_state["_orig_lines_for_tts"] = sentence_lines[:]   # 원문 라인(브레스 결과)
+                        st.session_state["_used_br_lines"]      = sentence_lines[:]   # 브레스 라인 그대로
+                        
                         segments, audio_clips, ass_path = generate_subtitle_from_script(
                             script_text=script_text_for_tts,               
                             ass_path=os.path.join("assets", "generated_subtitle.ass"),
@@ -1215,7 +1229,8 @@ with st.sidebar:
                         except Exception as e:
                             used_ssml_lines = []
                             print("[SSML] used_ssml_lines build error:", e)
-                        
+                            
+                        st.session_state["_used_ssml_lines"] = used_ssml_lines[:] if used_ssml_lines else []
                         try:
                             if not st.session_state.bgm_path or not os.path.exists(st.session_state.bgm_path):
                                 st.session_state.bgm_path = DEFAULT_BGM
@@ -1616,10 +1631,12 @@ with st.sidebar:
             # --- SSML 로그 다운로드 버튼 (엑셀 또는 CSV) ---
             orig_lines = st.session_state.get("_orig_lines_for_tts") or []
             used_lines = st.session_state.get("_used_ssml_lines") or []
+            used_br    = st.session_state.get("_used_br_lines") or orig_lines  # 브레스 없으면 원문 라인으로
+
             if orig_lines:
-                import hashlib as _hl
                 script_hash = _hl.md5("\n".join(orig_lines).encode("utf-8")).hexdigest()[:8]
-                data_bytes, ext, mime = build_ssml_log_file(orig_lines, used_lines if used_lines else None)
+                # ✅ 이제 LLM 호출 없이 세션 값만 사용
+                data_bytes, ext, mime = build_ssml_log_file(orig_lines, used_lines, used_br)
                 st.download_button(
                     label=f"🧾 SSML 로그 다운로드 ({ext.upper()})",
                     data=data_bytes,
