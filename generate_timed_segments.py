@@ -902,41 +902,28 @@ def generate_ass_subtitle(
     for ev in segments:
         s = float(ev.get("start", 0.0))
         e = float(ev.get("end", s + 0.02))
-        if e <= s: e = s + 0.02
+        if e <= s:
+            e = s + 0.02
         if ev is segments[-1]:
             e = max(e, s + 0.35)
 
         raw_text = (ev.get("text") or "")
 
-        # ① LLM 브레스 라인 분할 (실패시 빈 리스트 → 아래 폴백)
-        try:
-            br_lines = breath_linebreaks(raw_text)
-        except Exception:
-            br_lines = []
-
-        # ② 라인 단위 정리(여기서는 \N 만들지 않음)
+        # ① 라인 단위 정리 (breath_linebreaks는 1차 분절에서 이미 적용됨)
         def _line_clean(one: str) -> str:
             t = one or ""
             if strip_trailing_punct_last:
                 t = _strip_last_punct_preserve_closers(t)
-            t = _drop_special_except_q(t)   # '?' 외 특수문자 제거 정책 유지
+            t = _drop_special_except_q(t)   # '?' 외 특수문자 제거
             t = _sanitize_ass_text_for_dialog(t)
             return t
 
-        if isinstance(br_lines, (list, tuple)) and br_lines:
-            cleaned = [_line_clean(ln) for ln in br_lines if ln and ln.strip()]
-            # ③ 마지막에만 \N으로 묶기 — 이후 절대 변형 금지
-            normalized = ASS_NL.join(cleaned[:max_lines])
-            # 쉼표가 \N 뒤에 붙은 경우 보정: "\N," → ",\N"
-            import re as _re
-            normalized = _re.sub(r"\\N\s*,", "," + ASS_NL, normalized)
-        else:
-            normalized = _line_clean(raw_text)
+        normalized = _line_clean(raw_text)
 
-        # ④ 이미 \N이 있으면 래핑/분해 등 후처리 금지
+        # ② 이미 \N이 있으면 그대로 존중 (줄바꿈 반영)
         plan_text = normalized
 
-        # ⑤ pitch → 색상
+        # ③ pitch → 색상
         col_hex = _pitch_to_hex(ev.get("pitch"))
         if col_hex:
             plan_text = "{\\c" + col_hex + "}" + plan_text
@@ -984,7 +971,7 @@ def generate_subtitle_from_script(
     subtitle_lang: str = "ko",
     translate_only_if_english: bool = False,
     tts_lang: str | None = None,
-    split_mode: str = "llm",
+    split_mode = "llm",
     strip_trailing_punct_last: bool = True,
 ):
     """
