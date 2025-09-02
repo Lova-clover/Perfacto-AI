@@ -12,7 +12,6 @@ from generate_timed_segments import (
     SUBTITLE_TEMPLATES,
     _auto_split_for_tempo,
     dedupe_adjacent_texts,   # 쓰시면 유지, 안쓰면 빼셔도 됩니다
-    build_segments_from_script
 )
 from video_maker import (
     create_video_with_segments,
@@ -67,9 +66,11 @@ def build_ssml_log_file(orig_lines: list[str], used_ssml_lines: list[str] | None
     rows = []
     for i, orig in enumerate(orig_lines, start=1):
         ssml = (used_ssml_lines[i-1].strip() if (used_ssml_lines and i-1 < len(used_ssml_lines) and (used_ssml_lines[i-1] or "").strip()) else convert_line_to_ssml(orig))
-        br = orig  # LLM 호출 없이 원문 그대로
+        try:
+            br = breath_linebreaks(orig)
+        except Exception:
+            br = orig
         rows.append({"No": i, "원문": orig, "SSML": ssml, "줄바꿈": br})
-
 
     df = pd.DataFrame(rows, columns=["No", "원문", "SSML", "줄바꿈"])
 
@@ -1187,39 +1188,18 @@ with st.sidebar:
                         provider = "elevenlabs" if st.session_state.selected_tts_provider == "ElevenLabs" else "polly"
                         tmpl = st.session_state.selected_tts_template if provider == "elevenlabs" else st.session_state.selected_polly_voice_key
                         # === SSML 변환 '전' 미리보기 ===
-
                         try:
-                            # 선택한 스크립트 페르소나 지시문을 힌트로 넘기면 일관도↑(없어도 OK)
-                            try:
-                                pidx = st.session_state.get("selected_script_persona_index", None)
-                                persona_hint = st.session_state.persona_blocks[pidx]["text"] if pidx is not None else ""
-                            except Exception:
-                                persona_hint = ""
-
-                            lines, ssml_lines, _ = build_segments_from_script(
-                                koreanize_if_english(final_script_for_video),
-                                persona_hint=persona_hint,
-                                log=True
-                            )
+                            _orig_lines_for_tts = _split_script_for_tts(final_script_for_video)
+                            _log_ssml_preview(_orig_lines_for_tts, title="변환 전(컨버터 기준 미리보기)")
                         except Exception as e:
-                            # 최악의 경우 폴백(원문 1줄)
-                            print("[Segments] build_segments_from_script error:", e)
-                            one = koreanize_if_english(final_script_for_video).strip()
-                            lines = [one] if one else []
-                            ssml_lines = []
-
-                        # 미리보기용 원문 라인도 실제 분절 결과로 교체
-                        if lines:
-                            _orig_lines_for_tts = lines[:]
-
-                        # 👇 generate_subtitle_from_script에 분절된 라인을 넘겨서
-                        #    기존 파이프라인 그대로 TTS/병합/세그먼트 산출 (split_mode='newline')
-                        script_text_for_tts = "\n".join(lines)
-
-                        # (선택) generate_subtitle_from_script가 '사전 생성 SSML'을 받도록 패치해두셨다면,
-                        # prebuilt_ssml_lines=ssml_lines 를 넘기세요. (없어도 동작은 동일)
+                            print("[SSML] preview-before error:", e)
+                        
+                        script_text = koreanize_if_english(final_script_for_video)
+                        sentence_lines = breath_linebreaks(script_text, honor_newlines=True, log=True)
+                        script_text_for_tts = "\n".join(sentence_lines)
+                        
                         segments, audio_clips, ass_path = generate_subtitle_from_script(
-                            script_text=script_text_for_tts,
+                            script_text=script_text_for_tts,               
                             ass_path=os.path.join("assets", "generated_subtitle.ass"),
                             full_audio_file_path=audio_path,
                             provider=provider,
@@ -1228,11 +1208,9 @@ with st.sidebar:
                             subtitle_lang="ko",
                             translate_only_if_english=False,
                             tts_lang=st.session_state.selected_tts_lang,
-                            split_mode="newline",                 # 👈 라인 그대로 사용
-                            strip_trailing_punct_last=False,
-                            # prebuilt_ssml_lines=ssml_lines     # 👈 (함수에서 지원하면 주석 해제)
+                            split_mode="newline",                       
+                            strip_trailing_punct_last=False
                         )
-
                         # === SSML 변환 '후' (실사용본) ===
                         try:
                             # segments 각 요소에 ssml이 들어오는 구조면 이 리스트가 채워집니다.
@@ -1243,7 +1221,17 @@ with st.sidebar:
                         except Exception as e:
                             used_ssml_lines = []
                             print("[SSML] used_ssml_lines build error:", e)
-                            
+                        try:
+                            if used_ssml_lines:
+                                _log_ssml_preview(
+                                    _orig_lines_for_tts,
+                                    used_ssml_lines,
+                                    title="실제 사용된 SSML(생성기 반환)"
+                                )
+                            else:
+                                st.info("생성 함수가 SSML 라인을 반환하지 않았습니다. 위의 '미리보기'만 표시합니다.")
+                        except Exception as e:
+                            print("[SSML] preview-after error:", e)
                         st.session_state["_orig_lines_for_tts"] = _orig_lines_for_tts
                         st.session_state["_used_ssml_lines"] = used_ssml_lines if used_ssml_lines else []
                         try:
