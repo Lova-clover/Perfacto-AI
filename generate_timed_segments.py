@@ -972,16 +972,23 @@ def format_ass_timestamp(seconds):
 
 
 def split_script_to_lines(script_text, mode="llm"):
-    """
-    항상 LLM breath_linebreaks 결과로만 분절한다.
-    """
-    text = script_text or ""
-    try:
-        lines = breath_linebreaks(text)
-        return [ln.strip() for ln in lines if ln.strip()]
-    except Exception:
-        # fallback: 줄바꿈 기준
+    text = (script_text or "").strip()
+    if not text:
+        return []
+
+    if mode == "newline":
+        # 사용자가 준 개행을 그대로 1차 분절
         return [ln.strip() for ln in text.splitlines() if ln.strip()]
+
+    # mode == "llm": 단락(빈 줄) 보존 후, 단락별 브레스
+    paras = re.split(r"\n\s*\n+", text) if "\n" in text else [text]
+    out = []
+    for p in paras:
+        # 단락 내부 개행도 먼저 쪼개어 하드 경계로 처리
+        base = [s for s in p.splitlines() if s.strip()] or [p]
+        for s in base:
+            out.extend([ln.strip() for ln in breath_linebreaks(s) if ln.strip()])
+    return out
 
 # --- 변경 2: generate_subtitle_from_script 시그니처/로직 확장 ---
 def generate_subtitle_from_script(

@@ -87,17 +87,6 @@ def _heuristic_breath_lines(text: str) -> list[str]:
         else:
             i += 1
 
-    # 3조각 초과면 가장 짧은 인접쌍부터 합쳐 최대 3개
-    def _len_like(s): return len(s)
-    while len(out) > 3:
-        best_i, best_sum = 0, 10**9
-        for k in range(len(out)-1):
-            ssum = _len_like(out[k]) + _len_like(out[k+1])
-            if ssum < best_sum:
-                best_sum, best_i = ssum, k
-        out[best_i] = (out[best_i] + " " + out[best_i+1]).strip()
-        out.pop(best_i+1)
-
     return out
 
 def breath_linebreaks(text: str) -> list[str]:
