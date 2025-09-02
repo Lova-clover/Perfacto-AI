@@ -1189,7 +1189,7 @@ with st.sidebar:
                         tmpl = st.session_state.selected_tts_template if provider == "elevenlabs" else st.session_state.selected_polly_voice_key
                         
                         script_text = koreanize_if_english(final_script_for_video)
-                        sentence_lines = breath_linebreaks(script_text, honor_newlines=True, log=False)
+                        sentence_lines = breath_linebreaks(script_text, honor_newlines=False, log=False)
                         script_text_for_tts = "\n".join(sentence_lines)
                         
                         segments, audio_clips, ass_path = generate_subtitle_from_script(
