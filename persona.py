@@ -4,7 +4,7 @@ from langchain_groq import ChatGroq  # Groq LLM 사용 시
 import streamlit as st
 
 def generate_response_from_persona(prompt_text: str) -> str:
-    llm = ChatGroq(api_key=st.secrets["GROQ_API_KEY"], model_name="llama-3.1-70B")
+    llm = ChatGroq(api_key=st.secrets["GROQ_API_KEY"], model_name="llama-3.3-70b-versatile")
     output_parser = StrOutputParser()
 
     prompt = ChatPromptTemplate.from_messages([
