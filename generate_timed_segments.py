@@ -934,7 +934,7 @@ def generate_ass_subtitle(
             t = one or ""
             if strip_trailing_punct_last:
                 t = _strip_last_punct_preserve_closers(t)
-            t = _drop_special_except_q(t)   # '?' 외 특수문자 제거
+            t = _drop_special_keep_units(t)  # '?', %, °, ℃, °C, °F, km/h, ㎦ 등 단위 보존
             t = _sanitize_ass_text_for_dialog(t)
             return t
 
@@ -970,6 +970,38 @@ def format_ass_timestamp(seconds):
     cs = int((seconds - int(seconds)) * 100)
     return f"{h:01}:{m:02}:{s:02}.{cs:02}"
 
+def _drop_special_keep_units(s: str) -> str:
+    """
+    자막 텍스트에서 장식성 특수문자를 지우되,
+    숫자/단위/질의부호는 보존:
+    - 보존: 한글/영문/숫자/공백/NBSP, 물음표(?),
+            %, °, ℃, ℉, '°C','°F', 슬래시(/),
+            CJK 호환 단위(㎞, ㎦, ㎥ 등 U+3300~U+33FF)
+    - 소수점은 '숫자.숫자' 안에서만 보존
+    - 그 외 기호(따옴표, 마침표, 콜론, 세미콜론 등) 제거
+    """
+    NBSP = "\u00A0"
+    if not s:
+        return s
+
+    # 소수점 보호
+    s = re.sub(r'(?<=\d)\.(?=\d)', '§DECIMAL§', s)
+
+    # '°C' / '°F'는 그대로 둠
+    s = s.replace("°C", "°C").replace("°F", "°F")
+
+    # 허용 문자 외 제거
+    allowed = r"[A-Za-z\uAC00-\uD7A30-9 \t" + NBSP + r"\?%°/℃℉\u3300-\u33FF]"
+    s = re.sub(rf"[^{allowed}]+", "", s)
+
+    # 보호 소수점 복원
+    s = s.replace('§DECIMAL§', '.')
+
+    # 콤마는 숫자 사이가 아니면 제거(원하시면 전부 제거해도 무방)
+    s = re.sub(r'(?<!\d),(?!\d)', '', s)
+
+    # 앞뒤 공백 정리
+    return re.sub(r"\s{2,}", " ", s).strip()
 
 def split_script_to_lines(script_text: str, mode="llm") -> list[str]:
     text = (script_text or "").strip()

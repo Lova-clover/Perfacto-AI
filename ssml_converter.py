@@ -63,20 +63,25 @@ def breath_linebreaks(text: str, honor_newlines: bool = True) -> list[str]:
     if not t:
         return []
 
-    # ✨ 사용자가 이미 라인브레이크를 준 경우: 그걸 하드 경계로
     if honor_newlines and "\n" in t:
         return [ln.strip() for ln in t.splitlines() if ln.strip()]
 
-    # LLM 시도
+    # === LLM 호출 ===
     prompt = BREATH_PROMPT.replace("{{TEXT}}", t)
     out = _complete_with_any_llm(prompt) or ""
+    # 🔎 디버그 로그 추가
+    print("\n[breath_linebreaks] LLM raw output ↓↓↓")
+    print(out if out else "(빈 응답)")
+    print("↑↑↑ [breath_linebreaks] LLM raw output 끝\n")
+
     out = out.strip()
     if out:
-        # LLM이 라인으로 돌려줬으면 그대로
         return [ln for ln in out.splitlines() if ln.strip()]
 
-    # ✨ LLM 실패 → strict 폴백: 원문 줄 그대로
+    # === 폴백 ===
+    print("[breath_linebreaks] ⚠️ LLM이 비어 있어서 휴리스틱 분절 사용")
     return _heuristic_breath_lines(t, strict=True)
+
 
 BREATH_PROMPT = """역할: 너는 한국어 대본의 호흡(브레스) 라인브레이크 편집기다.
 출력은 텍스트만, 줄바꿈으로만 호흡을 표현한다. 다른 기호·주석·설명·마크다운·태그 금지.
