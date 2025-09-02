@@ -19,7 +19,7 @@ from video_maker import (
     add_subtitles_to_video,
     create_dark_text_video
 )
-from ssml_converter import convert_line_to_ssml, breath_linebreaks
+from ssml_converter import convert_line_to_ssml, breath_linebreaks, koreanize_if_english
 from deep_translator import GoogleTranslator
 from file_handler import get_documents_from_files
 from upload import upload_to_youtube
@@ -46,19 +46,12 @@ VIDEO_TEMPLATE = "영상(영어보이스+한국어자막·가운데)"
 DEFAULT_BGM = "assets/[BGM] 힙합 비트 신나는 음악  무료브금  HYP-Show Me - HYP MUSIC - BGM Design.mp3"
 
 # ---------- 유틸 ----------
-def _split_script_for_tts(script_text: str):
-    """
-    TTS/SSML 변환 전에 문장을 안전하게 줄 단위로 쪼갭니다.
-    - 프로젝트 내 _auto_split_for_tempo가 있으면 그걸 우선 사용
-    - 실패 시 간단한 정규식 폴백
-    """
-    try:
-        lines = [s for s in _auto_split_for_tempo(script_text) if s and s.strip()]
-        return lines or [script_text.strip()]
-    except Exception:
-        import re
-        sents = [s.strip() for s in re.split(r'(?<=[.!?？])\s*', script_text or "") if s.strip()]
-        return sents or [script_text.strip()]
+def _split_script_for_tts(script_text: str, mode="llm") -> list[str]:
+    script_text = (script_text or "").strip()
+    if mode == "newline":
+        return [ln.strip() for ln in script_text.splitlines() if ln.strip()]
+    # 기본: LLM 호흡 분절
+    return breath_linebreaks(koreanize_if_english(script_text))
 
 from io import BytesIO, StringIO
 import importlib
@@ -1267,26 +1260,22 @@ with st.sidebar:
                             st.stop()
 
                         # === dense_events: 2차 분절 없이 '라인 단위' 그대로 사용 ===
-                        # === 2차 분절 금지: 라인 1:1 그대로 자막 생성 ===
                         line_events = []
                         for i, seg in enumerate(segments):
                             s = float(seg["start"]); e = float(seg["end"])
-                            # 가독성 보호만 (줄 수는 절대 늘리지 않음)
-                            txt = prepare_text_for_ass(seg.get("text", ""), one_line_threshold=12, biline_target=14)
+                            # 🔒 2차 분절 금지: 절대 \N 삽입/래핑하지 않음
+                            raw = (seg.get("text") or "").strip()
+                            txt = sanitize_ass_text(raw) or "\u00A0"  # 완전 빈 경우 NBSP 하나
 
-                            # SSML에서 대표 pitch 읽어서 (자막 색상) 이벤트에 실어줌
+                            # pitch 추출(그대로 유지)
                             pitch_val = None
-                            ssml = (seg.get("ssml") or (used_ssml_lines[i] if i < len(used_ssml_lines) else None)) or ""
+                            ssml = (seg.get("ssml") or "")
                             m = re.search(r'pitch="\s*([+-]?\d+)\s*st"', ssml)
                             if m:
-                                try:
-                                    pitch_val = int(m.group(1))
-                                except:
-                                    pitch_val = None
+                                try: pitch_val = int(m.group(1))
+                                except: pass
 
-                            line_events.append({
-                                "start": s, "end": e, "text": txt, "pitch": pitch_val
-                            })
+                            line_events.append({"start": s, "end": e, "text": txt, "pitch": pitch_val})
 
                         # 시간 보정만 수행(분절/병합 없음)
                         line_events = clamp_no_overlap(line_events, margin=0.02)
@@ -1317,8 +1306,9 @@ with st.sidebar:
                             ass_path=ass_path,
                             template_name=st.session_state.selected_subtitle_template,
                             strip_trailing_punct_last=True,
-                            max_chars_per_line=14,
-                            max_lines=2
+                            max_chars_per_line=None,  # ← 래핑 끔
+                            max_lines=None,           # ← 래핑 끔
+                            wrap_mode="preserve"      # ← 핵심
                         )
                         segments_for_video = segments
 

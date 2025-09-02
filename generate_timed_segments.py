@@ -904,9 +904,15 @@ def generate_ass_subtitle(
     ass_path: str,
     template_name: str = "educational",
     strip_trailing_punct_last: bool = True,
-    max_chars_per_line: int = 14,
-    max_lines: int = 2
+    max_chars_per_line: int | None = None,
+    max_lines: int | None = None,
+    wrap_mode: str = "preserve"  # "preserve" | "smart"
 ) -> str:
+    """
+    wrap_mode:
+      - "preserve": 텍스트를 절대 래핑하지 않고 한 줄 그대로 기록 (추천)
+      - "smart": 길이 기준 2줄 분할 등 기존 동작 유지
+    """
     if not segments:
         segments = [{"start": 0.00, "end": 0.02, "text": NBSP}]
 
@@ -924,7 +930,6 @@ def generate_ass_subtitle(
 
         raw_text = (ev.get("text") or "")
 
-        # ① 라인 단위 정리 (breath_linebreaks는 1차 분절에서 이미 적용됨)
         def _line_clean(one: str) -> str:
             t = one or ""
             if strip_trailing_punct_last:
@@ -933,10 +938,13 @@ def generate_ass_subtitle(
             t = _sanitize_ass_text_for_dialog(t)
             return t
 
-        normalized = _line_clean(raw_text)
-
-        # ② 이미 \N이 있으면 그대로 존중 (줄바꿈 반영)
-        plan_text = normalized
+        if wrap_mode == "preserve":
+            # 🚫 절대 줄바꿈/래핑 안 함 → 원문 그대로 한 줄
+            plan_text = _line_clean(raw_text).strip() or NBSP
+        else:
+            # 🔀 기존처럼 \N 존중 + 가공
+            normalized = _line_clean(raw_text)
+            plan_text = normalized
 
         # ③ pitch → 색상
         col_hex = _pitch_to_hex(ev.get("pitch"))
