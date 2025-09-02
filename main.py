@@ -1272,7 +1272,7 @@ with st.sidebar:
 
                         # === ② 텍스트 보호/정리 (추가 분절 없이 '보호'만) ===
                         dense_events = [
-                            {**e, "text": prepare_text_for_ass(e["text"], one_line_threshold=12, biline_target=14)}
+                            {**e, "text": prepare_text_for_ass(e["text"], one_line_threshold=10**9, biline_target=10**9)}
                             for e in dense_events
                         ]
                         dense_events = dedupe_adjacent_texts(dense_events)   # 원하시면 이 줄 주석 처리 가능(인접 중복 병합 방지)

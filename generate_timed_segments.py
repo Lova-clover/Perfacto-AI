@@ -11,6 +11,21 @@ import boto3, json
 from elevenlabs_tts import TTS_POLLY_VOICES 
 from botocore.exceptions import ClientError
 
+def _split_script_by_llm_breath(script_text: str) -> list[str]:
+    """
+    스크립트를 문단별로 쪼갠 뒤, 각 문단을 LLM 브레스 라인들로 확장.
+    반환: 최종 TTS/세그먼트용 '한 줄씩' 리스트(빈 줄 제거).
+    """
+    blocks = [b.strip() for b in re.split(r"\n{2,}", script_text or "") if b.strip()]
+    lines: list[str] = []
+    for b in blocks:
+        try:
+            parts = [ln for ln in breath_linebreaks(b) if ln.strip()]
+        except Exception:
+            parts = [b]
+        lines.extend(parts)
+    return lines or [script_text.strip()]
+
 def split_script_to_lines(script_text, mode="llm"):
     """항상 LLM 브레스 분절을 사용한다."""
     text = script_text or ""
