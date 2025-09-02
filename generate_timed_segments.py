@@ -929,7 +929,7 @@ def generate_ass_subtitle(
             normalized = ASS_NL.join(cleaned[:max_lines])
             # 쉼표가 \N 뒤에 붙은 경우 보정: "\N," → ",\N"
             import re as _re
-            normalized = _re.sub(r"(\\N)\s*,", r",\1", normalized)
+            normalized = _re.sub(r"\\N\s*,", "," + ASS_NL, normalized)
         else:
             normalized = _line_clean(raw_text)
 
@@ -962,13 +962,15 @@ def format_ass_timestamp(seconds):
 
 
 def split_script_to_lines(script_text, mode="llm"):
+    """
+    항상 LLM breath_linebreaks 결과로만 분절한다.
+    """
     text = script_text or ""
-    if mode == "punct":  # 콤마/마침표 기준
-        parts = re.split(r'(?<=[,.])\s*', text.strip())
-        return [p for p in map(str.strip, parts) if p]
-    elif mode == "kss":  # 한국어 문장 분할기
-        return [s.strip() for s in kss.split_sentences(text) if s.strip()]
-    else:                # ✅ 입력 줄바꿈 그대로(원하시는 동작)
+    try:
+        lines = breath_linebreaks(text)
+        return [ln.strip() for ln in lines if ln.strip()]
+    except Exception:
+        # fallback: 줄바꿈 기준
         return [ln.strip() for ln in text.splitlines() if ln.strip()]
 
 # --- 변경 2: generate_subtitle_from_script 시그니처/로직 확장 ---
