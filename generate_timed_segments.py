@@ -646,24 +646,20 @@ def _ass_time(t: float) -> str:
         m = 0
     return f"{h:d}:{m:02d}:{s:02d}.{cs:02d}"
 
-def _sanitize_ass_text(text: str) -> str:
+ASS_NL = r"\N"
+NBSP   = "\u00A0"
+
+def _sanitize_ass_text_for_dialog(text: str) -> str:
+    """
+    - 역슬래시(\)는 절대 손대지 않음 (줄바꿈 ASS_NL 보존)
+    - { } 는 전각으로 바꿔 override 태그 주입 방지
+    - 쓸데없는 탭/다중 공백만 정리
+    """
+    import re
     t = (text or "").replace("\r", "")
-    # 텍스트 내부 중괄호만 전각으로 (ASS override 충돌 방지)
     t = t.replace("{", "｛").replace("}", "｝")
-
-    # ⚠️ 이미 들어 있는 \N(대문자)은 '줄바꿈 제어코드' → 절대 건드리지 않음
-    # 실제 줄바꿈(\n)만 ASS 줄바꿈 코드로 변환
-    if "\n" in t:
-        t = t.replace("\n", r"\N")
-
-    # 완전 공란 방지
-    if not t.strip().replace(NBSP, ""):
-        t = NBSP
-
-    # 탭/연속 스페이스 축약(역슬래시에는 영향 없음)
     t = re.sub(r"[ \t]{2,}", " ", t)
-    return t.strip()
-
+    return t.strip() or NBSP
 
 def _best_two_line_break(text: str, max_len: int, min_each: int = 3) -> str:
     raw = text
@@ -896,14 +892,10 @@ def generate_ass_subtitle(
     max_chars_per_line: int = 14,
     max_lines: int = 2
 ) -> str:
-    # 입력 비어도 최소 헤더는 써서 ffmpeg가 죽지 않게
     if not segments:
         segments = [{"start": 0.00, "end": 0.02, "text": NBSP}]
 
-    # 템플릿 섹션 얻기(없으면 안전 기본값)
     script_info, styles, events_header = _resolve_template_blocks(template_name)
-
-    # ★ 템플릿 스타일 유지 + BM JUA 스타일 추가
     styles = _ensure_styles_with_bmjua(styles)
 
     lines = []
@@ -916,44 +908,40 @@ def generate_ass_subtitle(
 
         raw_text = (ev.get("text") or "")
 
-        # ① LLM 호흡 분절(원문 기준)
+        # ① LLM 브레스 라인 분할 (실패시 빈 리스트 → 아래 폴백)
         try:
             br_lines = breath_linebreaks(raw_text)
         except Exception:
             br_lines = []
 
-        # ② 각 줄을 개별 정제(여기서 \N은 아직 만들지 않음!)
-        def _line_clean(s: str) -> str:
-            s = _strip_last_punct_preserve_closers(s)  # 괄호/닫힘기호 보존
-            s = _drop_special_except_q(s)              # '?'만 남기고 특수문자 제거
-            s = _sanitize_ass_text(s)                  # ASS 안전화({} 이스케이프 등)
-            return s.strip()
+        # ② 라인 단위 정리(여기서는 \N 만들지 않음)
+        def _line_clean(one: str) -> str:
+            t = one or ""
+            if strip_trailing_punct_last:
+                t = _strip_last_punct_preserve_closers(t)
+            t = _drop_special_except_q(t)   # '?' 외 특수문자 제거 정책 유지
+            t = _sanitize_ass_text_for_dialog(t)
+            return t
 
         if isinstance(br_lines, (list, tuple)) and br_lines:
-            cleaned_lines = [_line_clean(ln) for ln in br_lines if ln and ln.strip()]
-            # 🔥 수정: LLM이 준 줄바꿈을 전부 반영
-            normalized = r"\N".join(cleaned_lines)
+            cleaned = [_line_clean(ln) for ln in br_lines if ln and ln.strip()]
+            # ③ 마지막에만 \N으로 묶기 — 이후 절대 변형 금지
+            normalized = ASS_NL.join(cleaned[:max_lines])
+            # 쉼표가 \N 뒤에 붙은 경우 보정: "\N," → ",\N"
+            import re as _re
+            normalized = _re.sub(r"\\N\s*,", "," + ASS_NL, normalized)
         else:
             normalized = _line_clean(raw_text)
 
-        # ④ 길이 제한 등 최종 정리. \N 이 있으면 이 함수는 그대로 존중하도록 보장해야 함
-        if r"\N" in normalized:
-            plan_text = normalized
-        else:
-            plan_text = _prepare_text_for_lines(
-                normalized,
-                max_chars_per_line=max_chars_per_line,
-                max_lines=max_lines
-            )
-
-        safe_text = plan_text if plan_text.strip().replace("\u00A0","") else "\u00A0"
+        # ④ 이미 \N이 있으면 래핑/분해 등 후처리 금지
+        plan_text = normalized
 
         # ⑤ pitch → 색상
         col_hex = _pitch_to_hex(ev.get("pitch"))
         if col_hex:
-            safe_text = "{\\c" + col_hex + "}" + safe_text
+            plan_text = "{\\c" + col_hex + "}" + plan_text
 
-        dlg = f"Dialogue: 0,{_ass_time(s)},{_ass_time(e)},BMJua,,0,0,0,,{safe_text}"
+        dlg = f"Dialogue: 0,{_ass_time(s)},{_ass_time(e)},BMJua,,0,0,0,,{plan_text}"
         lines.append(dlg)
 
     os.makedirs(os.path.dirname(ass_path) or ".", exist_ok=True)

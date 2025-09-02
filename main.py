@@ -268,6 +268,8 @@ def sanitize_ass_text(s: str) -> str:
     return s
 
 def prepare_text_for_ass(text: str, one_line_threshold=12, biline_target=14) -> str:
+    if r"\N" in (text or ""):
+        return sanitize_ass_text(text)
     t = bind_compounds(text)                 # 결합 표현 보호
     t = _protect_short_tail_nbsp(t)          # 말꼬리 보호
     t = lock_oneliner_if_short(t, one_line_threshold)
