@@ -929,7 +929,7 @@ def generate_ass_subtitle(
             normalized = ASS_NL.join(cleaned[:max_lines])
             # 쉼표가 \N 뒤에 붙은 경우 보정: "\N," → ",\N"
             import re as _re
-            normalized = _re.sub(r"\\N\s*,", "," + ASS_NL, normalized)
+            normalized = _re.sub(r"(\\N)\s*,", r",\1", normalized)
         else:
             normalized = _line_clean(raw_text)
 
