@@ -10,7 +10,15 @@ import kss
 import boto3, json
 from elevenlabs_tts import TTS_POLLY_VOICES 
 from botocore.exceptions import ClientError
-from main import _visible_len, lock_oneliner_if_short
+
+def _visible_len(s: str) -> int:
+    # 래핑 판단용 길이(개략). NBSP는 공백 취급.
+    return len((s or "").replace(NBSP, " "))
+
+def lock_oneliner_if_short(text: str, threshold: int = 12) -> str:
+    if _visible_len(text) <= threshold:
+        return (text or "").replace(" ", NBSP)
+    return text
 
 def _split_script_by_llm_breath(script_text: str) -> list[str]:
     """
