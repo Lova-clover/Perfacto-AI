@@ -7,7 +7,7 @@ import streamlit as st
 def generate_response_from_persona(prompt_text: str) -> str:
     llm = ChatOpenAI(
         api_key=st.secrets["OPENAI_API_KEY"],  # ✅ secrets.toml에 저장된 키 사용
-        model="gpt-5-nano",                   # ✅ nano 계열 모델
+        model="gpt-5-mini",                   # ✅ nano 계열 모델
         temperature=1
     )
     output_parser = StrOutputParser()
