@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 # ===== 프로젝트 모듈 =====
 from persona import generate_response_from_persona  # (있을 경우 사용)
 from ssml_converter import breath_linebreaks_batch  # 절 분절 (LLM 1회)
-from generate_timed_segments import (
+from generate_timed_segments import(
     generate_subtitle_from_script,  # 절→SSML→TTS→세그먼트→ASS
     generate_ass_subtitle,          # 필요 시 단독 호출 가능(여기선 내부에서 처리됨)
     SUBTITLE_TEMPLATES,
