@@ -247,7 +247,7 @@ def generate_subtitle_from_script(
         )
         cur = end
 
-     _ensure_alignment(segments, final_mix, tol=0.03)
+    _ensure_alignment(segments, final_mix, tol=0.03)
 
     # 5) ASS
     generate_ass_subtitle(
