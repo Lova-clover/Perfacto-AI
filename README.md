@@ -1,4 +1,4 @@
-# 🎬 Perfecto-AI (Perfacto-AI)
+# 🎬 Perfacto-AI
 
 <div align="center">
 
