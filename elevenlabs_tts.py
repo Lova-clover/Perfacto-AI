@@ -1,6 +1,5 @@
 import requests
 import os
-import streamlit as st
 import boto3, io # Import the boto3 library for AWS services
 import re
 from html import escape
@@ -8,11 +7,25 @@ from botocore.exceptions import BotoCoreError, ClientError
 import logging
 import threading
 
-# Load API keys from Streamlit secrets
-ELEVEN_API_KEY = st.secrets["ELEVEN_API_KEY"]
-AWS_ACCESS_KEY_ID = st.secrets["AWS_ACCESS_KEY_ID"]
-AWS_SECRET_ACCESS_KEY = st.secrets["AWS_SECRET_ACCESS_KEY"]
-AWS_REGION = st.secrets.get("AWS_REGION", "ap-northeast-2") # Default to Seoul region
+# Load API keys - Streamlit secrets 우선, 없으면 환경변수
+def _get_secret(key: str, default: str = "") -> str:
+    """
+    Streamlit secrets에서 먼저 가져오고, 없으면 환경변수에서 가져옴
+    - Streamlit 서버: st.secrets 사용
+    - runner.py (헤드리스): os.environ 사용
+    """
+    try:
+        import streamlit as st
+        if hasattr(st, 'secrets') and key in st.secrets:
+            return st.secrets[key]
+    except (ImportError, RuntimeError, KeyError):
+        pass
+    return os.getenv(key, default)
+
+ELEVEN_API_KEY = _get_secret("ELEVEN_API_KEY")
+AWS_ACCESS_KEY_ID = _get_secret("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = _get_secret("AWS_SECRET_ACCESS_KEY")
+AWS_REGION = _get_secret("AWS_REGION", "ap-northeast-2")
 
 # Initialize Amazon Polly client
 # This client will be reused for Polly TTS requests.
@@ -21,7 +34,7 @@ polly_client = boto3.client(
     aws_access_key_id=AWS_ACCESS_KEY_ID,
     aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
     region_name=AWS_REGION
-)
+) if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY else None
 
 # ElevenLabs TTS Templates (unchanged from your original code)
 TTS_ELEVENLABS_TEMPLATES = {
@@ -192,6 +205,14 @@ def generate_polly_tts(text, save_path, polly_voice_name_key, *, speed=1.0, volu
 
     engine = _pick_engine_from_ssml(payload)
 
+    # ✅ polly_client가 초기화되지 않았으면 에러
+    if polly_client is None:
+        raise RuntimeError(
+            "AWS Polly client가 초기화되지 않았습니다.\n"
+            "Streamlit: .streamlit/secrets.toml에 AWS 키 설정\n"
+            "runner.py: .env 파일에 AWS 키 설정"
+        )
+
     attempt = 0
     while True:
         try:
@@ -200,8 +221,9 @@ def generate_polly_tts(text, save_path, polly_voice_name_key, *, speed=1.0, volu
             logging.info(f"[POLLY API CALL] Attempt: {attempt}, VoiceID: {voice_id}, Engine: {engine}, Chars: {len(payload)}")
             api_start_time = time.time()
             # --- [API 호출 로깅: 끝] --->>>
-            polly = boto3.client("polly", region_name="ap-northeast-2")
-            resp = polly.synthesize_speech(
+            
+            # ✅ 전역 polly_client 사용 (매번 생성하지 않음)
+            resp = polly_client.synthesize_speech(
                 Text=payload, TextType="ssml", OutputFormat="mp3",
                 VoiceId=voice_id, Engine=engine
             )

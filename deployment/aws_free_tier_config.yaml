@@ -1,0 +1,22 @@
+# deployment/aws_free_tier_config.yaml
+# AWS 프리 티어 (t2.micro, 1GB RAM)를 위한 최적화 설정
+
+personas_file: personas_premium.yaml
+personas_group: premium_science
+
+jobs:
+  # AWS 프리 티어용 경량 작업 (한 번에 하나씩만!)
+  - name: aws-free-tier-science
+    system_prompt: |
+      당신은 세계 최고 수준의 과학 커뮤니케이터입니다.
+      메모리 제약이 있으므로 효율적으로 작업하세요.
+    personas_group: premium_science
+    style: basic
+    include_voice: true
+    tts_provider: polly
+    polly_voice_key: Seoyeon
+    subtitle_lang: ko
+    bgm_path: ""
+    upload: false  # 수동 업로드 (리소스 절약)
+    out_dir: output/free_tier
+    fallback_title: "과학 쇼츠"
