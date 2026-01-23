@@ -1,0 +1,25 @@
+# Perfacto-AI 로컬 테스트용 Docker Compose
+version: '3.8'
+
+services:
+  perfacto-ai:
+    build: .
+    container_name: perfacto-ai-local
+    env_file:
+      - .env
+    volumes:
+      - ./output:/app/output
+      - ./logs:/app/logs
+    command: >
+      --job-config deployment/production_job_config.yaml
+      --job-name weekly-science-premium
+    restart: "no"
+
+  # Redis (선택사항 - RAG 사용 시)
+  redis:
+    image: redis:7-alpine
+    container_name: perfacto-ai-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    restart: unless-stopped

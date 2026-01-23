@@ -1,0 +1,62 @@
+{
+  "family": "perfacto-ai-task",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "1024",
+  "memory": "2048",
+  "executionRoleArn": "arn:aws:iam::YOUR_ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::YOUR_ACCOUNT_ID:role/perfacto-ai-task-role",
+  "containerDefinitions": [
+    {
+      "name": "perfacto-ai-container",
+      "image": "YOUR_ACCOUNT_ID.dkr.ecr.ap-northeast-2.amazonaws.com/perfacto-ai:latest",
+      "essential": true,
+      "environment": [
+        {
+          "name": "TZ",
+          "value": "Asia/Seoul"
+        },
+        {
+          "name": "PYTHONUNBUFFERED",
+          "value": "1"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "OPENAI_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:ap-northeast-2:YOUR_ACCOUNT_ID:secret:perfacto-ai/openai-api-key"
+        },
+        {
+          "name": "GOOGLE_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:ap-northeast-2:YOUR_ACCOUNT_ID:secret:perfacto-ai/google-api-key"
+        },
+        {
+          "name": "AWS_ACCESS_KEY_ID",
+          "valueFrom": "arn:aws:secretsmanager:ap-northeast-2:YOUR_ACCOUNT_ID:secret:perfacto-ai/aws-access-key-id"
+        },
+        {
+          "name": "AWS_SECRET_ACCESS_KEY",
+          "valueFrom": "arn:aws:secretsmanager:ap-northeast-2:YOUR_ACCOUNT_ID:secret:perfacto-ai/aws-secret-access-key"
+        },
+        {
+          "name": "YOUTUBE_CLIENT_SECRETS",
+          "valueFrom": "arn:aws:secretsmanager:ap-northeast-2:YOUR_ACCOUNT_ID:secret:perfacto-ai/youtube-client-secrets"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/perfacto-ai",
+          "awslogs-region": "ap-northeast-2",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "command": [
+        "--job-config",
+        "deployment/production_job_config.yaml",
+        "--job-name",
+        "weekly-science-premium"
+      ]
+    }
+  ]
+}

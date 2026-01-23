@@ -1,0 +1,44 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# 로그 및 출력
+logs/
+output/
+*.log
+
+# 로컬 설정
+.env
+.env.local
+.streamlit/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 테스트
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Deployment (서버에서만 사용)
+deployment/
+
+# README
+README.md
