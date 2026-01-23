@@ -256,9 +256,10 @@ def run_job(job: Dict[str, Any], personas: List[Dict[str, Any]]) -> Dict[str, An
 # ===== 7) 엔트리포인트 =====
 def main():
     ap = argparse.ArgumentParser(description='DigitalOcean Ubuntu Runner')
-    ap.add_argument('-c','--config', default='job_config.yaml')
+    ap.add_argument('-c','--config', '--job-config', dest='config', default='job_config.yaml')
     ap.add_argument('--personas-file', default=None, help='override personas.yaml path')
     ap.add_argument('--personas-group', default=None, help='group name inside personas.yaml')
+    ap.add_argument('--job-name', default=None, help='run specific job by name (if omitted, run all)')
     args = ap.parse_args()
 
     with open(args.config, 'r', encoding='utf-8') as f:
@@ -267,6 +268,12 @@ def main():
     jobs = cfg.get('jobs', [])
     if not jobs:
         raise SystemExit('No jobs in config')
+    
+    # --job-name이 지정되면 해당 작업만 실행
+    if args.job_name:
+        jobs = [j for j in jobs if j.get('name') == args.job_name]
+        if not jobs:
+            raise SystemExit(f"No job found with name: {args.job_name}")
 
     # personas 파일 경로 결정
     personas_file = args.personas_file or cfg.get('personas_file', 'personas.yaml')
