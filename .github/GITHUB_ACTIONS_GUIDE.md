@@ -32,7 +32,7 @@
 1. **GitHub Repository 이동**
 2. **Settings** → **Secrets and variables** → **Actions**
 3. **New repository secret** 클릭
-4. 다음 4개 Secret 추가:
+4. 다음 **5개** Secret 추가:
 
 | Secret Name | 값 | 설명 |
 |-------------|-----|------|
@@ -40,12 +40,42 @@
 | `GOOGLE_API_KEY` | `AIza...` | Google API 키 (Gemini) |
 | `AWS_ACCESS_KEY_ID` | `AKIA...` | AWS Polly TTS용 |
 | `AWS_SECRET_ACCESS_KEY` | `...` | AWS Secret Key |
+| `YOUTUBE_TOKEN_JSON` | `{"token": "...", ...}` | YouTube OAuth 토큰 (JSON) |
 
 **설정 화면 예시:**
 ```
 Name: OPENAI_API_KEY
 Secret: sk-proj-1234567890abcdef...
 ```
+
+---
+
+### YouTube 토큰 얻는 방법
+
+#### 방법 1: Streamlit에서 복사 (간편)
+
+1. Streamlit 앱 실행 후 YouTube 업로드 성공
+2. `.streamlit/secrets.toml` 파일 열기
+3. `YT_TOKEN_JSON` 값 전체 복사
+4. GitHub Secrets에 `YOUTUBE_TOKEN_JSON`으로 등록
+
+**예시:**
+```toml
+# .streamlit/secrets.toml
+YT_TOKEN_JSON = '''{"token": "ya29.a0AfB...", "refresh_token": "1//0gZ...", "token_uri": "https://oauth2.googleapis.com/token", "client_id": "123...apps.googleusercontent.com", "client_secret": "GOCSPX-...", "scopes": ["https://www.googleapis.com/auth/youtube.upload"], "expiry": "2026-01-24T12:00:00.000000Z"}'''
+```
+
+전체 JSON을 GitHub Secrets에 붙여넣기!
+
+#### 방법 2: OAuth 직접 생성 (고급)
+
+1. [Google Cloud Console](https://console.cloud.google.com/)
+2. YouTube Data API v3 활성화
+3. OAuth 2.0 Client ID 생성 (Desktop app)
+4. `client_secrets.json` 다운로드
+5. Python으로 인증 토큰 생성
+
+**자세한 가이드는 아래 "YouTube 자동 업로드" 섹션 참고**
 
 ---
 
@@ -130,18 +160,45 @@ on:
 
 ---
 
-## 🎬 자동 YouTube 업로드 (선택)
+## 🎬 자동 YouTube 업로드
 
-현재는 Artifacts로 다운로드 → 수동 업로드
+**✅ 이제 GitHub Actions에서 자동으로 YouTube에 업로드됩니다!**
 
-### 자동 업로드 추가 방법
+### 동작 방식
 
-1. YouTube Data API 활성화
-2. OAuth 2.0 Credentials 생성
-3. `upload.py` 수정 (Headless 모드)
-4. GitHub Secrets에 YouTube 토큰 추가
+1. 영상 생성 완료
+2. `upload.py`가 자동 실행
+3. YouTube에 업로드 (Public)
+4. Artifacts에도 백업 저장
 
-**가이드 추가가 필요하면 말씀해주세요!**
+### 필수 설정
+
+**GitHub Secrets에 `YOUTUBE_TOKEN_JSON` 등록 필수!**
+
+#### 토큰 얻는 법 (Streamlit 사용자)
+
+1. Streamlit에서 YouTube 업로드 1회 성공
+2. `.streamlit/secrets.toml` 파일 열기
+3. `YT_TOKEN_JSON` 값 **전체 복사**
+4. GitHub → Settings → Secrets → `YOUTUBE_TOKEN_JSON` 등록
+
+**예시 값:**
+```json
+{"token": "ya29.a0AfB_byD...", "refresh_token": "1//0gZX...", "token_uri": "https://oauth2.googleapis.com/token", "client_id": "123456789.apps.googleusercontent.com", "client_secret": "GOCSPX-abc123", "scopes": ["https://www.googleapis.com/auth/youtube.upload"], "expiry": "2026-01-24T12:00:00Z"}
+```
+
+---
+
+### 업로드 비활성화 (선택)
+
+자동 업로드를 원하지 않으면:
+
+`deployment/production_job_config.yaml` 수정:
+```yaml
+upload: false  # true → false로 변경
+```
+
+이렇게 하면 Artifacts로만 다운로드 가능합니다.
 
 ---
 
@@ -214,10 +271,10 @@ on:
 
 설정 완료 확인:
 
-- [ ] GitHub Secrets 4개 등록 완료
+- [ ] GitHub Secrets 5개 등록 완료 (OPENAI, GOOGLE, AWS x2, **YOUTUBE**)
 - [ ] `.github/workflows/` 파일 Push 완료
 - [ ] 수동 테스트 실행 성공
-- [ ] Artifacts 다운로드 확인
+- [ ] YouTube 자동 업로드 확인
 - [ ] 자동 스케줄 확인 (다음날 실행 대기)
 
 ---

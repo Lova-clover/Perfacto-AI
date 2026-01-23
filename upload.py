@@ -3,14 +3,42 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 import json
 import os
-import streamlit as st
+
+
+def _get_youtube_token():
+    """
+    YouTube OAuth 토큰을 Streamlit secrets 또는 환경변수에서 가져옵니다.
+    
+    우선순위:
+    1. Streamlit secrets (st.secrets["YT_TOKEN_JSON"])
+    2. 환경변수 (YOUTUBE_TOKEN_JSON)
+    """
+    # 1. Streamlit secrets 시도
+    try:
+        import streamlit as st
+        if hasattr(st, 'secrets') and 'YT_TOKEN_JSON' in st.secrets:
+            return st.secrets["YT_TOKEN_JSON"]
+    except (ImportError, RuntimeError, KeyError):
+        pass
+    
+    # 2. 환경변수 시도
+    token_json_str = os.getenv("YOUTUBE_TOKEN_JSON")
+    if token_json_str:
+        return token_json_str
+    
+    raise RuntimeError(
+        "YouTube OAuth 토큰을 찾을 수 없습니다.\n"
+        "- Streamlit: .streamlit/secrets.toml에 YT_TOKEN_JSON 추가\n"
+        "- 환경변수: YOUTUBE_TOKEN_JSON 설정\n"
+        "- GitHub Actions: Secrets에 YOUTUBE_TOKEN_JSON 추가"
+    )
 
 
 def upload_to_youtube(video_path, title="AI 자동 생성 영상", description="AI로 생성된 숏폼입니다."):
     SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 
-    # ✅ secrets.toml에서 문자열로 받아오기
-    token_json_str = st.secrets["YT_TOKEN_JSON"]
+    # ✅ Streamlit 또는 환경변수에서 토큰 가져오기
+    token_json_str = _get_youtube_token()
 
     # ✅ 문자열을 파싱해서 dict로 변환
     token_data = json.loads(token_json_str)
