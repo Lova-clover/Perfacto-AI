@@ -1,0 +1,73 @@
+name: ♟️ 체스 영상 자동 생성
+
+# 매일 오후 2시 (Asia/Seoul) 자동 실행
+on:
+  schedule:
+    - cron: '0 5 * * *'  # UTC 05:00 = KST 14:00
+  workflow_dispatch:
+
+jobs:
+  generate-chess-video:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 📥 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 🐍 Python 3.11 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 📦 시스템 패키지 설치
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg imagemagick
+
+      - name: 📚 Python 패키지 설치
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 📁 출력 디렉토리 생성
+        run: mkdir -p output/chess logs
+
+      - name: 🎬 체스 영상 생성
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ap-northeast-2
+          TZ: Asia/Seoul
+        run: |
+          python runner.py \
+            --job-config deployment/production_job_config.yaml \
+            --job-name weekly-chess-premium
+
+      - name: 📤 영상 결과물 업로드
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chess-video-${{ github.run_number }}
+          path: |
+            output/chess/**/*
+            logs/*.log
+          retention-days: 7
+
+      - name: 📊 실행 결과 요약
+        if: always()
+        run: |
+          echo "## ♟️ 영상 생성 완료" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- 📁 결과물: \`output/chess/\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 📋 로그: \`logs/\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 📥 다운로드: Actions > Artifacts" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f "output/chess/"*.mp4 ]; then
+            echo "✅ 영상 파일 생성 성공" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ 영상 파일 생성 실패" >> $GITHUB_STEP_SUMMARY
+          fi

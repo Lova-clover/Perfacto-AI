@@ -1,0 +1,75 @@
+name: 🧪 수동 테스트 실행
+
+# Actions 탭에서 수동 실행만 가능
+on:
+  workflow_dispatch:
+    inputs:
+      job_name:
+        description: '실행할 작업 선택'
+        required: true
+        type: choice
+        options:
+          - weekly-science-premium
+          - weekly-chess-premium
+          - weekly-history-premium
+
+jobs:
+  test-video-generation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 📥 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 🐍 Python 3.11 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 📦 시스템 패키지 설치
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg imagemagick
+
+      - name: 📚 Python 패키지 설치
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 📁 출력 디렉토리 생성
+        run: mkdir -p output/{science,chess,history} logs
+
+      - name: 🎬 영상 생성 (${{ inputs.job_name }})
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ap-northeast-2
+          TZ: Asia/Seoul
+        run: |
+          python runner.py \
+            --job-config deployment/production_job_config.yaml \
+            --job-name ${{ inputs.job_name }}
+
+      - name: 📤 영상 결과물 업로드
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-video-${{ inputs.job_name }}-${{ github.run_number }}
+          path: |
+            output/**/*
+            logs/*.log
+          retention-days: 7
+
+      - name: 📊 실행 결과 요약
+        if: always()
+        run: |
+          echo "## 🎬 테스트 실행 완료" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- 작업: \`${{ inputs.job_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 📁 결과물: \`output/\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 📋 로그: \`logs/\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 📥 다운로드: Actions > Artifacts" >> $GITHUB_STEP_SUMMARY
