@@ -41,6 +41,17 @@ jobs:
       - name: 📁 출력 디렉토리 생성
         run: mkdir -p output/{science,chess,history} logs
 
+      - name: 🔍 파일 구조 확인 (디버깅)
+        run: |
+          echo "=== 현재 디렉토리 ==="
+          pwd
+          echo ""
+          echo "=== deployment 폴더 내용 ==="
+          ls -la deployment/
+          echo ""
+          echo "=== production_job_config.yaml 내용 (첫 10줄) ==="
+          head -n 10 deployment/production_job_config.yaml
+
       - name: 🎬 영상 생성 (${{ inputs.job_name }})
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
