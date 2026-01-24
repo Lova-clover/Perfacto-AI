@@ -1,7 +1,7 @@
 # 프로덕션용 작업 설정 - 최상급 프롬프트 버전
-# Ubuntu 서버에서 자동 실행될 설정
+# Ubuntu 서버 및 GitHub Actions에서 자동 실행될 설정
 
-personas_file: personas_premium.yaml
+personas_file: deployment/personas_premium.yaml
 personas_group: premium_science
 
 jobs:
